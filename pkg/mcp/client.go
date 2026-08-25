@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -166,7 +167,18 @@ func (sm *SessionManager) loadSession(ctx context.Context, server ServerConfig, 
 
 	var oauthHandler auth.OAuthHandler = authorizationErrorOAuthHandler{}
 	if clientOpts.TokenStorage != nil {
-		oauthHandler = newOAuth(httpClient, clientOpts.CallbackHandler, clientOpts.ClientLookup, clientOpts.TokenStorage, server.MCPServerName, clientOpts.ClientName, sm.baseURL+"/oauth/mcp/callback", system.OAuthClientIDMetadataURL(sm.baseURL))
+		// The name used for OAuth dynamic client registration can differ from the
+		// MCP clientInfo name. Some servers (e.g. Figma) allowlist registration by
+		// client_name; OAuthClientName (or the OBOT_MCP_OAUTH_CLIENT_NAME env var)
+		// lets that identity be overridden without changing the MCP client identity.
+		oauthClientName := clientOpts.OAuthClientName
+		if oauthClientName == "" {
+			oauthClientName = os.Getenv("OBOT_MCP_OAUTH_CLIENT_NAME")
+		}
+		if oauthClientName == "" {
+			oauthClientName = clientOpts.ClientName
+		}
+		oauthHandler = newOAuth(httpClient, clientOpts.CallbackHandler, clientOpts.ClientLookup, clientOpts.TokenStorage, server.MCPServerName, oauthClientName, sm.baseURL+"/oauth/mcp/callback", system.OAuthClientIDMetadataURL(sm.baseURL))
 	}
 
 	session, err := c.Connect(ctx, &gomcp.StreamableClientTransport{

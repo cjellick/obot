@@ -26,6 +26,13 @@ type MCPOAuthHandlerFactory struct {
 	tokenStore                mcp.GlobalTokenStore
 	secretBindingAllowedLabel string
 	cimdDocumentURL           string
+
+	// resolveOAuthClient resolves a downstream client_id (either a stored
+	// "namespace:name" dynamic-registration client or a client ID metadata
+	// document URL) to its OAuthClient record. It is injected by SetupHandlers
+	// from the handler, which owns the SSRF-safe metadata-document fetcher and
+	// cache. Used to forward the connecting client's name to upstream DCR.
+	resolveOAuthClient func(ctx context.Context, c kclient.Client, clientID string) (v1.OAuthClient, error)
 }
 
 type mcpOAuthHandler struct {
@@ -137,6 +144,7 @@ func (f *MCPOAuthHandlerFactory) CheckForMCPAuth(req api.Context, mcpServer v1.M
 
 		_, err := f.mcpSessionManager.ClientForMCPServerForOAuthCheck(req.Context(), mcpServerConfig, mcp.ClientOption{
 			ClientName:      "Obot MCP OAuth",
+			OAuthClientName: f.downstreamOAuthClientName(req, oauthAppAuthRequestID),
 			TokenStorage:    f.tokenStore.ForUserAndMCP(userID, mcpID, mcpServerConfig.URL),
 			CallbackHandler: oauthHandler,
 			ClientLookup:    oauthHandler,
@@ -161,6 +169,39 @@ func (f *MCPOAuthHandlerFactory) CheckForMCPAuth(req api.Context, mcpServer v1.M
 		slog.Info("Remote MCP server requires OAuth authentication", "mcpID", mcpID)
 		return u, nil
 	}
+}
+
+// downstreamOAuthClientName resolves the client_name that the connecting client
+// registered with Obot (via its own dynamic client registration), so it can be
+// forwarded to the upstream server's dynamic client registration. Some upstreams
+// (e.g. Figma) allowlist DCR by client_name; forwarding the real client's name
+// makes the gateway transparent to that policy instead of registering under one
+// fixed gateway identity. Returns "" when there is no downstream client context
+// (e.g. UI-initiated flows) or it cannot be resolved, in which case the caller
+// falls back to OBOT_MCP_OAUTH_CLIENT_NAME and then the static ClientName.
+func (f *MCPOAuthHandlerFactory) downstreamOAuthClientName(req api.Context, oauthAuthRequestID string) string {
+	if oauthAuthRequestID == "" || f.resolveOAuthClient == nil {
+		return ""
+	}
+
+	var authReq v1.OAuthAuthRequest
+	if err := req.Get(&authReq, oauthAuthRequestID); err != nil {
+		return ""
+	}
+	if authReq.Spec.ClientID == "" {
+		return ""
+	}
+
+	// resolveOAuthClient handles both stored "namespace:name" clients and
+	// client ID metadata document URLs (e.g. Claude Code, which identifies via
+	// https://claude.ai/oauth/claude-code-client-metadata), fetching the
+	// document through the handler's SSRF-safe client.
+	oauthClient, err := f.resolveOAuthClient(req.Context(), req.Storage, authReq.Spec.ClientID)
+	if err != nil {
+		return ""
+	}
+
+	return oauthClient.Spec.Manifest.ClientName
 }
 
 func (f *MCPOAuthHandlerFactory) staticOAuthPending(ctx context.Context, mcpServer v1.MCPServer, oauthHandler *mcpOAuthHandler) (bool, error) {

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -691,7 +693,36 @@ func (o *oauth) resolveClientInfo(ctx context.Context, serverName string, discov
 	}
 
 	// If we didn't get a result from the lookup, register a client dynamically.
-	clientInfo, err := registerOAuthClient(ctx, o.metadataClient, serverName, authorizationServerMetadata, discovery.ClientRegistration)
+	// Some authorization servers (e.g. Figma) allowlist dynamic registration by
+	// client_name and return 403 for anything else. Try the resolved name first,
+	// then any configured fallbacks, cycling only on a client-rejected status.
+	var (
+		err        error
+		candidates = clientNameCandidates(discovery.ClientRegistration.ClientName)
+	)
+	for i, name := range candidates {
+		registration := discovery.ClientRegistration
+		registration.ClientName = name
+
+		clientInfo, err = registerOAuthClient(ctx, o.metadataClient, serverName, authorizationServerMetadata, registration)
+		if err == nil {
+			if i > 0 {
+				slog.Info("oauth dynamic client registration succeeded with fallback client name",
+					"server", serverName, "client_name", name)
+			}
+			return clientInfo, nil
+		}
+
+		var rejected *clientNameRejectedError
+		if !errors.As(err, &rejected) {
+			// Hard failure (network, 5xx, malformed) — a different name won't help.
+			break
+		}
+		if i < len(candidates)-1 {
+			slog.Info("oauth client_name rejected by authorization server, trying next candidate",
+				"server", serverName, "client_name", name, "status", rejected.status)
+		}
+	}
 	if err != nil {
 		slog.Warn("oauth dynamic client registration failed",
 			"server", serverName,
@@ -748,6 +779,50 @@ func GetOAuthMetadataWithClient(ctx context.Context, httpClient *http.Client, se
 	}, nil
 }
 
+// clientNameRejectedError signals that the authorization server rejected the
+// registration for this client_name (401/403), so registering under a different
+// name may succeed.
+type clientNameRejectedError struct {
+	status int
+	body   string
+}
+
+func (e *clientNameRejectedError) Error() string {
+	return fmt.Sprintf("unexpected status registering client (%d): %s", e.status, e.body)
+}
+
+// clientNameCandidates returns the ordered client_name values to try during
+// dynamic client registration: the resolved primary name first, then any names
+// from the OBOT_MCP_OAUTH_CLIENT_NAME_FALLBACKS env var (comma-separated),
+// de-duplicated. Empty entries and the empty primary are skipped, so a server
+// with no primary name still gets the fallbacks. The default (unset env) yields
+// just the primary, leaving existing behavior unchanged.
+func clientNameCandidates(primary string) []string {
+	var (
+		candidates []string
+		seen       = map[string]bool{}
+	)
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		candidates = append(candidates, name)
+	}
+
+	add(primary)
+	for _, name := range strings.Split(os.Getenv("OBOT_MCP_OAUTH_CLIENT_NAME_FALLBACKS"), ",") {
+		add(name)
+	}
+
+	// Guarantee at least one attempt even if nothing resolved.
+	if len(candidates) == 0 {
+		candidates = append(candidates, primary)
+	}
+	return candidates
+}
+
 // registerOAuthClient dynamically registers an OAuth client with an
 // authorization server.
 func registerOAuthClient(ctx context.Context, client *http.Client, serverName string, authServer AuthorizationServerMetadata, clientRegistration ClientRegistrationMetadata) (clientRegistrationResponse, error) {
@@ -776,6 +851,12 @@ func registerOAuthClient(ctx context.Context, client *http.Client, serverName st
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
+		// 401/403 mean the authorization server rejected this client (commonly a
+		// client_name allowlist miss); surface it as a typed error so callers can
+		// retry registration under a different name.
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return clientRegistrationResponse{}, &clientNameRejectedError{status: resp.StatusCode, body: string(body)}
+		}
 		return clientRegistrationResponse{}, fmt.Errorf("unexpected status registering client (%d): %s", resp.StatusCode, string(body))
 	}
 

@@ -47,6 +47,11 @@ func SetupHandlers(oauthChecker *MCPOAuthHandlerFactory, tokenStore mcp.GlobalTo
 		clientMetadataCache: map[string]clientMetadataCacheEntry{},
 	}
 
+	// Give the OAuth checker the ability to resolve a downstream client_id
+	// (dynamic-registration or client ID metadata document) to its OAuthClient,
+	// so it can forward the connecting client's name to upstream registration.
+	oauthChecker.resolveOAuthClient = h.resolveOAuthClient
+
 	// Expose two sets of endpoints: one for clients that look at the oauth-protected-resource metadata and one for clients that don't.
 	// Clients that don't look at the metadata must use a resource parameter when authorizing.
 	mux.HandleFunc("POST /oauth/register/{mcp_id}", h.register)
