@@ -247,18 +247,48 @@ func (*Handler) CleanupNestedCompositeEntries(req router.Request, _ router.Respo
 	return kclient.IgnoreNotFound(req.Client.Update(req.Ctx, entry))
 }
 
+// needsOAuthCredentialCleanup reports whether a static OAuth credential may exist for
+// entry that should now be removed.
+//
+// A credential can only ever be created for an entry that requires static OAuth
+// (verifyOAuthCredentialAccess rejects the rest), and EnsureOAuthCredentialStatus records
+// whether one exists in Status.OAuthCredentialConfigured. So when the status says there is
+// no credential and no recheck was requested, there is nothing to delete.
+//
+// This guard matters because CleanupUnusedOAuthCredentials runs on every reconcile of every
+// catalog entry. Without it, each remote entry that does not require static OAuth issues a
+// DELETE matching zero rows on every pass, which is the bulk of a catalog's credential
+// traffic and arrives in bursts of one query per entry.
+func needsOAuthCredentialCleanup(entry *v1.MCPServerCatalogEntry) bool {
+	// Only remote entries ever have static OAuth credentials.
+	if entry.Spec.Manifest.Runtime != types.RuntimeRemote {
+		return false
+	}
+
+	// Entries that still require static OAuth keep their credential.
+	if entry.Spec.Manifest.RemoteConfig != nil && entry.Spec.Manifest.RemoteConfig.StaticOAuthRequired {
+		return false
+	}
+
+	// CleanupUnusedOAuthCredentials runs before EnsureOAuthCredentialStatus, so on the pass
+	// where an entry stops requiring static OAuth the status still reflects the credential
+	// written while it did, and the cleanup below removes it.
+	if entry.Status.OAuthCredentialConfigured {
+		return true
+	}
+
+	// Set by the API when credentials are written, to force a recheck before the controller
+	// has observed them.
+	_, syncRequested := entry.Annotations[v1.MCPServerCatalogEntrySyncAnnotation]
+	return syncRequested
+}
+
 // CleanupUnusedOAuthCredentials removes OAuth credentials for remote catalog entries
 // that no longer require static OAuth configuration.
 func (h *Handler) CleanupUnusedOAuthCredentials(req router.Request, _ router.Response) error {
 	entry := req.Object.(*v1.MCPServerCatalogEntry)
 
-	// Only process remote entries
-	if entry.Spec.Manifest.Runtime != types.RuntimeRemote {
-		return nil
-	}
-
-	// Only cleanup if RemoteConfig exists and StaticOAuthRequired is false
-	if entry.Spec.Manifest.RemoteConfig != nil && entry.Spec.Manifest.RemoteConfig.StaticOAuthRequired {
+	if !needsOAuthCredentialCleanup(entry) {
 		return nil
 	}
 

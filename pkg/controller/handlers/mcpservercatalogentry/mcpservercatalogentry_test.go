@@ -426,3 +426,111 @@ func newMCPServer(name string, manifest types.MCPServerManifest) *v1.MCPServer {
 		},
 	}
 }
+
+func remoteEntry(t *testing.T, staticOAuthRequired bool) *v1.MCPServerCatalogEntry {
+	t.Helper()
+	return newMCPServerCatalogEntry("remote-entry", types.MCPServerCatalogEntryManifest{
+		Name:    "Remote Template",
+		Runtime: types.RuntimeRemote,
+		RemoteConfig: &types.RemoteCatalogConfig{
+			FixedURL:            "https://example.com/mcp",
+			StaticOAuthRequired: staticOAuthRequired,
+		},
+	})
+}
+
+func TestNeedsOAuthCredentialCleanup(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry func(t *testing.T) *v1.MCPServerCatalogEntry
+		want  bool
+	}{
+		{
+			// The steady state for most of a catalog: a remote entry that never had a
+			// static OAuth credential. This is the case that must not issue a query.
+			name:  "remote entry with no credential and no recheck is skipped",
+			entry: func(t *testing.T) *v1.MCPServerCatalogEntry { return remoteEntry(t, false) },
+			want:  false,
+		},
+		{
+			name: "remote entry that still requires static OAuth is skipped",
+			entry: func(t *testing.T) *v1.MCPServerCatalogEntry {
+				e := remoteEntry(t, true)
+				e.Status.OAuthCredentialConfigured = true
+				return e
+			},
+			want: false,
+		},
+		{
+			// An entry that stopped requiring static OAuth while a credential existed.
+			// CleanupUnusedOAuthCredentials runs before EnsureOAuthCredentialStatus, so the
+			// status still reports the credential and it gets removed on this pass.
+			name: "remote entry that stopped requiring static OAuth is cleaned up",
+			entry: func(t *testing.T) *v1.MCPServerCatalogEntry {
+				e := remoteEntry(t, false)
+				e.Status.OAuthCredentialConfigured = true
+				return e
+			},
+			want: true,
+		},
+		{
+			// The API sets this after writing credentials, before the controller has
+			// observed them, so the status is not yet trustworthy.
+			name: "sync annotation forces a recheck even when status is clear",
+			entry: func(t *testing.T) *v1.MCPServerCatalogEntry {
+				e := remoteEntry(t, false)
+				e.Annotations = map[string]string{v1.MCPServerCatalogEntrySyncAnnotation: "true"}
+				return e
+			},
+			want: true,
+		},
+		{
+			name: "non-remote entry is skipped",
+			entry: func(t *testing.T) *v1.MCPServerCatalogEntry {
+				e := newMCPServerCatalogEntry("containerized-entry", types.MCPServerCatalogEntryManifest{
+					Name:    "Containerized Template",
+					Runtime: types.RuntimeContainerized,
+					ContainerizedConfig: &types.ContainerizedRuntimeConfig{
+						Image: "example/mcp:1.0.0",
+					},
+				})
+				// Even a stale status must not pull a non-remote entry into cleanup.
+				e.Status.OAuthCredentialConfigured = true
+				return e
+			},
+			want: false,
+		},
+		{
+			name: "remote entry with no RemoteConfig and no credential is skipped",
+			entry: func(t *testing.T) *v1.MCPServerCatalogEntry {
+				e := remoteEntry(t, false)
+				e.Spec.Manifest.RemoteConfig = nil
+				return e
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, needsOAuthCredentialCleanup(tt.entry(t)))
+		})
+	}
+}
+
+// The handler holds a concrete gateway client that cannot be mocked, so a nil client is
+// used to prove the skip path never reaches the database: if the guard regressed, the
+// DELETE would panic here instead of returning cleanly.
+func TestCleanupUnusedOAuthCredentialsIssuesNoQueryWhenNothingToClean(t *testing.T) {
+	entry := remoteEntry(t, false)
+
+	err := (&Handler{}).CleanupUnusedOAuthCredentials(router.Request{
+		Client:    newFakeClient(entry),
+		Ctx:       t.Context(),
+		Object:    entry,
+		Namespace: entry.Namespace,
+		Name:      entry.Name,
+	}, &router.ResponseWrapper{})
+
+	require.NoError(t, err)
+}
