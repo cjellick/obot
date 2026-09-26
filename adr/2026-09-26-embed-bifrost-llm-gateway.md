@@ -42,12 +42,12 @@ Obot imports Bifrost's HTTP transport (`github.com/maximhq/bifrost/transports`) 
 - Obot's `go.mod` now carries Bifrost's dependency tree. Bifrost's `transports` module is consumed by pseudo-version because its v2 tags don't use a `/v2` module path. Upgrading Bifrost is a dependency bump, but its internal APIs (`BifrostHTTPServer`, `lib.Config`) are not a stable contract.
 - Each Obot replica runs its own Bifrost. The replicas share state through the Postgres stores, but in-memory state such as rate-limit counters is per replica until Bifrost's cluster mode is wired up. With SQLite, which is single-replica only, each replica would have separate state. The generated encryption key lives in the data dir. Multi-replica deployments must set `--llm-gateway-encryption-key` so every replica can decrypt provider keys.
 - Routing rules can send a request to a model other than the one the user was authorized for; that is an administrator decision. Obot authorizes the requested model and fallbacks, not the routing target.
-- Tool-call message policies are evaluated only on the Anthropic Messages and OpenAI Responses response formats, as before; Chat Completions responses get token accounting and audit but not tool-call policy evaluation.
+- Only endpoints Obot can meter and screen are exposed: Chat Completions, Responses, Messages, embeddings and model listing. Tool-call message policies are evaluated only on the Messages and Responses formats, so Chat Completions requests are refused for callers those policies apply to. Images, audio, rerank and batch APIs need metering before they can be exposed.
 - Legacy per-provider routes and model providers still exist. Removing them is follow-up work once agents and clients have moved to the gateway.
 
 ## References
 
-- `pkg/bifrost/`: engine, model listing, legacy import, virtual-key lookup
+- `pkg/bifrost/`: engine, model listing, legacy import, virtual-key lookup, Postgres database setup
 - `pkg/gateway/server/llmproxy_bifrost.go`: gateway backend
 - `pkg/api/handlers/llmgateway.go`: management API
 - `ui/user/src/routes/llm-gateway/`: admin UI

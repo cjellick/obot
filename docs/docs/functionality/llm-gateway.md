@@ -26,6 +26,7 @@ https://<your-obot-host>/api/llm-proxy/bifrost
 - **Any model, any API format.** Every model is available in the OpenAI Chat Completions (`/v1/chat/completions`), OpenAI Responses (`/v1/responses`) and Anthropic Messages (`/v1/messages`) formats, so Claude Code can use GPT models and the OpenAI SDK can use Claude.
 - **Model names** are `provider/model`, for example `openai/gpt-4.1` or `anthropic/claude-sonnet-4-5`. Bare provider model IDs such as `claude-sonnet-4-5` also work, which is what Claude Code sends by default.
 - **Fallbacks.** Add `"fallbacks": ["anthropic/claude-sonnet-4-5"]` to a request to fail over to other models when the primary one errors. Each fallback must also be a model you have access to.
+- **Endpoints.** `/v1/chat/completions`, `/v1/responses`, `/v1/responses/input_tokens`, `/v1/messages`, `/v1/messages/count_tokens`, `/v1/embeddings` and `/v1/models`. When tool-call [message policies](./message-policies.md) apply to you, use `/v1/messages` or `/v1/responses`; Chat Completions requests are refused because tool calls can't be screened in that format.
 - **Authentication and access** work exactly as for the rest of the gateway: use an Obot API key (`obot login --scope llm --print-token`), and you can call only the models granted to you by [Model Access Policies](./model-access-policies.md). Daily token limits, message policies, the LLM audit log and usage reporting all apply.
 
 The **Models** page shows ready-to-copy configuration for Claude Code, Codex, the OpenAI and Anthropic SDKs and `curl`.
