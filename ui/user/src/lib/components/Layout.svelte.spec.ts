@@ -161,6 +161,37 @@ describe('Layout.svelte', () => {
 		});
 	});
 
+	describe('LLM gateway navigation', () => {
+		const gatewayLinks = [
+			'/llm-gateway/overview',
+			'/llm-gateway/providers',
+			'/llm-gateway/virtual-keys',
+			'/llm-gateway/routing',
+			'/llm-gateway/logs',
+			'/llm-gateway/settings'
+		];
+
+		it('shows the LLM gateway section to administrators', async () => {
+			await renderLayout([Group.ADMIN]);
+			await expandSection('llm-gateway', '/llm-gateway/overview');
+			for (const href of gatewayLinks) {
+				await expectLink(href);
+			}
+		});
+
+		it('shows the LLM gateway section to auditors', async () => {
+			await renderLayout([Group.USER, Group.AUDITOR]);
+			await expandSection('llm-gateway', '/llm-gateway/overview');
+			await expectLink('/llm-gateway/logs');
+		});
+
+		it('hides the LLM gateway section from basic users', async () => {
+			await renderLayout([Group.USER]);
+			await expectNoLink('/llm-gateway/overview');
+			await expect.element(page.getByCSS('#sidebar-collapse-llm-gateway')).not.toBeInTheDocument();
+		});
+	});
+
 	describe('based on user role', () => {
 		describe('when the user is an administrator', () => {
 			it('shows administrator-only navigation', async () => {
