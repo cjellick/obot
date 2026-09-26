@@ -51,7 +51,7 @@ Models from gateway providers are listed on the **Models** page under the *LLM G
 | --- | --- |
 | `--disable-llm-gateway` / `OBOT_SERVER_DISABLE_LLM_GATEWAY` | Turn the embedded gateway off. |
 | `--llm-gateway-data-dir` / `OBOT_SERVER_LLM_GATEWAY_DATA_DIR` | Where the gateway keeps its configuration (default `$XDG_DATA_HOME/obot/llm-gateway`). |
-| `--llm-gateway-postgres-dsn` / `OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN` | Store gateway configuration and request logs in Postgres instead of SQLite files in the data dir. Must be a different database from Obot's. Required when running more than one Obot replica. |
+| `--llm-gateway-postgres-dsn` / `OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN` | Postgres database for gateway configuration and request logs. Must be a different database from Obot's. When Obot itself uses Postgres and this is unset, Obot creates a `<database>_llm_gateway` database on the same server (falling back to SQLite in the data dir if it can't), so every replica shares the gateway's state. |
 | `--llm-gateway-encryption-key` / `OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY` | Key that encrypts provider credentials at rest. Generated and stored in the data dir if unset; set it explicitly when the data dir is not persistent. |
 | `--llm-gateway-log-retention-days` | Days of request logs to keep (default 30). |
 | `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` | Redis or Valkey server used for response caching. Cached responses are kept per user. |

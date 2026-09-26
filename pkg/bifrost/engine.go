@@ -402,9 +402,17 @@ func buildConfigFile(opts Options, encryptionKey string) ([]byte, error) {
 		return nil, err
 	}
 
+	// Bifrost's own admin login is unreachable (its session API is not exposed through Obot),
+	// but without a setup token it warns on every start that one should be configured.
+	setupToken := make([]byte, 24)
+	if _, err := rand.Read(setupToken); err != nil {
+		return nil, err
+	}
+
 	cfg := map[string]any{
 		"$schema":        "https://www.getbifrost.ai/schema",
 		"encryption_key": encryptionKey,
+		"setup_token":    hex.EncodeToString(setupToken),
 		"client": map[string]any{
 			"enable_logging":     true,
 			"log_retention_days": retention,

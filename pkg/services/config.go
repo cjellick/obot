@@ -141,7 +141,7 @@ type Config struct {
 	DisableLLMAuditLog                   bool   `usage:"Disable LLM gateway audit logging" default:"false"`
 	DisableLLMGateway                    bool   `usage:"Disable the embedded Bifrost LLM gateway" name:"disable-llm-gateway" default:"false" env:"OBOT_SERVER_DISABLE_LLM_GATEWAY"`
 	LLMGatewayDataDir                    string `usage:"Directory for the embedded LLM gateway's configuration and, without a Postgres DSN, its SQLite stores (default: $XDG_DATA_HOME/obot/llm-gateway)" name:"llm-gateway-data-dir" env:"OBOT_SERVER_LLM_GATEWAY_DATA_DIR"`
-	LLMGatewayPostgresDSN                string `usage:"Postgres DSN for the embedded LLM gateway's config and log stores. Must be a different database from Obot's" name:"llm-gateway-postgres-dsn" env:"OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN"`
+	LLMGatewayPostgresDSN                string `usage:"Postgres DSN for the embedded LLM gateway's config and log stores. Must be a different database from Obot's. When Obot uses Postgres and this is unset, a <database>_llm_gateway database is created on the same server" name:"llm-gateway-postgres-dsn" env:"OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN"`
 	LLMGatewayEncryptionKey              string `usage:"Key used by the embedded LLM gateway to encrypt provider keys at rest (default: generated and stored in the data dir)" name:"llm-gateway-encryption-key" env:"OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY"`
 	LLMGatewayLogRetentionDays           int    `usage:"Number of days the embedded LLM gateway keeps request logs" name:"llm-gateway-log-retention-days" default:"30" env:"OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS"`
 	LLMGatewayLogLevel                   string `usage:"Log level for the embedded LLM gateway (debug, info, warn, error)" name:"llm-gateway-log-level" default:"warn" env:"OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL"`
@@ -1115,9 +1115,19 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		// Bootstrapping contacts configured providers to list their models, so it runs in
 		// the background; requests made before it finishes get a 503.
 		go func() {
+			gatewayDSN := config.LLMGatewayPostgresDSN
+			if gatewayDSN == "" && postgresDSN != "" {
+				// Keep the gateway's state in Postgres alongside Obot's so every replica shares
+				// it; fall back to SQLite in the data dir if the database can't be created.
+				if derived, err := bifrost.DerivePostgresDSN(ctx, postgresDSN); err != nil {
+					slog.Warn("LLM gateway will use SQLite: failed to set up its Postgres database; set --llm-gateway-postgres-dsn to choose one", "error", err)
+				} else {
+					gatewayDSN = derived
+				}
+			}
 			_ = bifrostEngine.Start(ctx, bifrost.Options{
 				DataDir:            dataDir,
-				PostgresDSN:        config.LLMGatewayPostgresDSN,
+				PostgresDSN:        gatewayDSN,
 				EncryptionKey:      config.LLMGatewayEncryptionKey,
 				LogRetentionDays:   config.LLMGatewayLogRetentionDays,
 				LogLevel:           config.LLMGatewayLogLevel,
