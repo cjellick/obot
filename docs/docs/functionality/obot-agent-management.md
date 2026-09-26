@@ -26,10 +26,6 @@ Configure LLM providers and their available models. See [Model Providers](../con
 
 Control which users and groups can access which models in Obot Agent. See [Model Access Policies](./model-access-policies.md) for details.
 
-## Message Policies
+## Guardrails
 
-Use natural language to enforce content rules on user prompts and tool calls. See [Message Policies](./message-policies.md) for details.
-
-## Message Policy Violations
-
-Review policy violations, trends, and blocked content metadata for Message Policies from the same admin area.
+Enforce content rules on user prompts, model responses and tool calls, including natural-language LLM judge policies (formerly Message Policies). See [Guardrails](./guardrails.md) for details.
