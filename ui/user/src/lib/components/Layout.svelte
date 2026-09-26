@@ -97,7 +97,8 @@
 		Logs,
 		Settings2,
 		MessageSquareText,
-		ChevronRight
+		ChevronRight,
+		Waypoints
 	} from '@lucide/svelte';
 	import { tick, untrack } from 'svelte';
 	import { fade, slide, type TransitionConfig } from 'svelte/transition';
@@ -276,6 +277,36 @@
 					: [])
 			]
 		},
+		...(profile.current.hasAdminAccess?.()
+			? [
+					{
+						id: 'llm-gateway',
+						icon: Waypoints,
+						label: 'LLM Gateway',
+						collapsible: true,
+						items: [
+							{ id: 'llm-gateway-overview', label: 'Overview', href: '/llm-gateway/overview' },
+							{
+								id: 'llm-gateway-providers',
+								label: 'Providers',
+								href: '/llm-gateway/providers'
+							},
+							{
+								id: 'llm-gateway-budgets',
+								label: 'Budgets & Limits',
+								href: '/llm-gateway/virtual-keys'
+							},
+							{ id: 'llm-gateway-routing', label: 'Routing', href: '/llm-gateway/routing' },
+							{ id: 'llm-gateway-logs', label: 'Request Logs', href: '/llm-gateway/logs' },
+							{
+								id: 'llm-gateway-settings',
+								label: 'Settings',
+								href: '/llm-gateway/settings'
+							}
+						]
+					}
+				]
+			: []),
 		{
 			id: 'operations',
 			icon: Logs,

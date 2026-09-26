@@ -145,6 +145,8 @@ type Config struct {
 	LLMGatewayEncryptionKey              string `usage:"Key used by the embedded LLM gateway to encrypt provider keys at rest (default: generated and stored in the data dir)" name:"llm-gateway-encryption-key" env:"OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY"`
 	LLMGatewayLogRetentionDays           int    `usage:"Number of days the embedded LLM gateway keeps request logs" name:"llm-gateway-log-retention-days" default:"30" env:"OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS"`
 	LLMGatewayLogLevel                   string `usage:"Log level for the embedded LLM gateway (debug, info, warn, error)" name:"llm-gateway-log-level" default:"warn" env:"OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL"`
+	LLMGatewayCacheRedisAddr             string `usage:"Redis or Valkey address the embedded LLM gateway uses as the vector store for response caching" name:"llm-gateway-cache-redis-addr" env:"OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_ADDR"`
+	LLMGatewayCacheRedisPassword         string `usage:"Password for the LLM gateway cache Redis server" name:"llm-gateway-cache-redis-password" env:"OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_PASSWORD"`
 	DeviceScanRetentionDays              int    `usage:"Number of days to retain submitted device scans (0 to disable cleanup)." default:"90"`
 	EnableAgents                         *bool  `usage:"Enable Obot Agent features. When unset, agents are disabled for new deployments but grandfathered in for deployments that already have agents. Explicitly set to true to force-enable, or false to force-disable, regardless of grandfathering." env:"OBOT_ENABLE_AGENTS"`
 	EnableHostedAgents                   bool   `usage:"Enable Hosted Agents features" default:"false"`
@@ -1114,11 +1116,13 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		// the background; requests made before it finishes get a 503.
 		go func() {
 			_ = bifrostEngine.Start(ctx, bifrost.Options{
-				DataDir:          dataDir,
-				PostgresDSN:      config.LLMGatewayPostgresDSN,
-				EncryptionKey:    config.LLMGatewayEncryptionKey,
-				LogRetentionDays: config.LLMGatewayLogRetentionDays,
-				LogLevel:         config.LLMGatewayLogLevel,
+				DataDir:            dataDir,
+				PostgresDSN:        config.LLMGatewayPostgresDSN,
+				EncryptionKey:      config.LLMGatewayEncryptionKey,
+				LogRetentionDays:   config.LLMGatewayLogRetentionDays,
+				LogLevel:           config.LLMGatewayLogLevel,
+				CacheRedisAddr:     config.LLMGatewayCacheRedisAddr,
+				CacheRedisPassword: config.LLMGatewayCacheRedisPassword,
 			})
 		}()
 	}

@@ -109,6 +109,12 @@ type modelResolvingBackend interface {
 	resolveModel(l *llmProviderProxy, reference string) (*v1.Model, error)
 }
 
+// extraModelAuthorizingBackend is implemented by backends whose requests can name models
+// besides the primary one (such as fallbacks), each of which must be authorized.
+type extraModelAuthorizingBackend interface {
+	authorizeExtraModels(l *llmProviderProxy, req api.Context, body []byte) ([]byte, error)
+}
+
 // requestDecoratingBackend is implemented by backends that add headers for the upstream.
 type requestDecoratingBackend interface {
 	decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) error
@@ -1076,6 +1082,11 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 		prepared.body, err = rewriteModelInBody(body, prepared.model)
 		if err != nil {
 			return fmt.Errorf("failed to rewrite model in request body: %w", err)
+		}
+		if authorizer, ok := l.backend.(extraModelAuthorizingBackend); ok {
+			if prepared.body, err = authorizer.authorizeExtraModels(l, req, prepared.body); err != nil {
+				return err
+			}
 		}
 		audit.setRequestBody(prepared.body)
 	}

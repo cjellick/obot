@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { afterNavigate } from '$app/navigation';
+	import GatewayConnect from '$lib/components/llm-gateway/GatewayConnect.svelte';
 	import LLMGatewayProviderSection from '$lib/components/llm-gateway/LLMGatewayProviderSection.svelte';
 	import { CommonModelProviderIds, PAGE_TRANSITION_DURATION } from '$lib/constants';
 	import type { Model } from '$lib/services';
@@ -25,6 +26,9 @@
 		}
 	});
 
+	let gatewayModels = $derived(
+		models.filter((m) => m.modelProvider === CommonModelProviderIds.BIFROST)
+	);
 	let openaiModels = $derived(
 		models.filter((m) => m.modelProvider === CommonModelProviderIds.OPENAI)
 	);
@@ -140,6 +144,30 @@
 
 	{#if ready}
 		<div class="flex flex-col gap-4">
+			{#if gatewayModels.length > 0}
+				<div class="paper flex flex-col gap-4 p-4">
+					<div class="flex items-center gap-3">
+						<img src="/admin/assets/bifrost_icon.svg" alt="" class="size-8 rounded-md" />
+						<div class="flex flex-col">
+							<h3 class="text-base font-semibold">LLM Gateway</h3>
+							<p class="text-muted-content text-xs">
+								{gatewayModels.length} models across every configured provider, in any API format.
+							</p>
+						</div>
+					</div>
+					<GatewayConnect {obotURL} models={gatewayModels} />
+					<details class="text-sm">
+						<summary class="cursor-pointer font-medium">Available models</summary>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each gatewayModels as m (m.id)}
+								<span class="bg-base-200 dark:bg-base-300 rounded px-2 py-0.5 font-mono text-xs"
+									>{m.targetModel}</span
+								>
+							{/each}
+						</div>
+					</details>
+				</div>
+			{/if}
 			{#if anthropicModels.length > 0}
 				<LLMGatewayProviderSection ctx={anthropicCtx} models={anthropicModels} />
 			{/if}

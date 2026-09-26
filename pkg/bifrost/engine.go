@@ -42,6 +42,7 @@ const Version = "obot-embedded"
 // x-bf-dim- headers become dimensions that the analytics endpoints can group by.
 const (
 	HeaderVirtualKey   = "x-bf-vk"
+	HeaderCacheKey     = "x-bf-cache-key"
 	HeaderLogUserID    = "x-bf-lh-obot-user-id"
 	HeaderLogUserName  = "x-bf-lh-obot-user-name"
 	HeaderLogModelID   = "x-bf-lh-obot-model"
@@ -65,6 +66,11 @@ type Options struct {
 	LogRetentionDays int
 	// LogLevel is the Bifrost logger level (debug, info, warn, error).
 	LogLevel string
+	// CacheRedisAddr is the address of a Redis (or Valkey) server used as the vector store
+	// for response caching. Caching is unavailable without one.
+	CacheRedisAddr string
+	// CacheRedisPassword authenticates to CacheRedisAddr.
+	CacheRedisPassword string
 }
 
 // Engine is a running, embedded Bifrost gateway.
@@ -411,6 +417,17 @@ func buildConfigFile(opts Options, encryptionKey string) ([]byte, error) {
 		},
 		"config_store": configStore,
 		"logs_store":   logsStore,
+	}
+	if opts.CacheRedisAddr != "" {
+		redis := map[string]any{"addr": opts.CacheRedisAddr}
+		if opts.CacheRedisPassword != "" {
+			redis["password"] = opts.CacheRedisPassword
+		}
+		cfg["vector_store"] = map[string]any{
+			"enabled": true,
+			"type":    "redis",
+			"config":  redis,
+		}
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }

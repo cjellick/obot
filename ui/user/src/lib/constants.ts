@@ -35,7 +35,8 @@ export const CommonModelProviderIds = {
 	GEMINI_VERTEX: 'gemini-vertex-model-provider',
 	GENERIC_OPENAI: 'generic-openai-model-provider',
 	AZURE: 'azure-model-provider',
-	AZURE_ENTRA: 'azure-entra-model-provider'
+	AZURE_ENTRA: 'azure-entra-model-provider',
+	BIFROST: 'bifrost-model-provider'
 };
 
 export const RecommendedModelProviders = [

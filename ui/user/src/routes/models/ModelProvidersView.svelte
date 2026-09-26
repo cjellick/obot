@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import ListModels from '$lib/components/admin/ListModels.svelte';
 	import ProviderCard from '$lib/components/admin/ProviderCard.svelte';
 	import ProviderConfigure from '$lib/components/admin/ProviderConfigure.svelte';
@@ -140,6 +141,20 @@
 </script>
 
 <div class="mb-4 @container" in:fade={{ duration }}>
+	<a
+		href={resolve('/llm-gateway/providers')}
+		class="paper hover:border-primary mb-6 flex flex-row items-center gap-4 border border-transparent p-4 transition-colors"
+	>
+		<img src="/admin/assets/bifrost_icon.svg" alt="" class="size-10 rounded-md" />
+		<div class="flex flex-col">
+			<span class="font-semibold">LLM Gateway</span>
+			<span class="text-muted-content text-sm">
+				Configure OpenAI, Anthropic, Bedrock, Vertex, Azure, Gemini, Mistral, Groq, vLLM, Ollama and
+				15+ more providers with load balancing, fallbacks, budgets and routing. The providers below
+				are the legacy per-provider integrations.
+			</span>
+		</div>
+	</a>
 	<div class="flex flex-col gap-8">
 		{#if !atLeastOneConfigured && version.current.agentsEnabled !== false}
 			<div class="notification-alert mb-4 flex flex-col gap-2">
