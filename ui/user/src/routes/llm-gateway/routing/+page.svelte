@@ -33,7 +33,6 @@
 		{ label: 'Model family', cel: 'model.startsWith("claude-")' },
 		{ label: 'Provider is requested', cel: 'provider == "openai"' },
 		{ label: 'Header value', cel: 'headers["x-tier"] == "premium"' },
-		{ label: 'Budget', cel: 'virtual_key_name == "Engineering"' },
 		{ label: 'Always', cel: 'true' }
 	];
 

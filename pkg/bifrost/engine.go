@@ -45,7 +45,6 @@ const (
 	// Header names Obot uses when forwarding requests to Bifrost. Headers prefixed with
 	// x-bf-lh- are captured by Bifrost's logging plugin into each log entry's metadata, and
 	// x-bf-dim- headers become dimensions that the analytics endpoints can group by.
-	HeaderVirtualKey   = "x-bf-vk"
 	HeaderCacheKey     = "x-bf-cache-key"
 	HeaderLogUserID    = "x-bf-lh-obot-user-id"
 	HeaderLogUserName  = "x-bf-lh-obot-user-name"

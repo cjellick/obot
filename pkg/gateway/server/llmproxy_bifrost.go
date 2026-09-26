@@ -5,9 +5,9 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -298,7 +298,7 @@ func (b *bifrostProviderBackend) authorizeExtraModels(l *llmProviderProxy, req a
 
 // decorateRequest removes the caller's Obot credential and adds the identity and
 // virtual-key headers Bifrost uses for logging, analytics, and governance.
-func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) error {
+func (b *bifrostProviderBackend) decorateRequest(_ context.Context, _ *client.Client, req *http.Request, user kuser.Info, model *v1.Model) error {
 	for _, h := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie"} {
 		req.Header.Del(h)
 	}
@@ -329,32 +329,42 @@ func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayCli
 		req.Header.Set(bifrost.HeaderDimObotModel, model.Spec.Manifest.Name)
 	}
 
+	return nil
+}
+
+// admit enforces LLM gateway budgets. It replaces the daily token quota for gateway traffic:
+// budgets are enforced by Obot from the usage it records in its own database, so they hold
+// exactly across replicas. A hosted agent spends its owner's budgets.
+func (b *bifrostProviderBackend) admit(ctx context.Context, gatewayClient *client.Client, user kuser.Info, model *v1.Model) ([]string, error) {
+	userID := principal.ResourceOwnerID(user)
 	groups := user.GetExtra()["auth_provider_groups"]
+	isAdmin := slices.Contains(user.GetGroups(), types2.GroupAdmin) || slices.Contains(user.GetGroups(), types2.GroupOwner)
+
 	if principal.IsHostedAgent(user) {
-		// A hosted agent spends its owner's budget, so match the owner's groups rather than
-		// the agent principal's, which has none.
 		ownerID, err := strconv.ParseUint(userID, 10, 64)
 		if err != nil {
-			return types2.NewErrForbidden("cannot determine the owner of this agent")
+			return nil, types2.NewErrForbidden("cannot determine the owner of this agent")
 		}
 		if groups, err = gatewayClient.ListGroupIDsForUser(ctx, uint(ownerID)); err != nil {
-			return err
+			return nil, err
 		}
+		owner, err := gatewayClient.UserByID(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		isAdmin = owner.Role.HasRole(types2.RoleAdmin)
 	}
-	vkID, err := gatewayClient.LLMGatewayVirtualKeyForUser(ctx, userID, groups)
+
+	budgets, err := gatewayClient.LLMGatewayBudgetsForUser(ctx, userID, groups, isAdmin, model.Name)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if vkID == "" {
-		return nil
+	if err := gatewayClient.CheckLLMGatewayBudgets(ctx, budgets, userID); err != nil {
+		return nil, err
 	}
-	value, err := b.engine.VirtualKeyValue(ctx, vkID)
-	if err != nil {
-		// A binding that points at a deleted or disabled key must not silently lift the
-		// caller's budget, so fail closed.
-		slog.Warn("LLM gateway budget binding references an unusable virtual key", "virtualKeyID", vkID, "error", err)
-		return types2.NewErrHTTP(http.StatusForbidden, "your LLM gateway budget is not available; contact an administrator")
+	ids := make([]string, 0, len(budgets))
+	for _, budget := range budgets {
+		ids = append(ids, budget.ID)
 	}
-	req.Header.Set(bifrost.HeaderVirtualKey, value)
-	return nil
+	return ids, nil
 }

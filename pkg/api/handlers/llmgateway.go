@@ -18,6 +18,7 @@ import (
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
+	"gorm.io/gorm"
 )
 
 // allowedBifrostAPIPrefixes are the Bifrost management routes exposed through Obot. Bifrost
@@ -28,7 +29,8 @@ var (
 		"providers",
 		"keys",
 		"models",
-		"governance/",
+		"governance/routing-rules",
+		"governance/pricing-overrides",
 		"logs",
 		"config",
 		"plugins",
@@ -58,13 +60,6 @@ type LLMGatewayStatus struct {
 	ModelProviderName   string `json:"modelProviderName"`
 	ProxyPath           string `json:"proxyPath"`
 	ModelsBackPopulated bool   `json:"modelsBackPopulated"`
-}
-
-// LLMGatewayBudgetBinding is the API shape of a budget binding subject.
-type LLMGatewayBudgetBinding struct {
-	VirtualKeyID string `json:"virtualKeyID"`
-	SubjectType  string `json:"subjectType"`
-	SubjectID    string `json:"subjectID,omitempty"`
 }
 
 func NewLLMGatewayHandler(engine *bifrost.Engine) *LLMGatewayHandler {
@@ -229,17 +224,11 @@ func rejectSecretReferences(body []byte) error {
 func (h *LLMGatewayHandler) afterMutation(ctx context.Context, req api.Context, path string) {
 	switch {
 	case strings.HasPrefix(path, "providers"), strings.HasPrefix(path, "models"), strings.HasPrefix(path, "keys"):
+		if strings.HasPrefix(path, "providers") && req.Method != http.MethodDelete {
+			h.engine.ApplyEgressProxy(ctx)
+		}
 		if err := bifrost.TriggerModelSync(ctx, req.Storage); err != nil {
 			slog.Warn("failed to trigger LLM gateway model sync", "error", err)
-		}
-	case strings.HasPrefix(path, "governance/virtual-keys"):
-		bifrost.ForgetVirtualKey("")
-		if req.Method == http.MethodDelete {
-			if vkID, _, _ := strings.Cut(strings.TrimPrefix(path, "governance/virtual-keys/"), "/"); vkID != "" {
-				if err := req.GatewayClient.DeleteLLMGatewayBudgetBindings(ctx, vkID); err != nil {
-					slog.Warn("failed to delete LLM gateway budget bindings", "virtualKeyID", vkID, "error", err)
-				}
-			}
 		}
 	}
 }
@@ -275,65 +264,87 @@ func (h *LLMGatewayHandler) SyncModels(req api.Context) error {
 	return nil
 }
 
-func (h *LLMGatewayHandler) ListBudgetBindings(req api.Context) error {
-	bindings, err := req.GatewayClient.ListLLMGatewayBudgetBindings(req.Context(), req.URL.Query().Get("virtualKeyID"))
+func (h *LLMGatewayHandler) ListBudgets(req api.Context) error {
+	budgets, err := req.GatewayClient.ListLLMGatewayBudgets(req.Context())
 	if err != nil {
 		return err
 	}
-	items := make([]LLMGatewayBudgetBinding, 0, len(bindings))
-	for _, b := range bindings {
-		items = append(items, LLMGatewayBudgetBinding{VirtualKeyID: b.VirtualKeyID, SubjectType: b.SubjectType, SubjectID: b.SubjectID})
+	if budgets == nil {
+		budgets = []gatewaytypes.LLMGatewayBudget{}
 	}
-	return req.Write(map[string]any{"items": items})
+	return req.Write(map[string]any{"items": budgets})
 }
 
-func (h *LLMGatewayHandler) SetBudgetBindings(req api.Context) error {
-	if err := h.requireEngine(); err != nil {
+func (h *LLMGatewayHandler) GetBudget(req api.Context) error {
+	budget, err := h.getBudget(req)
+	if err != nil {
 		return err
 	}
-	vkID := req.PathValue("virtual_key_id")
-
-	var in struct {
-		Subjects []LLMGatewayBudgetBinding `json:"subjects"`
-	}
-	if err := req.Read(&in); err != nil {
-		return types.NewErrBadRequest("invalid budget binding request: %v", err)
-	}
-
-	// The virtual key must exist, or bound callers would be locked out.
-	if err := h.engine.Do(req.Context(), http.MethodGet, "/api/governance/virtual-keys/"+url.PathEscape(vkID), nil, nil); err != nil {
-		var apiErr *bifrost.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
-			return types.NewErrNotFound("virtual key %q not found", vkID)
-		}
-		return err
-	}
-
-	bindings := make([]gatewaytypes.LLMGatewayBudgetBinding, 0, len(in.Subjects))
-	for _, s := range in.Subjects {
-		switch s.SubjectType {
-		case gatewaytypes.LLMGatewayBindingSubjectUser, gatewaytypes.LLMGatewayBindingSubjectGroup:
-			if s.SubjectID == "" {
-				return types.NewErrBadRequest("subjectID is required for %s subjects", s.SubjectType)
-			}
-		case gatewaytypes.LLMGatewayBindingSubjectEveryone:
-		default:
-			return types.NewErrBadRequest("invalid subject type %q", s.SubjectType)
-		}
-		bindings = append(bindings, gatewaytypes.LLMGatewayBudgetBinding{SubjectType: s.SubjectType, SubjectID: s.SubjectID})
-	}
-
-	if err := req.GatewayClient.ReplaceLLMGatewayBudgetBindings(req.Context(), vkID, bindings); err != nil {
-		return err
-	}
-	return h.ListBudgetBindingsFor(req, vkID)
+	return req.Write(budget)
 }
 
-func (h *LLMGatewayHandler) ListBudgetBindingsFor(req api.Context, vkID string) error {
-	q := req.URL.Query()
-	q.Set("virtualKeyID", vkID)
-	req.URL.RawQuery = q.Encode()
-	return h.ListBudgetBindings(req)
+func (h *LLMGatewayHandler) getBudget(req api.Context) (*gatewaytypes.LLMGatewayBudget, error) {
+	budget, err := req.GatewayClient.GetLLMGatewayBudget(req.Context(), req.PathValue("budget_id"))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, types.NewErrNotFound("budget %q not found", req.PathValue("budget_id"))
+	}
+	return budget, err
+}
+
+func (h *LLMGatewayHandler) CreateBudget(req api.Context) error {
+	var budget gatewaytypes.LLMGatewayBudget
+	if err := req.Read(&budget); err != nil {
+		return types.NewErrBadRequest("invalid budget: %v", err)
+	}
+	if err := req.GatewayClient.CreateLLMGatewayBudget(req.Context(), &budget); err != nil {
+		return types.NewErrBadRequest("%v", err)
+	}
+	return req.WriteCreated(budget)
+}
+
+func (h *LLMGatewayHandler) UpdateBudget(req api.Context) error {
+	existing, err := h.getBudget(req)
+	if err != nil {
+		return err
+	}
+	var budget gatewaytypes.LLMGatewayBudget
+	if err := req.Read(&budget); err != nil {
+		return types.NewErrBadRequest("invalid budget: %v", err)
+	}
+	budget.ID = existing.ID
+	if err := req.GatewayClient.UpdateLLMGatewayBudget(req.Context(), &budget); err != nil {
+		return types.NewErrBadRequest("%v", err)
+	}
+	updated, err := h.getBudget(req)
+	if err != nil {
+		return err
+	}
+	return req.Write(updated)
+}
+
+func (h *LLMGatewayHandler) DeleteBudget(req api.Context) error {
+	if _, err := h.getBudget(req); err != nil {
+		return err
+	}
+	if err := req.GatewayClient.DeleteLLMGatewayBudget(req.Context(), req.PathValue("budget_id")); err != nil {
+		return err
+	}
+	req.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// BudgetUsage reports usage in each limit's current window: per user for per-user budgets,
+// or one total for shared budgets.
+func (h *LLMGatewayHandler) BudgetUsage(req api.Context) error {
+	budget, err := h.getBudget(req)
+	if err != nil {
+		return err
+	}
+	entries, err := req.GatewayClient.LLMGatewayBudgetUsageReport(req.Context(), budget)
+	if err != nil {
+		return err
+	}
+	return req.Write(map[string]any{"items": entries})
 }
 
 // ImportLegacyProviders copies the credentials of configured legacy model providers into
@@ -346,6 +357,7 @@ func (h *LLMGatewayHandler) ImportLegacyProviders(req api.Context) error {
 	if err != nil {
 		return err
 	}
+	h.engine.ApplyEgressProxy(req.Context())
 	if err := bifrost.TriggerModelSync(req.Context(), req.Storage); err != nil {
 		slog.Warn("failed to trigger LLM gateway model sync", "error", err)
 	}

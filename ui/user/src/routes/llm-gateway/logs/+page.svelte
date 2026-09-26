@@ -353,7 +353,6 @@
 					selected.metadata?.['obot-user-name'] ?? selected.metadata?.['obot-user-id'] ?? '—'
 				)}
 				{@render kv('Key', selected.selected_key_name ?? '—')}
-				{@render kv('Budget', selected.virtual_key_name ?? '—')}
 				{@render kv('Routing rule', selected.routing_rule_name ?? '—')}
 				{@render kv('Retries', String(selected.number_of_retries ?? 0))}
 				{@render kv('Fallback', selected.fallback_index ? `#${selected.fallback_index}` : 'no')}

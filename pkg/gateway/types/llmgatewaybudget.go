@@ -4,25 +4,82 @@ import (
 	"time"
 )
 
-// LLM gateway budget binding subject types.
 const (
-	LLMGatewayBindingSubjectUser     = "user"
-	LLMGatewayBindingSubjectGroup    = "group"
-	LLMGatewayBindingSubjectEveryone = "everyone"
+	// LLM gateway budget subject types.
+	LLMGatewayBudgetSubjectUser     = "user"
+	LLMGatewayBudgetSubjectGroup    = "group"
+	LLMGatewayBudgetSubjectEveryone = "everyone"
+
+	// LLM gateway budget limit metrics.
+	LLMGatewayBudgetMetricSpend        = "spend"
+	LLMGatewayBudgetMetricTokens       = "tokens"
+	LLMGatewayBudgetMetricInputTokens  = "input_tokens"
+	LLMGatewayBudgetMetricOutputTokens = "output_tokens"
+	LLMGatewayBudgetMetricRequests     = "requests"
 )
 
-// LLMGatewayBudgetBinding assigns an Obot user, group, or everyone to a Bifrost virtual
-// key. When a caller matches a binding, the gateway forwards their requests under that
-// virtual key, so the key's budgets, rate limits, and provider/model restrictions apply.
-type LLMGatewayBudgetBinding struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	CreatedAt    time.Time `json:"created"`
-	UpdatedAt    time.Time `json:"updated"`
-	VirtualKeyID string    `gorm:"type:text;index;not null" json:"virtualKeyID"`
-	SubjectType  string    `gorm:"type:text;not null;index:idx_llm_gateway_binding_subject,priority:1" json:"subjectType"`
-	SubjectID    string    `gorm:"type:text;index:idx_llm_gateway_binding_subject,priority:2" json:"subjectID,omitempty"`
+// LLMGatewayBudget limits LLM gateway usage for the users it is assigned to. Obot enforces
+// budgets itself from usage it records in its own database, so limits hold exactly across
+// every Obot replica.
+type LLMGatewayBudget struct {
+	ID          string    `gorm:"primaryKey;type:text" json:"id"`
+	CreatedAt   time.Time `json:"created"`
+	UpdatedAt   time.Time `json:"updated"`
+	Name        string    `gorm:"type:text;not null" json:"name"`
+	Description string    `gorm:"type:text" json:"description,omitempty"`
+	Enabled     bool      `gorm:"not null" json:"enabled"`
+	// PerUser gives every assigned user their own allowance. Otherwise the limits are one pool
+	// shared by everyone assigned.
+	PerUser bool `gorm:"not null" json:"perUser"`
+	// ExemptAdmins leaves administrators unlimited by this budget.
+	ExemptAdmins bool                    `gorm:"not null" json:"exemptAdmins"`
+	Limits       []LLMGatewayBudgetLimit `gorm:"serializer:json" json:"limits"`
+	// Models restricts the budget to these Model IDs. Empty means every model.
+	Models   []string                  `gorm:"serializer:json" json:"models,omitempty"`
+	Subjects []LLMGatewayBudgetSubject `gorm:"foreignKey:BudgetID;constraint:OnDelete:CASCADE" json:"subjects"`
 }
 
-func (LLMGatewayBudgetBinding) TableName() string {
-	return "llm_gateway_budget_bindings"
+// LLMGatewayBudgetLimit caps one metric over a window.
+type LLMGatewayBudgetLimit struct {
+	// Metric is spend (USD), tokens, input_tokens, output_tokens or requests.
+	Metric string  `json:"metric"`
+	Amount float64 `json:"amount"`
+	// Window is a count and unit: m (minutes), h, d, w or M (months), e.g. "1d" or "6h".
+	Window string `json:"window"`
+	// Calendar resets the window at calendar boundaries (the start of the hour, day, week
+	// or month, in UTC) instead of rolling. Only single-unit windows can be calendar aligned.
+	Calendar bool `json:"calendar,omitempty"`
+}
+
+// LLMGatewayBudgetSubject assigns a budget to a user, a group or everyone.
+type LLMGatewayBudgetSubject struct {
+	ID          uint   `gorm:"primaryKey" json:"-"`
+	BudgetID    string `gorm:"type:text;index;not null" json:"-"`
+	SubjectType string `gorm:"type:text;not null" json:"type"`
+	SubjectID   string `gorm:"type:text" json:"id,omitempty"`
+}
+
+// LLMGatewayBudgetUsage is one request's usage counted against one budget.
+type LLMGatewayBudgetUsage struct {
+	ID           uint      `gorm:"primaryKey"`
+	BudgetID     string    `gorm:"type:text;not null;index:idx_llm_gateway_budget_usage_budget_created,priority:1;index:idx_llm_gateway_budget_usage_budget_user_created,priority:1"`
+	UserID       string    `gorm:"type:text;not null;index:idx_llm_gateway_budget_usage_budget_user_created,priority:2"`
+	CreatedAt    time.Time `gorm:"index;index:idx_llm_gateway_budget_usage_budget_created,priority:2;index:idx_llm_gateway_budget_usage_budget_user_created,priority:3"`
+	Model        string    `gorm:"type:text"`
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
+	Spend        float64
+}
+
+func (LLMGatewayBudget) TableName() string {
+	return "llm_gateway_budgets"
+}
+
+func (LLMGatewayBudgetSubject) TableName() string {
+	return "llm_gateway_budget_subjects"
+}
+
+func (LLMGatewayBudgetUsage) TableName() string {
+	return "llm_gateway_budget_usage"
 }

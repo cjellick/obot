@@ -81,6 +81,8 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 		}
 	}
 
+	e.ApplyEgressProxy(ctx)
+
 	// Bifrost refreshes provider model lists on its own schedule, so resync periodically.
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()

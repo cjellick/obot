@@ -165,7 +165,7 @@ describe('Layout.svelte', () => {
 		const gatewayLinks = [
 			'/llm-gateway/overview',
 			'/llm-gateway/providers',
-			'/llm-gateway/virtual-keys',
+			'/llm-gateway/budgets',
 			'/llm-gateway/routing',
 			'/llm-gateway/logs',
 			'/llm-gateway/settings'

@@ -27,11 +27,16 @@ func TestAllowedBifrostAPIPath(t *testing.T) {
 			wantOK:  true,
 		},
 		{
-			name:    "virtual keys",
+			name:    "routing rules",
+			raw:     "governance/routing-rules",
+			escaped: "/api/llm-gateway/admin/governance/routing-rules",
+			want:    "governance/routing-rules",
+			wantOK:  true,
+		},
+		{
+			name:    "virtual keys are not exposed",
 			raw:     "governance/virtual-keys",
 			escaped: "/api/llm-gateway/admin/governance/virtual-keys",
-			want:    "governance/virtual-keys",
-			wantOK:  true,
 		},
 		{
 			name:    "hidden api",

@@ -40,30 +40,91 @@ export async function importLegacyProviders(opts?: Opts): Promise<LegacyImportRe
 	return resp.items ?? [];
 }
 
-export type BindingSubjectType = 'user' | 'group' | 'everyone';
+// ---------- Budgets (enforced by Obot) ----------
 
-export interface BudgetBinding {
-	virtualKeyID: string;
-	subjectType: BindingSubjectType;
-	subjectID?: string;
+export type BudgetMetric = 'spend' | 'tokens' | 'input_tokens' | 'output_tokens' | 'requests';
+
+export interface BudgetLimit {
+	metric: BudgetMetric;
+	amount: number;
+	window: string;
+	calendar?: boolean;
 }
 
-export async function listBudgetBindings(opts?: Opts): Promise<BudgetBinding[]> {
-	const resp = (await doGet('/llm-gateway/budget-bindings', opts)) as { items: BudgetBinding[] };
+export type BudgetSubjectType = 'user' | 'group' | 'everyone';
+
+export interface BudgetSubject {
+	type: BudgetSubjectType;
+	id?: string;
+}
+
+export interface Budget {
+	id?: string;
+	name: string;
+	description?: string;
+	enabled: boolean;
+	perUser: boolean;
+	exemptAdmins: boolean;
+	limits: BudgetLimit[];
+	models?: string[];
+	subjects: BudgetSubject[];
+	created?: string;
+	updated?: string;
+}
+
+export interface BudgetUsageEntry {
+	userID?: string;
+	used: number[];
+}
+
+export async function listBudgets(opts?: Opts): Promise<Budget[]> {
+	const resp = (await doGet('/llm-gateway/budgets', opts)) as { items: Budget[] };
 	return resp.items ?? [];
 }
 
-export async function setBudgetBindings(
-	virtualKeyID: string,
-	subjects: Omit<BudgetBinding, 'virtualKeyID'>[],
-	opts?: Opts
-): Promise<BudgetBinding[]> {
-	const resp = (await doPut(
-		`/llm-gateway/budget-bindings/${encodeURIComponent(virtualKeyID)}`,
-		{ subjects },
-		opts
-	)) as { items: BudgetBinding[] };
+export async function getBudget(id: string, opts?: Opts): Promise<Budget> {
+	return (await doGet(`/llm-gateway/budgets/${encodeURIComponent(id)}`, opts)) as Budget;
+}
+
+export async function createBudget(budget: Budget, opts?: Opts): Promise<Budget> {
+	return (await doPost('/llm-gateway/budgets', budget, opts)) as Budget;
+}
+
+export async function updateBudget(id: string, budget: Budget, opts?: Opts): Promise<Budget> {
+	return (await doPut(`/llm-gateway/budgets/${encodeURIComponent(id)}`, budget, opts)) as Budget;
+}
+
+export async function deleteBudget(id: string, opts?: Opts): Promise<void> {
+	await doDelete(`/llm-gateway/budgets/${encodeURIComponent(id)}`, opts);
+}
+
+export async function getBudgetUsage(id: string, opts?: Opts): Promise<BudgetUsageEntry[]> {
+	const resp = (await doGet(`/llm-gateway/budgets/${encodeURIComponent(id)}/usage`, opts)) as {
+		items: BudgetUsageEntry[];
+	};
 	return resp.items ?? [];
+}
+
+export const METRIC_LABELS: Record<BudgetMetric, string> = {
+	spend: 'Spend (USD)',
+	tokens: 'Total tokens',
+	input_tokens: 'Input tokens',
+	output_tokens: 'Output tokens',
+	requests: 'Requests'
+};
+
+export function formatMetric(metric: BudgetMetric, value: number): string {
+	return metric === 'spend' ? formatCost(value) : formatNumber(value);
+}
+
+export function windowLabel(limit: Pick<BudgetLimit, 'window' | 'calendar'>): string {
+	const m = /^(\d+)([mhdwM])$/.exec(limit.window);
+	if (!m) return limit.window;
+	const units: Record<string, string> = { m: 'minute', h: 'hour', d: 'day', w: 'week', M: 'month' };
+	const n = Number(m[1]);
+	const unit = units[m[2]];
+	if (limit.calendar) return `per calendar ${unit}`;
+	return n === 1 ? `per rolling ${unit}` : `per rolling ${n} ${unit}s`;
 }
 
 // ---------- Providers & keys ----------
@@ -217,100 +278,6 @@ export async function listGatewayModels(
 	return resp.models ?? [];
 }
 
-// ---------- Governance: virtual keys, budgets, rate limits ----------
-
-export interface Budget {
-	id?: string;
-	max_limit: number;
-	reset_duration: string;
-	current_usage?: number;
-	last_reset?: string;
-}
-
-export interface RateLimit {
-	id?: string;
-	token_max_limit?: number | null;
-	token_reset_duration?: string | null;
-	token_current_usage?: number;
-	request_max_limit?: number | null;
-	request_reset_duration?: string | null;
-	request_current_usage?: number;
-}
-
-export interface VirtualKeyProviderConfig {
-	id?: number;
-	provider: string;
-	weight?: number;
-	allowed_models?: string[];
-	budgets?: Budget[];
-	rate_limit?: RateLimit;
-}
-
-export interface VirtualKey {
-	id: string;
-	name: string;
-	description?: string;
-	value?: string;
-	is_active?: boolean;
-	allow_all_providers?: boolean;
-	provider_configs?: VirtualKeyProviderConfig[];
-	budgets?: Budget[];
-	rate_limit?: RateLimit;
-	calendar_aligned?: boolean;
-	expires_at?: string | null;
-	created_at?: string;
-	updated_at?: string;
-}
-
-export interface VirtualKeyInput {
-	name?: string;
-	description?: string;
-	is_active?: boolean;
-	allow_all_providers?: boolean;
-	provider_configs?: VirtualKeyProviderConfig[];
-	budgets?: Budget[];
-	rate_limit?: RateLimit;
-	calendar_aligned?: boolean;
-}
-
-export async function listVirtualKeys(opts?: Opts): Promise<VirtualKey[]> {
-	const resp = (await doGet(`${B}/governance/virtual-keys?limit=500`, opts)) as {
-		virtual_keys: VirtualKey[] | null;
-	};
-	return resp.virtual_keys ?? [];
-}
-
-export async function getVirtualKey(id: string, opts?: Opts): Promise<VirtualKey> {
-	const resp = (await doGet(`${B}/governance/virtual-keys/${encodeURIComponent(id)}`, opts)) as {
-		virtual_key: VirtualKey;
-	};
-	return resp.virtual_key;
-}
-
-export async function createVirtualKey(body: VirtualKeyInput, opts?: Opts): Promise<VirtualKey> {
-	const resp = (await doPost(`${B}/governance/virtual-keys`, body, opts)) as {
-		virtual_key: VirtualKey;
-	};
-	return resp.virtual_key;
-}
-
-export async function updateVirtualKey(
-	id: string,
-	body: VirtualKeyInput,
-	opts?: Opts
-): Promise<VirtualKey> {
-	const resp = (await doPut(
-		`${B}/governance/virtual-keys/${encodeURIComponent(id)}`,
-		body,
-		opts
-	)) as { virtual_key: VirtualKey };
-	return resp.virtual_key;
-}
-
-export async function deleteVirtualKey(id: string, opts?: Opts): Promise<void> {
-	await doDelete(`${B}/governance/virtual-keys/${encodeURIComponent(id)}`, opts);
-}
-
 // ---------- Routing rules ----------
 
 export interface RoutingTarget {
@@ -398,7 +365,6 @@ export interface GatewayLog {
 	number_of_retries?: number;
 	fallback_index?: number;
 	selected_key_name?: string;
-	virtual_key_name?: string | null;
 	routing_rule_name?: string | null;
 	token_usage?: TokenUsage;
 	metadata?: Record<string, string>;
@@ -431,7 +397,6 @@ export interface LogFilters {
 	start_time?: string;
 	end_time?: string;
 	content_search?: string;
-	virtual_key_ids?: string[];
 	metadata?: Record<string, string>;
 }
 
@@ -441,7 +406,6 @@ function filtersToQuery(filters: LogFilters): URLSearchParams {
 	if (filters.models?.length) q.set('models', filters.models.join(','));
 	if (filters.status?.length) q.set('status', filters.status.join(','));
 	if (filters.objects?.length) q.set('objects', filters.objects.join(','));
-	if (filters.virtual_key_ids?.length) q.set('virtual_key_ids', filters.virtual_key_ids.join(','));
 	if (filters.start_time) q.set('start_time', filters.start_time);
 	if (filters.end_time) q.set('end_time', filters.end_time);
 	if (filters.content_search) q.set('content_search', filters.content_search);
@@ -495,7 +459,6 @@ export async function getLog(id: string, opts?: Opts): Promise<GatewayLog> {
 export interface LogFilterData {
 	models: string[];
 	selected_keys?: { id: string; name: string }[];
-	virtual_keys?: { id: string; name: string }[];
 	metadata_keys?: Record<string, string[]>;
 }
 
@@ -627,23 +590,4 @@ export function secretDisplay(value: SecretValue | string | undefined): string {
 	if (!value) return '';
 	if (typeof value === 'string') return value;
 	return value.env_var ? `env.${value.env_var}` : value.value;
-}
-
-export function durationLabel(d?: string | null): string {
-	if (!d) return '';
-	const m = /^(\d+)([smhdwMQY])$/.exec(d);
-	if (!m) return d;
-	const units: Record<string, string> = {
-		s: 'second',
-		m: 'minute',
-		h: 'hour',
-		d: 'day',
-		w: 'week',
-		M: 'month',
-		Q: 'quarter',
-		Y: 'year'
-	};
-	const n = Number(m[1]);
-	const unit = units[m[2]];
-	return n === 1 ? `per ${unit}` : `per ${n} ${unit}s`;
 }

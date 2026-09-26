@@ -1167,6 +1167,13 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	}
 	if bifrostEngine != nil {
 		gatewayServer.SetLLMGateway(bifrostEngine)
+		// LLM gateway traffic is governed by budgets rather than the daily token quota, so
+		// carry the configured daily limits over as a default budget, once.
+		if err := gatewayClient.MigrateKinmIfNotRun(ctx, "llm_gateway_default_budget", func() error {
+			return gatewayClient.EnsureDefaultLLMGatewayBudget(ctx, config.DailyUserInputTokenLimit, config.DailyUserOutputTokenLimit)
+		}); err != nil {
+			return nil, fmt.Errorf("failed to create the default LLM gateway budget: %w", err)
+		}
 	}
 
 	authenticators := gserver.NewGatewayTokenReviewer(gatewayClient, providerDispatcher)

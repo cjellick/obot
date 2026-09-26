@@ -68,7 +68,11 @@ type responseModifier struct {
 
 	// Token usage and model access gating
 	tokenUsageTracker *threadSafeTokenUsageTracker
-	mapHelper         *modelaccesspolicy.Helper
+	// budgetIDs are the LLM gateway budgets the request was admitted under; its usage is
+	// recorded against each. modelID is the resolved Model's ID.
+	budgetIDs []string
+	modelID   string
+	mapHelper *modelaccesspolicy.Helper
 
 	// Input policy violation: replacement text to send back via response header.
 	inputPolicyReplacement string
@@ -115,6 +119,13 @@ type modelResolvingBackend interface {
 // besides the primary one (such as fallbacks), each of which must be authorized.
 type extraModelAuthorizingBackend interface {
 	authorizeExtraModels(l *llmProviderProxy, req api.Context, body []byte) ([]byte, error)
+}
+
+// budgetEnforcingBackend is implemented by backends whose traffic is governed by LLM
+// gateway budgets instead of the daily token quota. admit returns the budgets the request
+// counts against, or an error if one of them is exhausted.
+type budgetEnforcingBackend interface {
+	admit(ctx context.Context, gatewayClient *client.Client, user kuser.Info, model *v1.Model) ([]string, error)
 }
 
 // requestDecoratingBackend is implemented by backends that add headers for the upstream.
@@ -799,6 +810,9 @@ func (r *responseModifier) Close() error {
 		if err := r.client.InsertTokenUsage(context.Background(), activity); err != nil {
 			slog.Warn("failed to save token usage for user", "userID", r.user.GetUID(), "error", err)
 		}
+		if err := r.client.RecordLLMGatewayBudgetUsage(context.Background(), r.budgetIDs, activity.UserID, r.modelID, usage); err != nil {
+			slog.Warn("failed to record LLM gateway budget usage", "userID", activity.UserID, "error", err)
+		}
 	}
 	// ReverseProxy does not return body-copy errors to the handler, so Close is
 	// the terminal point for proxied responses. The handler defer is a fallback.
@@ -1159,7 +1173,18 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 	// rather than escaping accounting altogether.
 	usageUserID := principal.ResourceOwnerID(req.User)
 
-	if remainingUsage, err := req.GatewayClient.RemainingTokenUsageForUser(
+	var budgetIDs []string
+	if enforcer, ok := l.backend.(budgetEnforcingBackend); ok {
+		if resolvedModel != nil {
+			var err error
+			if budgetIDs, err = enforcer.admit(req.Context(), req.GatewayClient, req.User, resolvedModel); err != nil {
+				if exceeded := (*client.LLMGatewayBudgetExceeded)(nil); errors.As(err, &exceeded) {
+					return types2.NewErrHTTP(http.StatusTooManyRequests, exceeded.Error())
+				}
+				return err
+			}
+		}
+	} else if remainingUsage, err := req.GatewayClient.RemainingTokenUsageForUser(
 		req.Context(),
 		usageUserID,
 		tokenUsageTimePeriod,
@@ -1189,6 +1214,8 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 		routeDialect:           routeDialect,
 		client:                 req.GatewayClient,
 		tokenUsageTracker:      prepared.tokenUsageTracker,
+		budgetIDs:              budgetIDs,
+		modelID:                modelName(resolvedModel),
 		mapHelper:              l.mapHelper,
 		inputPolicyReplacement: inputPolicyReplacement,
 		messagePolicyHelper:    messagePolicyHelper,
@@ -1305,4 +1332,11 @@ func shouldSkipMessagePolicyEnforcement(req *http.Request) bool {
 // Denying is the safe direction while that resolution is missing.
 func modelAllowedForAgent(configured []string, modelID string) bool {
 	return slices.Contains(configured, "*") || slices.Contains(configured, modelID)
+}
+
+func modelName(model *v1.Model) string {
+	if model == nil {
+		return ""
+	}
+	return model.Name
 }
