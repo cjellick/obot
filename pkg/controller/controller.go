@@ -759,11 +759,15 @@ func (c *Controller) ensureLocalAuthProvider(ctx context.Context) error {
 // gateway. Like the local auth provider it runs inside this process, so it doesn't come
 // from the provider registry.
 func (c *Controller) ensureBifrostModelProvider(ctx context.Context) error {
+	modelProvider := bifrost.ModelProviderResource()
+
 	if c.services.BifrostEngine == nil {
+		// The gateway is disabled, so its provider and models must not look usable.
+		if err := c.services.StorageClient.Delete(ctx, modelProvider); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to remove LLM gateway model provider: %w", err)
+		}
 		return nil
 	}
-
-	modelProvider := bifrost.ModelProviderResource()
 
 	var existing v1.ModelProvider
 	if err := c.services.StorageClient.Get(ctx, kclient.ObjectKeyFromObject(modelProvider), &existing); apierrors.IsNotFound(err) {
@@ -786,9 +790,6 @@ func (c *Controller) ensureAuthProvidersAndModelProviders(ctx context.Context) e
 	}
 	if err := c.ensureBifrostModelProvider(ctx); err != nil {
 		return fmt.Errorf("failed to ensure LLM gateway model provider: %w", err)
-	}
-	if c.services.BifrostEngine != nil {
-		go c.services.BifrostEngine.RunStartupTasks(ctx, c.services.StorageClient, c.services.GatewayClient)
 	}
 
 	var authProviders v1.AuthProviderList
@@ -826,6 +827,10 @@ func (c *Controller) ensureAuthProvidersAndModelProviders(ctx context.Context) e
 		}
 
 		for _, modelProvider := range modelProviders.Items {
+			if modelProvider.Name == system.BifrostModelProvider {
+				// The gateway may still be starting; its startup tasks sync its models.
+				continue
+			}
 			if err := provider.SetModelProviderConfiguredStatus(ctx, c.services.GatewayClient, c.services.LicenseProvider, &modelProvider); err != nil {
 				return fmt.Errorf("failed to set model provider configured status: %w", err)
 			}
@@ -838,5 +843,8 @@ func (c *Controller) ensureAuthProvidersAndModelProviders(ctx context.Context) e
 		}
 	}
 
+	if c.services.BifrostEngine != nil {
+		go c.services.BifrostEngine.RunStartupTasks(ctx, c.services.StorageClient, c.services.GatewayClient)
+	}
 	return nil
 }

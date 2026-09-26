@@ -88,6 +88,11 @@ type Engine struct {
 	ready     chan struct{}
 	startErr  error
 	startOnce sync.Once
+
+	// Last successful model listing per upstream provider, and the last provider check.
+	modelsLock       sync.Mutex
+	lastModels       map[string][]listedModel
+	lastHasProviders bool
 }
 
 // APIError is returned by Do for non-2xx responses from Bifrost.
@@ -101,9 +106,41 @@ func New() *Engine {
 	ln := fasthttputil.NewInmemoryListener()
 	ln.SetLocalAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80})
 
+	e := &Engine{
+		listener: ln,
+		ready:    make(chan struct{}),
+	}
+
 	transport := &http.Transport{
-		DialContext: func(context.Context, string, string) (net.Conn, error) {
-			return ln.DialWithLocalAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1})
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			// The in-memory dial blocks until the server accepts, so refuse to dial a server
+			// that isn't serving rather than hang the caller.
+			if !e.Ready() {
+				if err := e.Err(); err != nil {
+					return nil, fmt.Errorf("LLM gateway failed to start: %w", err)
+				}
+				return nil, errors.New("LLM gateway is starting")
+			}
+			type result struct {
+				conn net.Conn
+				err  error
+			}
+			done := make(chan result, 1)
+			go func() {
+				conn, err := ln.DialWithLocalAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1})
+				done <- result{conn, err}
+			}()
+			select {
+			case r := <-done:
+				return r.conn, r.err
+			case <-ctx.Done():
+				go func() {
+					if r := <-done; r.conn != nil {
+						_ = r.conn.Close()
+					}
+				}()
+				return nil, ctx.Err()
+			}
 		},
 		MaxIdleConns:        256,
 		MaxIdleConnsPerHost: 256,
@@ -114,12 +151,8 @@ func New() *Engine {
 	}
 
 	baseURL := &url.URL{Scheme: "http", Host: internalHost}
-	e := &Engine{
-		listener: ln,
-		client:   &http.Client{Transport: transport},
-		baseURL:  baseURL,
-		ready:    make(chan struct{}),
-	}
+	e.client = &http.Client{Transport: transport}
+	e.baseURL = baseURL
 	e.proxy = &httputil.ReverseProxy{
 		Transport:     transport,
 		FlushInterval: -1,
@@ -143,6 +176,8 @@ func (e *Engine) Start(ctx context.Context, opts Options) error {
 		e.startErr = e.start(ctx, opts)
 		if e.startErr != nil {
 			slog.Error("failed to start embedded bifrost LLM gateway", "error", e.startErr)
+			// Nothing will ever serve the listener; close it so no dial can wait on it.
+			_ = e.listener.Close()
 		}
 	})
 	return e.startErr

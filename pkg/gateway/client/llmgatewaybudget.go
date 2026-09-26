@@ -48,8 +48,8 @@ func (c *Client) DeleteLLMGatewayBudgetBindings(ctx context.Context, virtualKeyI
 
 // LLMGatewayVirtualKeyForUser picks the virtual key that governs a caller: a binding for
 // the user wins over one for any of their groups, which wins over an everyone binding.
-// Among equally specific bindings the oldest wins. An empty result means no binding
-// applies.
+// Among equally specific bindings the virtual key with the lowest ID wins, which stays
+// stable as bindings are edited. An empty result means no binding applies.
 func (c *Client) LLMGatewayVirtualKeyForUser(ctx context.Context, userID string, groups []string) (string, error) {
 	var bindings []types.LLMGatewayBudgetBinding
 	if err := c.db.WithContext(ctx).Order("id").Find(&bindings).Error; err != nil {
@@ -71,7 +71,7 @@ func (c *Client) LLMGatewayVirtualKeyForUser(ctx context.Context, userID string,
 		case types.LLMGatewayBindingSubjectEveryone:
 			rank = 1
 		}
-		if rank > bestRank {
+		if rank > bestRank || (rank == bestRank && rank > 0 && b.VirtualKeyID < best) {
 			best, bestRank = b.VirtualKeyID, rank
 		}
 	}

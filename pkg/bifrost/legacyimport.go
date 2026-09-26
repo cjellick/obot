@@ -161,6 +161,9 @@ func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.
 
 		providerBody, key := plan.build(cred.Secrets)
 		providerBody["provider"] = plan.provider
+		// Send credentials as explicit plain-text values so Bifrost never interprets a stored
+		// secret that happens to start with "env." or "vault." as a reference to resolve.
+		plainTextSecrets(key)
 		if err := engine.Do(ctx, http.MethodPost, "/api/providers", providerBody, nil); err != nil {
 			result.Status = "error"
 			result.Message = err.Error()
@@ -174,8 +177,10 @@ func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.
 			}
 			key["weight"] = 1
 			if err := engine.Do(ctx, http.MethodPost, "/api/providers/"+url.PathEscape(plan.provider)+"/keys", key, nil); err != nil {
+				// Remove the provider again so a later import can retry it.
+				_ = engine.Do(ctx, http.MethodDelete, "/api/providers/"+url.PathEscape(plan.provider), nil, nil)
 				result.Status = "error"
-				result.Message = "provider created, but adding its key failed: " + err.Error()
+				result.Message = "adding the provider's key failed: " + err.Error()
 				results = append(results, result)
 				continue
 			}
@@ -194,4 +199,28 @@ func secretWithSuffix(secrets map[string]string, suffix string) string {
 		}
 	}
 	return ""
+}
+
+// plainTextSecrets wraps the string values of a key payload (its value and provider-specific
+// key config) in Bifrost's explicit plain-text form.
+func plainTextSecrets(key map[string]any) {
+	plain := func(v string) map[string]any {
+		return map[string]any{"value": v, "type": "plain_text"}
+	}
+	for k, v := range key {
+		switch val := v.(type) {
+		case string:
+			if k == "value" {
+				key[k] = plain(val)
+			}
+		case map[string]any:
+			if strings.HasSuffix(k, "_key_config") {
+				for ck, cv := range val {
+					if s, ok := cv.(string); ok {
+						val[ck] = plain(s)
+					}
+				}
+			}
+		}
+	}
 }

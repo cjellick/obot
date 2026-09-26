@@ -42,9 +42,20 @@ func TestResolveBifrostRoute(t *testing.T) {
 			wantDialect: llmtypes.DialectOpenAIChatCompletions,
 		},
 		{
-			name:     "embeddings",
-			path:     "v1/embeddings",
-			wantBase: "/",
+			name:        "embeddings",
+			path:        "v1/embeddings",
+			wantBase:    "/",
+			wantDialect: llmtypes.DialectOpenAIChatCompletions,
+		},
+		{
+			name:    "legacy completions are not exposed",
+			path:    "v1/completions",
+			wantErr: true,
+		},
+		{
+			name:    "image generation is not exposed",
+			path:    "v1/images/generations",
+			wantErr: true,
 		},
 		{
 			name:     "openai model listing",

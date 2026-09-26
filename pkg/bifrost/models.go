@@ -74,6 +74,8 @@ func (e *Engine) ListModels(ctx context.Context) (*openai.ModelsList, error) {
 		return nil, fmt.Errorf("failed to list models from LLM gateway: %w", err)
 	}
 
+	resp.Data = e.withLastKnownModels(ctx, resp.Data)
+
 	result := &openai.ModelsList{Models: make([]openai.Model, 0, len(resp.Data))}
 	seen := make(map[string]struct{}, len(resp.Data))
 	for _, m := range resp.Data {
@@ -176,11 +178,58 @@ func CostFromMetadata(metadata map[string]string) (types.ModelCost, bool) {
 	return cost, cost.Input > 0 || cost.Output > 0
 }
 
-// HasUpstreamProviders reports whether Bifrost has at least one usable provider.
+// withLastKnownModels fills in providers missing from a listing. Bifrost returns whatever it
+// could list when one provider's list call fails, and syncing that partial list would delete
+// the missing provider's models from Obot until the next successful sync. A configured
+// provider that lists nothing keeps its previous models; a provider that was removed doesn't.
+func (e *Engine) withLastKnownModels(ctx context.Context, listed []listedModel) []listedModel {
+	var providers struct {
+		Providers []struct {
+			Name string `json:"name"`
+		} `json:"providers"`
+	}
+	if err := e.Do(ctx, http.MethodGet, "/api/providers", nil, &providers); err != nil {
+		return listed
+	}
+
+	byProvider := map[string][]listedModel{}
+	for _, m := range listed {
+		provider, _, _ := strings.Cut(m.ID, "/")
+		byProvider[provider] = append(byProvider[provider], m)
+	}
+
+	e.modelsLock.Lock()
+	defer e.modelsLock.Unlock()
+	current := make(map[string][]listedModel, len(providers.Providers))
+	for _, p := range providers.Providers {
+		if models, ok := byProvider[p.Name]; ok {
+			current[p.Name] = models
+		} else if previous, ok := e.lastModels[p.Name]; ok {
+			current[p.Name] = previous
+			listed = append(listed, previous...)
+		}
+	}
+	e.lastModels = current
+	return listed
+}
+
+// HasUpstreamProviders reports whether Bifrost has at least one usable provider. A failed
+// check reports the last known answer, so a transient error doesn't unconfigure the gateway.
 func (e *Engine) HasUpstreamProviders(ctx context.Context) bool {
 	if !e.Ready() {
 		return false
 	}
+	has, err := e.hasUpstreamProviders(ctx)
+	e.modelsLock.Lock()
+	defer e.modelsLock.Unlock()
+	if err != nil {
+		return e.lastHasProviders
+	}
+	e.lastHasProviders = has
+	return has
+}
+
+func (e *Engine) hasUpstreamProviders(ctx context.Context) (bool, error) {
 	var resp struct {
 		Providers []struct {
 			Name                 string `json:"name"`
@@ -190,22 +239,24 @@ func (e *Engine) HasUpstreamProviders(ctx context.Context) bool {
 		} `json:"providers"`
 	}
 	if err := e.Do(ctx, http.MethodGet, "/api/providers", nil, &resp); err != nil {
-		return false
+		return false, err
 	}
 	for _, p := range resp.Providers {
 		if p.CustomProviderConfig != nil && p.CustomProviderConfig.IsKeyLess {
-			return true
+			return true, nil
 		}
 		var keys struct {
 			Keys []json.RawMessage `json:"keys"`
 		}
-		if err := e.Do(ctx, http.MethodGet, "/api/providers/"+url.PathEscape(p.Name)+"/keys", nil, &keys); err == nil && len(keys.Keys) > 0 {
-			return true
+		if err := e.Do(ctx, http.MethodGet, "/api/providers/"+url.PathEscape(p.Name)+"/keys", nil, &keys); err != nil {
+			return false, err
+		} else if len(keys.Keys) > 0 {
+			return true, nil
 		}
 		// Keyless built-in providers such as Ollama and vLLM are usable without keys.
 		if p.Name == "ollama" || p.Name == "vllm" || p.Name == "sgl" {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }

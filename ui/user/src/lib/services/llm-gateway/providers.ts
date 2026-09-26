@@ -30,8 +30,7 @@ const apiKey = (placeholder = 'sk-...'): KeyField => ({
 	label: 'API Key',
 	placeholder,
 	sensitive: true,
-	required: true,
-	description: 'Use env.MY_VAR to read the key from an environment variable of the Obot server.'
+	required: true
 });
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [

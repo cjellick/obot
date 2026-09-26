@@ -3,11 +3,13 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/obot-platform/obot/apiclient/types"
@@ -108,21 +110,19 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 		return err
 	}
 
-	path := strings.TrimPrefix(req.PathValue("path"), "/")
-	allowed := false
-	for _, prefix := range allowedBifrostAPIPrefixes {
-		if path == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(path, strings.TrimSuffix(prefix, "/")+"/") {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		return types.NewErrNotFound("LLM gateway API %q is not available", path)
+	path, ok := allowedBifrostAPIPath(req.PathValue("path"), req.URL.EscapedPath())
+	if !ok {
+		return types.NewErrNotFound("LLM gateway API %q is not available", req.PathValue("path"))
 	}
 
 	body, err := req.Body(api.BodyOptions{MaxBytes: 32 * 1024 * 1024})
 	if err != nil {
 		return err
+	}
+	if len(body) > 0 {
+		if err := rejectSecretReferences(body); err != nil {
+			return err
+		}
 	}
 
 	out, err := http.NewRequestWithContext(req.Context(), req.Method, (&url.URL{Path: "/api/" + path, RawQuery: req.URL.RawQuery}).String(), bytes.NewReader(body))
@@ -152,6 +152,77 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	req.WriteHeader(rec.Code)
 	_, err = req.ResponseWriter.Write(rec.Body.Bytes())
 	return err
+}
+
+// allowedBifrostAPIPath validates the requested Bifrost API path against the allowlist. The
+// path is matched after cleaning, and any dot segment or encoded separator is refused, so a
+// path like "providers/%2e%2e/session" can't reach an API that isn't listed.
+func allowedBifrostAPIPath(raw, escaped string) (string, bool) {
+	raw = strings.TrimPrefix(raw, "/")
+	lowerEscaped := strings.ToLower(escaped)
+	if strings.Contains(lowerEscaped, "%2f") || strings.Contains(lowerEscaped, "%2e") || strings.Contains(lowerEscaped, "%5c") {
+		return "", false
+	}
+	for segment := range strings.SplitSeq(raw, "/") {
+		if segment == "." || segment == ".." {
+			return "", false
+		}
+	}
+	if strings.Contains(raw, "\\") {
+		return "", false
+	}
+	cleaned := strings.TrimPrefix(path.Clean("/"+raw), "/")
+	if cleaned != strings.TrimSuffix(raw, "/") {
+		return "", false
+	}
+	for _, prefix := range allowedBifrostAPIPrefixes {
+		prefix = strings.TrimSuffix(prefix, "/")
+		if cleaned == prefix || strings.HasPrefix(cleaned, prefix+"/") {
+			return cleaned, true
+		}
+	}
+	return "", false
+}
+
+// rejectSecretReferences refuses request bodies that ask Bifrost to resolve a value from the
+// Obot server's environment or a vault ("env.NAME", "vault.path", or the object forms of
+// those). Bifrost would substitute the referenced value and send it to the configured
+// provider URL, which would let an administrator exfiltrate the server's own secrets.
+func rejectSecretReferences(body []byte) error {
+	var doc any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		// Not JSON; Bifrost will reject it on its own.
+		return nil
+	}
+	var walk func(v any) error
+	walk = func(v any) error {
+		switch v := v.(type) {
+		case string:
+			if strings.HasPrefix(v, "env.") || strings.HasPrefix(v, "vault.") {
+				return types.NewErrBadRequest("environment and vault references (%q) are not supported; enter the value itself", v)
+			}
+		case map[string]any:
+			if t, _ := v["type"].(string); t == "env" || t == "vault" {
+				return types.NewErrBadRequest("environment and vault references are not supported; enter the value itself")
+			}
+			if fromEnv, _ := v["from_env"].(bool); fromEnv {
+				return types.NewErrBadRequest("environment references are not supported; enter the value itself")
+			}
+			for _, child := range v {
+				if err := walk(child); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if err := walk(child); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	return walk(doc)
 }
 
 // afterMutation keeps Obot in step with changes made through the proxy.

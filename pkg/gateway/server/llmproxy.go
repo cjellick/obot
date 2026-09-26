@@ -236,7 +236,7 @@ func (r *responseModifier) modifyResponse(resp *http.Response) error {
 	}
 	r.audit.recordResponse(resp)
 
-	if !shouldWrapLLMResponse(resp) {
+	if !shouldWrapLLMResponse(resp) && !r.shouldWrapGatewayResponse(resp) {
 		wrapAuditOnlyResponse(resp, r.audit, r.client)
 		return nil
 	}
@@ -262,7 +262,22 @@ func shouldWrapLLMResponse(resp *http.Response) bool {
 		return false
 	}
 	switch resp.Request.URL.Path {
-	case "/v1/messages", "/anthropic/v1/messages", "/v1/responses", "/openai/v1/responses", "/v1/chat/completions":
+	case "/v1/messages", "/anthropic/v1/messages", "/v1/responses", "/openai/v1/responses":
+		return true
+	default:
+		return false
+	}
+}
+
+// shouldWrapGatewayResponse reports whether an LLM gateway response carries usage that
+// Obot must meter. The gateway also serves Chat Completions and embeddings, which the
+// per-provider routes pass through unmetered.
+func (r *responseModifier) shouldWrapGatewayResponse(resp *http.Response) bool {
+	if r.modelProvider != system.BifrostModelProvider || resp.StatusCode != http.StatusOK {
+		return false
+	}
+	switch resp.Request.URL.Path {
+	case "/v1/chat/completions", "/v1/embeddings":
 		return true
 	default:
 		return false
@@ -1120,6 +1135,11 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 			if err != nil {
 				return err
 			}
+			if len(outputPolicies) > 0 && routeDialect == llmtypes.DialectOpenAIChatCompletions {
+				// Tool-call policies are evaluated on Anthropic Messages and OpenAI Responses
+				// streams only, so fail closed rather than let tool calls through unchecked.
+				return types2.NewErrBadRequest("tool call message policies apply to you; use the Anthropic Messages (/v1/messages) or OpenAI Responses (/v1/responses) API")
+			}
 			if inputPolicyReplacement != "" {
 				b, err := json.Marshal(bodyMap)
 				if err != nil {
@@ -1204,7 +1224,7 @@ func isModelsListRequest(req *http.Request) bool {
 		return false
 	}
 	// The {path...} route value holds the client path, e.g. "v1/models".
-	return strings.TrimPrefix(req.PathValue("path"), "v1/") == "models"
+	return strings.TrimPrefix(strings.Trim(req.PathValue("path"), "/"), "v1/") == "models"
 }
 
 // applyMessagePolicies evaluates input and output message policies against body, modifying

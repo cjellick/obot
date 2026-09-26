@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	types2 "github.com/obot-platform/obot/apiclient/types"
@@ -101,13 +102,16 @@ func resolveBifrostRoute(req *http.Request) (bifrostRoute, error) {
 			return bifrostRoute{base: "/anthropic", dialect: llmtypes.DialectAnthropicMessages}, nil
 		}
 		return bifrostRoute{base: "/"}, nil
-	case "responses", "responses/input_tokens", "responses/compact":
+	case "responses", "responses/input_tokens":
 		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIResponses}, nil
 	case "chat/completions":
 		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIChatCompletions}, nil
-	case "completions", "embeddings", "images/generations", "audio/speech", "rerank", "moderations":
-		return bifrostRoute{base: "/"}, nil
+	case "embeddings":
+		// Embedding responses report usage in the Chat Completions shape.
+		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIChatCompletions}, nil
 	default:
+		// Other request types (legacy completions, images, audio, rerank) aren't exposed until
+		// Obot can meter them against daily token limits and apply message policies.
 		return bifrostRoute{}, types2.NewErrBadRequest("unsupported LLM gateway endpoint %q", reqPath)
 	}
 }
@@ -115,6 +119,12 @@ func resolveBifrostRoute(req *http.Request) (bifrostRoute, error) {
 func (b *bifrostProviderBackend) upstreamURL(req *http.Request, _ map[string]string) (url.URL, llmtypes.Dialect, error) {
 	if b.engine == nil {
 		return url.URL{}, "", types2.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway is disabled")
+	}
+	if !b.engine.Ready() {
+		if err := b.engine.Err(); err != nil {
+			return url.URL{}, "", types2.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway failed to start")
+		}
+		return url.URL{}, "", types2.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway is starting")
 	}
 	route, err := resolveBifrostRoute(req)
 	if err != nil {
@@ -214,7 +224,19 @@ func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayCli
 		req.Header.Set(bifrost.HeaderDimObotModel, model.Spec.Manifest.Name)
 	}
 
-	vkID, err := gatewayClient.LLMGatewayVirtualKeyForUser(ctx, userID, user.GetExtra()["auth_provider_groups"])
+	groups := user.GetExtra()["auth_provider_groups"]
+	if principal.IsHostedAgent(user) {
+		// A hosted agent spends its owner's budget, so match the owner's groups rather than
+		// the agent principal's, which has none.
+		ownerID, err := strconv.ParseUint(userID, 10, 64)
+		if err != nil {
+			return types2.NewErrForbidden("cannot determine the owner of this agent")
+		}
+		if groups, err = gatewayClient.ListGroupIDsForUser(ctx, uint(ownerID)); err != nil {
+			return err
+		}
+	}
+	vkID, err := gatewayClient.LLMGatewayVirtualKeyForUser(ctx, userID, groups)
 	if err != nil {
 		return err
 	}

@@ -124,3 +124,25 @@ func TestEngineE2E(t *testing.T) {
 		t.Fatalf("expected Obot user metadata in logs: %s", body)
 	}
 }
+
+func TestPlainTextSecrets(t *testing.T) {
+	key := map[string]any{
+		"name":               "imported",
+		"value":              "env.NOT_A_REFERENCE",
+		"models":             []string{"*"},
+		"bedrock_key_config": map[string]any{"region": "us-east-1", "access_key": "AKIA"},
+	}
+	plainTextSecrets(key)
+
+	value, ok := key["value"].(map[string]any)
+	if !ok || value["value"] != "env.NOT_A_REFERENCE" || value["type"] != "plain_text" {
+		t.Fatalf("value not wrapped: %#v", key["value"])
+	}
+	cfg := key["bedrock_key_config"].(map[string]any)
+	if region, ok := cfg["region"].(map[string]any); !ok || region["type"] != "plain_text" {
+		t.Fatalf("key config not wrapped: %#v", cfg)
+	}
+	if key["name"] != "imported" {
+		t.Fatalf("name should be left alone: %#v", key["name"])
+	}
+}

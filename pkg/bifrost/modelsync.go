@@ -59,12 +59,16 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 
 	if mp.Annotations[legacyImportAnnotation] == "" && !e.HasUpstreamProviders(ctx) {
 		results, err := e.ImportLegacyModelProviders(ctx, c, gatewayClient)
+		failed := err != nil
 		if err != nil {
 			slog.Warn("failed to import legacy model providers into the LLM gateway", "error", err)
-		} else {
-			for _, r := range results {
-				slog.Info("LLM gateway legacy provider import", "modelProvider", r.ModelProvider, "gatewayProvider", r.GatewayProvider, "status", r.Status, "message", r.Message)
-			}
+		}
+		for _, r := range results {
+			slog.Info("LLM gateway legacy provider import", "modelProvider", r.ModelProvider, "gatewayProvider", r.GatewayProvider, "status", r.Status, "message", r.Message)
+			failed = failed || r.Status == "error"
+		}
+		// Only record the import once it fully succeeded, so a failure is retried next start.
+		if !failed {
 			if err := c.Get(ctx, kclient.ObjectKeyFromObject(&mp), &mp); err == nil {
 				if mp.Annotations == nil {
 					mp.Annotations = map[string]string{}
@@ -81,8 +85,11 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 	for {
+		// A conflicting write just means the provider changed underneath; retry once fresh.
 		if err := TriggerModelSync(ctx, c); err != nil {
-			slog.Warn("failed to trigger LLM gateway model sync", "error", err)
+			if err := TriggerModelSync(ctx, c); err != nil {
+				slog.Warn("failed to trigger LLM gateway model sync", "error", err)
+			}
 		}
 		select {
 		case <-ctx.Done():
