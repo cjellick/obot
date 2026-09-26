@@ -558,3 +558,27 @@ func TestChooseModelMiniFallsBackToResolvedLLM(t *testing.T) {
 		t.Fatalf("expected openai-gpt-5.4, got %q", model.Name)
 	}
 }
+
+func TestNanobotParseModelProviderLLMGateway(t *testing.T) {
+	h := &Handler{serverURL: "https://obot.example.com"}
+
+	for _, dialect := range []llmtypes.Dialect{llmtypes.DialectAnthropicMessages, llmtypes.DialectOpenAIResponses} {
+		p, qualifiedName, err := h.parseModelProvider(resolvedLLMModel{
+			Name:            "m1-gateway-model",
+			ModelProvider:   system.BifrostModelProvider,
+			ProviderDialect: dialect,
+		})
+		if err != nil {
+			t.Fatalf("parseModelProvider: %v", err)
+		}
+		if p.BaseURL != "https://obot.example.com/api/llm-proxy/bifrost/v1" {
+			t.Errorf("baseURL = %q", p.BaseURL)
+		}
+		if p.Dialect != dialect {
+			t.Errorf("dialect = %q, want %q", p.Dialect, dialect)
+		}
+		if qualifiedName != system.BifrostModelProvider+"/m1-gateway-model" {
+			t.Errorf("qualified name = %q", qualifiedName)
+		}
+	}
+}
