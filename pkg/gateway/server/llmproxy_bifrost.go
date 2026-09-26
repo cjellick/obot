@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -364,25 +363,8 @@ func (b *bifrostProviderBackend) admit(ctx context.Context, gatewayClient *clien
 	return ids, nil
 }
 
-// gatewayIdentity resolves whose budgets and guardrails apply to a request. A hosted agent
-// acts for its owner, so it gets the owner's ID, groups and role.
+// gatewayIdentity resolves whose budgets and guardrails apply to a request.
 func gatewayIdentity(ctx context.Context, gatewayClient *client.Client, user kuser.Info) (userID string, groups []string, isAdmin bool, _ error) {
-	userID = principal.ResourceOwnerID(user)
-	groups = user.GetExtra()["auth_provider_groups"]
-	isAdmin = slices.Contains(user.GetGroups(), types2.GroupAdmin) || slices.Contains(user.GetGroups(), types2.GroupOwner)
-	if !principal.IsHostedAgent(user) {
-		return userID, groups, isAdmin, nil
-	}
-	ownerID, err := strconv.ParseUint(userID, 10, 64)
-	if err != nil {
-		return "", nil, false, types2.NewErrForbidden("cannot determine the owner of this agent")
-	}
-	if groups, err = gatewayClient.ListGroupIDsForUser(ctx, uint(ownerID)); err != nil {
-		return "", nil, false, err
-	}
-	owner, err := gatewayClient.UserByID(ctx, userID)
-	if err != nil {
-		return "", nil, false, err
-	}
-	return userID, groups, owner.Role.HasRole(types2.RoleAdmin), nil
+	identity, isAdmin, err := guardrails.ResolveIdentity(ctx, gatewayClient, user)
+	return identity.UserID, identity.Groups, isAdmin, err
 }

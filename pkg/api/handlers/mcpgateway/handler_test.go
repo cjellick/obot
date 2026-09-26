@@ -31,7 +31,7 @@ func TestCompositeUpstreamClientIdentity(t *testing.T) {
 	})
 	upstream := httptest.NewServer(gomcp.NewStreamableHTTPHandler(func(*http.Request) *gomcp.Server { return server }, nil))
 	defer upstream.Close()
-	handler, err := NewHandler(t.Context(), nil, nil, nil, nil, "", "", "", nil)
+	handler, err := NewHandler(t.Context(), nil, nil, nil, nil, "", "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

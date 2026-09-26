@@ -65,6 +65,7 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 		services.DSN,
 		services.MCPSecretBindingAllowedLabel,
 		services.TunnelManager,
+		services.GuardrailEngine,
 	)
 	if err != nil {
 		return nil, err

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/obot-platform/obot/pkg/guardrails"
+
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp"
@@ -52,6 +54,7 @@ type Handler struct {
 	auditLogCollector         proxyAuditCollector
 	composite                 *mmmcp.Composite
 	hookRunner                mcp.HookRunner
+	guardrails                *guardrails.Engine
 	tunnelManager             *tunnel.Manager
 	secretBindingAllowedLabel string
 	serverURL                 string
@@ -116,7 +119,7 @@ func compositeSessionKey(serverConfig mcp.ServerConfig) string {
 	return tunnel.CompositeSessionKey(serverConfig.MCPServerName)
 }
 
-func NewHandler(ctx context.Context, mcpSessionManager *mcp.SessionManager, globalTokenStore mcp.GlobalTokenStore, tokenService *persistent.TokenService, auditLogCollector proxyAuditCollector, serverURL, dsn, secretBindingAllowedLabel string, tunnelManager *tunnel.Manager) (*Handler, error) {
+func NewHandler(ctx context.Context, mcpSessionManager *mcp.SessionManager, globalTokenStore mcp.GlobalTokenStore, tokenService *persistent.TokenService, auditLogCollector proxyAuditCollector, serverURL, dsn, secretBindingAllowedLabel string, tunnelManager *tunnel.Manager, guardrailEngine *guardrails.Engine) (*Handler, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	composite, err := mmmcp.New(ctx, &mmmcpconfig.Config{}, mmmcp.Options{
@@ -142,6 +145,7 @@ func NewHandler(ctx context.Context, mcpSessionManager *mcp.SessionManager, glob
 		auditLogCollector:         auditLogCollector,
 		composite:                 composite,
 		hookRunner:                mcp.NewHookRunner(mcpSessionManager),
+		guardrails:                guardrailEngine,
 		tunnelManager:             tunnelManager,
 		secretBindingAllowedLabel: secretBindingAllowedLabel,
 		serverURL:                 serverURL,
@@ -283,7 +287,16 @@ func (h *Handler) Proxy(req api.Context) error {
 			return fmt.Errorf("failed to prepare MCP request audit log: %w", err)
 		}
 
-		hooks, err := newHookProcessor(req.Request, h.hookRunner, hookConfig, hookServers, audit, newHookCorrelationStore(req.Storage, serverConfig.AuditLogMetadata))
+		var guard *mcpGuard
+		if h.guardrails != nil && req.Method == http.MethodPost {
+			identity, _, err := guardrails.ResolveIdentity(req.Context(), req.GatewayClient, req.User)
+			if err != nil {
+				return err
+			}
+			guard = newMCPGuard(req.Context(), h.guardrails, identity, serverConfig, req.Request.Header)
+		}
+
+		hooks, err := newGuardedHookProcessor(req.Request, guard, h.hookRunner, hookConfig, hookServers, audit, newHookCorrelationStore(req.Storage, serverConfig.AuditLogMetadata))
 		if err != nil {
 			return fmt.Errorf("failed to prepare MCP request hooks: %w", err)
 		}
