@@ -15,6 +15,51 @@ The gateway proxies your requests transparently to the upstream provider while e
 - You can only call models that an administrator has granted you through a [Model Access Policy](./model-access-policies.md).
 - The model list returned to your client (`/v1/models`) is scoped to the models you are allowed to use.
 
+## Unified gateway (powered by Bifrost)
+
+Obot includes an embedded LLM gateway built on [Bifrost](https://github.com/maximhq/bifrost). It serves every configured model — from OpenAI, Anthropic, Amazon Bedrock, Google Vertex AI and Gemini, Azure, Mistral, Groq, xAI, DeepSeek, OpenRouter, Cohere, vLLM, Ollama and more — behind a single base URL:
+
+```
+https://<your-obot-host>/api/llm-proxy/bifrost
+```
+
+- **Any model, any API format.** Every model is available in the OpenAI Chat Completions (`/v1/chat/completions`), OpenAI Responses (`/v1/responses`) and Anthropic Messages (`/v1/messages`) formats, so Claude Code can use GPT models and the OpenAI SDK can use Claude.
+- **Model names** are `provider/model`, for example `openai/gpt-4.1` or `anthropic/claude-sonnet-4-5`. Bare provider model IDs such as `claude-sonnet-4-5` also work, which is what Claude Code sends by default.
+- **Fallbacks.** Add `"fallbacks": ["anthropic/claude-sonnet-4-5"]` to a request to fail over to other models when the primary one errors. Each fallback must also be a model you have access to.
+- **Authentication and access** work exactly as for the rest of the gateway: use an Obot API key (`obot login --scope llm --print-token`), and you can call only the models granted to you by [Model Access Policies](./model-access-policies.md). Daily token limits, message policies, the LLM audit log and usage reporting all apply.
+
+The **Models** page shows ready-to-copy configuration for Claude Code, Codex, the OpenAI and Anthropic SDKs and `curl`.
+
+### Administering the gateway
+
+Administrators manage the gateway under **LLM Gateway** in the sidebar:
+
+| Page | What it does |
+| --- | --- |
+| **Overview** | Requests, success rate, latency, tokens and cost over time, top models, and client setup. |
+| **Providers** | Add upstream providers and their keys. Several keys on one provider are load-balanced by weight, and a key can be limited to specific models. Set base URLs (for self-hosted or proxied endpoints), timeouts, retries with backoff, concurrency and extra headers. Custom providers point at any OpenAI-, Anthropic-, Gemini- or Cohere-compatible endpoint. **Import legacy providers** copies the credentials of Obot's previously configured model providers; this also happens automatically the first time the gateway starts without providers. |
+| **Budgets & Limits** | Spend budgets (USD per hour/day/week/month/...), request and token rate limits, and provider/model restrictions, assigned to users, groups or everyone. A user's own budget takes precedence over a group budget, which takes precedence over the everyone budget. |
+| **Routing** | Rules that match requests with a [CEL](https://github.com/google/cel-spec) expression (over `model`, `provider`, `headers`, ...) and send them to other providers or models, split traffic by weight, or define fallback chains. |
+| **Request Logs** | Every routed request with its user, provider, key, retries, fallbacks, tokens, cost, latency and content. |
+| **Settings** | Request logging and retention, content logging, queueing behavior, and response caching. |
+
+Models from gateway providers are listed on the **Models** page under the *LLM Gateway* provider and are granted to users with Model Access Policies like any other model.
+
+### Server configuration
+
+| Flag / environment variable | Description |
+| --- | --- |
+| `--disable-llm-gateway` / `OBOT_SERVER_DISABLE_LLM_GATEWAY` | Turn the embedded gateway off. |
+| `--llm-gateway-data-dir` / `OBOT_SERVER_LLM_GATEWAY_DATA_DIR` | Where the gateway keeps its configuration (default `$XDG_DATA_HOME/obot/llm-gateway`). |
+| `--llm-gateway-postgres-dsn` / `OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN` | Store gateway configuration and request logs in Postgres instead of SQLite files in the data dir. Must be a different database from Obot's. Required when running more than one Obot replica. |
+| `--llm-gateway-encryption-key` / `OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY` | Key that encrypts provider credentials at rest. Generated and stored in the data dir if unset; set it explicitly when the data dir is not persistent. |
+| `--llm-gateway-log-retention-days` | Days of request logs to keep (default 30). |
+| `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` | Redis or Valkey server used for response caching. Cached responses are kept per user. |
+
+## Per-provider routes
+
+The routes below proxy to a single legacy model provider each. They remain available, but new setups should use the unified gateway above.
+
 ## The Models page
 
 The **Models** page lists the OpenAI, Anthropic, Generic Responses Compatible, Amazon Bedrock, Azure, and Azure Entra models you currently have access to through the gateway. Find it under **Models** in the sidebar (route `/llm-gateway/models`).
