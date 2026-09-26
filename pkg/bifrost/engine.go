@@ -34,13 +34,17 @@ import (
 	"github.com/valyala/fasthttp/fasthttputil"
 )
 
-// Version is reported to Bifrost as its runtime version.
-const Version = "obot-embedded"
-
-// Header names Obot uses when forwarding requests to Bifrost. Headers prefixed with
-// x-bf-lh- are captured by Bifrost's logging plugin into each log entry's metadata, and
-// x-bf-dim- headers become dimensions that the analytics endpoints can group by.
 const (
+	// Version is reported to Bifrost as its runtime version.
+	Version = "obot-embedded"
+
+	// internalHost is the synthetic host used for requests to the embedded server. It is
+	// never resolved; the transport dials the in-memory listener directly.
+	internalHost = "bifrost.internal"
+
+	// Header names Obot uses when forwarding requests to Bifrost. Headers prefixed with
+	// x-bf-lh- are captured by Bifrost's logging plugin into each log entry's metadata, and
+	// x-bf-dim- headers become dimensions that the analytics endpoints can group by.
 	HeaderVirtualKey   = "x-bf-vk"
 	HeaderCacheKey     = "x-bf-cache-key"
 	HeaderLogUserID    = "x-bf-lh-obot-user-id"
@@ -86,9 +90,11 @@ type Engine struct {
 	startOnce sync.Once
 }
 
-// internalHost is the synthetic host used for requests to the embedded server. It is never
-// resolved; the transport dials the in-memory listener directly.
-const internalHost = "bifrost.internal"
+// APIError is returned by Do for non-2xx responses from Bifrost.
+type APIError struct {
+	StatusCode int
+	Message    string
+}
 
 // New creates an engine. Call Start to boot it.
 func New() *Engine {
@@ -334,12 +340,6 @@ func (e *Engine) Do(ctx context.Context, method, path string, body any, out any)
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-// APIError is returned by Do for non-2xx responses from Bifrost.
-type APIError struct {
-	StatusCode int
-	Message    string
 }
 
 func (e *APIError) Error() string {

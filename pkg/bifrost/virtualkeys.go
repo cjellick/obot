@@ -7,17 +7,19 @@ import (
 	"time"
 )
 
-type cachedVirtualKey struct {
-	value   string
-	fetched time.Time
-}
+const (
+	vkCacheTTL = 30 * time.Second
+)
 
 var (
 	vkCacheLock sync.Mutex
 	vkCache     = map[string]cachedVirtualKey{}
 )
 
-const vkCacheTTL = 30 * time.Second
+type cachedVirtualKey struct {
+	value   string
+	fetched time.Time
+}
 
 // VirtualKeyValue returns the secret value of a Bifrost virtual key, which Obot sends on
 // behalf of callers that a budget binding assigns to that key. The value never leaves

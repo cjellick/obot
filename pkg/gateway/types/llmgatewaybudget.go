@@ -1,6 +1,8 @@
 package types
 
-import "time"
+import (
+	"time"
+)
 
 // LLM gateway budget binding subject types.
 const (

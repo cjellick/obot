@@ -3,7 +3,12 @@ package messagepolicy
 import (
 	"context"
 	"fmt"
+
 	"github.com/obot-platform/obot/pkg/bifrost"
+
+	kuser "k8s.io/apiserver/pkg/authentication/user"
+	gocache "k8s.io/client-go/tools/cache"
+	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/obot-platform/nah/pkg/backend"
 	"github.com/obot-platform/obot/apiclient/types"
@@ -11,9 +16,6 @@ import (
 	gateway "github.com/obot-platform/obot/pkg/gateway/client"
 	"github.com/obot-platform/obot/pkg/gateway/server/dispatcher"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
-	kuser "k8s.io/apiserver/pkg/authentication/user"
-	gocache "k8s.io/client-go/tools/cache"
-	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -29,11 +31,6 @@ type Helper struct {
 	gatewayClient   *gateway.Client
 	entraCredential azure.EntraCredentialCache
 	llmGateway      *bifrost.Engine
-}
-
-// SetLLMGateway lets policy evaluation call models served by the embedded LLM gateway.
-func (h *Helper) SetLLMGateway(engine *bifrost.Engine) {
-	h.llmGateway = engine
 }
 
 // ApplicablePolicy pairs a policy's Kubernetes resource name with its manifest.
@@ -158,4 +155,9 @@ func authGroupSet(user kuser.Info) map[string]struct{} {
 		set[group] = struct{}{}
 	}
 	return set
+}
+
+// SetLLMGateway lets policy evaluation call models served by the embedded LLM gateway.
+func (h *Helper) SetLLMGateway(engine *bifrost.Engine) {
+	h.llmGateway = engine
 }

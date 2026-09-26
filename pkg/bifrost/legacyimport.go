@@ -14,12 +14,99 @@ import (
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var (
+	legacyImportPlans = map[string]legacyImportPlan{
+		system.OpenAIModelProvider: {
+			provider: "openai",
+			build: func(s map[string]string) (map[string]any, map[string]any) {
+				return map[string]any{}, map[string]any{"value": secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY")}
+			},
+		},
+		system.AnthropicModelProvider: {
+			provider: "anthropic",
+			build: func(s map[string]string) (map[string]any, map[string]any) {
+				return map[string]any{}, map[string]any{"value": secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY")}
+			},
+		},
+		system.GenericResponsesModelProvider: {
+			provider: "generic-responses",
+			build: func(s map[string]string) (map[string]any, map[string]any) {
+				return map[string]any{
+					"custom_provider_config": map[string]any{"base_provider_type": "openai"},
+					"network_config":         map[string]any{"base_url": secretWithSuffix(s, "_MODEL_PROVIDER_BASE_URL"), "default_request_timeout_in_seconds": 300},
+				}, map[string]any{
+					"value": secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY"),
+				}
+			},
+		},
+		system.AmazonBedrockModelProvider: {
+			provider: "bedrock",
+			build: func(s map[string]string) (map[string]any, map[string]any) {
+				region := secretWithSuffix(s, "_MODEL_PROVIDER_REGION")
+				if region == "" {
+					region = "us-east-1"
+				}
+				cfg := map[string]any{
+					"access_key": secretWithSuffix(s, "_MODEL_PROVIDER_ACCESS_KEY_ID"),
+					"secret_key": secretWithSuffix(s, "_MODEL_PROVIDER_SECRET_ACCESS_KEY"),
+					"region":     region,
+				}
+				if token := secretWithSuffix(s, "_MODEL_PROVIDER_SESSION_TOKEN"); token != "" {
+					cfg["session_token"] = token
+				}
+				return map[string]any{}, map[string]any{"value": "", "bedrock_key_config": cfg}
+			},
+		},
+		system.AmazonBedrockAPIKeyModelProvider: {
+			provider: "bedrock",
+			build: func(s map[string]string) (map[string]any, map[string]any) {
+				region := secretWithSuffix(s, "_MODEL_PROVIDER_REGION")
+				if region == "" {
+					region = "us-east-1"
+				}
+				return map[string]any{}, map[string]any{
+					"value":              secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY"),
+					"bedrock_key_config": map[string]any{"region": region},
+				}
+			},
+		},
+		system.AzureModelProvider: {
+			provider: "azure",
+			build: func(s map[string]string) (map[string]any, map[string]any) {
+				return map[string]any{}, map[string]any{
+					"value":            secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY"),
+					"azure_key_config": map[string]any{"endpoint": secretWithSuffix(s, "_MODEL_PROVIDER_ENDPOINT")},
+				}
+			},
+		},
+		system.AzureEntraModelProvider: {
+			provider: "azure",
+			build: func(s map[string]string) (map[string]any, map[string]any) {
+				return map[string]any{}, map[string]any{
+					"value": "",
+					"azure_key_config": map[string]any{
+						"endpoint":      secretWithSuffix(s, "_MODEL_PROVIDER_ENDPOINT"),
+						"client_id":     secretWithSuffix(s, "_MODEL_PROVIDER_CLIENT_ID"),
+						"client_secret": secretWithSuffix(s, "_MODEL_PROVIDER_CLIENT_SECRET"),
+						"tenant_id":     secretWithSuffix(s, "_MODEL_PROVIDER_TENANT_ID"),
+					},
+				}
+			},
+		},
+	}
+)
+
 // LegacyImportResult reports what ImportLegacyProviders did for each legacy provider.
 type LegacyImportResult struct {
 	ModelProvider   string `json:"modelProvider"`
 	GatewayProvider string `json:"gatewayProvider,omitempty"`
 	Status          string `json:"status"`
 	Message         string `json:"message,omitempty"`
+}
+
+type legacyImportPlan struct {
+	provider string
+	build    func(secrets map[string]string) (provider map[string]any, key map[string]any)
 }
 
 // ImportLegacyModelProviders copies the credentials of configured legacy model providers
@@ -100,11 +187,6 @@ func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.
 	return results, nil
 }
 
-type legacyImportPlan struct {
-	provider string
-	build    func(secrets map[string]string) (provider map[string]any, key map[string]any)
-}
-
 func secretWithSuffix(secrets map[string]string, suffix string) string {
 	for k, v := range secrets {
 		if strings.HasSuffix(k, suffix) {
@@ -112,84 +194,4 @@ func secretWithSuffix(secrets map[string]string, suffix string) string {
 		}
 	}
 	return ""
-}
-
-var legacyImportPlans = map[string]legacyImportPlan{
-	system.OpenAIModelProvider: {
-		provider: "openai",
-		build: func(s map[string]string) (map[string]any, map[string]any) {
-			return map[string]any{}, map[string]any{"value": secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY")}
-		},
-	},
-	system.AnthropicModelProvider: {
-		provider: "anthropic",
-		build: func(s map[string]string) (map[string]any, map[string]any) {
-			return map[string]any{}, map[string]any{"value": secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY")}
-		},
-	},
-	system.GenericResponsesModelProvider: {
-		provider: "generic-responses",
-		build: func(s map[string]string) (map[string]any, map[string]any) {
-			return map[string]any{
-				"custom_provider_config": map[string]any{"base_provider_type": "openai"},
-				"network_config":         map[string]any{"base_url": secretWithSuffix(s, "_MODEL_PROVIDER_BASE_URL"), "default_request_timeout_in_seconds": 300},
-			}, map[string]any{
-				"value": secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY"),
-			}
-		},
-	},
-	system.AmazonBedrockModelProvider: {
-		provider: "bedrock",
-		build: func(s map[string]string) (map[string]any, map[string]any) {
-			region := secretWithSuffix(s, "_MODEL_PROVIDER_REGION")
-			if region == "" {
-				region = "us-east-1"
-			}
-			cfg := map[string]any{
-				"access_key": secretWithSuffix(s, "_MODEL_PROVIDER_ACCESS_KEY_ID"),
-				"secret_key": secretWithSuffix(s, "_MODEL_PROVIDER_SECRET_ACCESS_KEY"),
-				"region":     region,
-			}
-			if token := secretWithSuffix(s, "_MODEL_PROVIDER_SESSION_TOKEN"); token != "" {
-				cfg["session_token"] = token
-			}
-			return map[string]any{}, map[string]any{"value": "", "bedrock_key_config": cfg}
-		},
-	},
-	system.AmazonBedrockAPIKeyModelProvider: {
-		provider: "bedrock",
-		build: func(s map[string]string) (map[string]any, map[string]any) {
-			region := secretWithSuffix(s, "_MODEL_PROVIDER_REGION")
-			if region == "" {
-				region = "us-east-1"
-			}
-			return map[string]any{}, map[string]any{
-				"value":              secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY"),
-				"bedrock_key_config": map[string]any{"region": region},
-			}
-		},
-	},
-	system.AzureModelProvider: {
-		provider: "azure",
-		build: func(s map[string]string) (map[string]any, map[string]any) {
-			return map[string]any{}, map[string]any{
-				"value":            secretWithSuffix(s, "_MODEL_PROVIDER_API_KEY"),
-				"azure_key_config": map[string]any{"endpoint": secretWithSuffix(s, "_MODEL_PROVIDER_ENDPOINT")},
-			}
-		},
-	},
-	system.AzureEntraModelProvider: {
-		provider: "azure",
-		build: func(s map[string]string) (map[string]any, map[string]any) {
-			return map[string]any{}, map[string]any{
-				"value": "",
-				"azure_key_config": map[string]any{
-					"endpoint":      secretWithSuffix(s, "_MODEL_PROVIDER_ENDPOINT"),
-					"client_id":     secretWithSuffix(s, "_MODEL_PROVIDER_CLIENT_ID"),
-					"client_secret": secretWithSuffix(s, "_MODEL_PROVIDER_CLIENT_SECRET"),
-					"tenant_id":     secretWithSuffix(s, "_MODEL_PROVIDER_TENANT_ID"),
-				},
-			}
-		},
-	},
 }

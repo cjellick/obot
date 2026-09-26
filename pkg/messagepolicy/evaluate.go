@@ -6,12 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/obot-platform/obot/pkg/bifrost"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/obot-platform/obot/pkg/bifrost"
+
+	"github.com/tidwall/gjson"
+	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/alias"
@@ -21,8 +25,6 @@ import (
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
-	"github.com/tidwall/gjson"
-	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (

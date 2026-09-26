@@ -29,6 +29,21 @@ const (
 	MetadataMaxOutputTokens = "bifrostMaxOutputTokens"
 )
 
+type listedModel struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	NormalizedName string `json:"normalized_name"`
+	ContextLength  int    `json:"context_length"`
+	MaxOutput      int    `json:"max_output_tokens"`
+	OwnedBy        string `json:"owned_by"`
+	Architecture   *struct {
+		Modality         string   `json:"modality"`
+		InputModalities  []string `json:"input_modalities"`
+		OutputModalities []string `json:"output_modalities"`
+	} `json:"architecture"`
+	Pricing map[string]string `json:"pricing"`
+}
+
 // ModelProviderResource is the ModelProvider resource that represents the embedded
 // gateway. Unlike registry providers it has no daemon and no credential: providers and
 // keys are configured in Bifrost itself.
@@ -47,21 +62,6 @@ func ModelProviderResource() *v1.ModelProvider {
 			},
 		},
 	}
-}
-
-type listedModel struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	NormalizedName string `json:"normalized_name"`
-	ContextLength  int    `json:"context_length"`
-	MaxOutput      int    `json:"max_output_tokens"`
-	OwnedBy        string `json:"owned_by"`
-	Architecture   *struct {
-		Modality         string   `json:"modality"`
-		InputModalities  []string `json:"input_modalities"`
-		OutputModalities []string `json:"output_modalities"`
-	} `json:"architecture"`
-	Pricing map[string]string `json:"pricing"`
 }
 
 // ListModels returns every model Bifrost can currently route to, in the shape the
@@ -168,14 +168,11 @@ func CostFromMetadata(metadata map[string]string) (types.ModelCost, bool) {
 		}
 		return v * 1_000_000
 	}
-	cost := types.ModelCost{
-		TokenUsageCost: types.TokenUsageCost{
-			Input:      perMillion(MetadataInputCost),
-			Output:     perMillion(MetadataOutputCost),
-			CacheRead:  perMillion(MetadataCacheReadCost),
-			CacheWrite: perMillion(MetadataCacheWriteCost),
-		},
-	}
+	var cost types.ModelCost
+	cost.Input = perMillion(MetadataInputCost)
+	cost.Output = perMillion(MetadataOutputCost)
+	cost.CacheRead = perMillion(MetadataCacheReadCost)
+	cost.CacheWrite = perMillion(MetadataCacheWriteCost)
 	return cost, cost.Input > 0 || cost.Output > 0
 }
 

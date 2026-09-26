@@ -18,35 +18,33 @@ import (
 	"github.com/obot-platform/obot/pkg/system"
 )
 
+// allowedBifrostAPIPrefixes are the Bifrost management routes exposed through Obot. Bifrost
+// also has MCP, skills, prompt repository, and session APIs; Obot has its own versions of
+// those features, so they stay hidden.
+var (
+	allowedBifrostAPIPrefixes = []string{
+		"providers",
+		"keys",
+		"models",
+		"governance/",
+		"logs",
+		"config",
+		"plugins",
+		"cache/",
+		"routing/",
+		"version",
+		"pricing/",
+		"proxy-config",
+		"feature-flags",
+	}
+)
+
 // LLMGatewayHandler serves Obot's management API for the embedded Bifrost gateway. Most
 // of it is a guarded pass-through to Bifrost's own management API; Obot adds budget
 // bindings (which tie Obot users and groups to Bifrost virtual keys), model sync, and
 // import of legacy model provider credentials.
 type LLMGatewayHandler struct {
 	engine *bifrost.Engine
-}
-
-func NewLLMGatewayHandler(engine *bifrost.Engine) *LLMGatewayHandler {
-	return &LLMGatewayHandler{engine: engine}
-}
-
-// allowedBifrostAPIPrefixes are the Bifrost management routes exposed through Obot. Bifrost
-// also has MCP, skills, prompt repository, and session APIs; Obot has its own versions of
-// those features, so they stay hidden.
-var allowedBifrostAPIPrefixes = []string{
-	"providers",
-	"keys",
-	"models",
-	"governance/",
-	"logs",
-	"config",
-	"plugins",
-	"cache/",
-	"routing/",
-	"version",
-	"pricing/",
-	"proxy-config",
-	"feature-flags",
 }
 
 // LLMGatewayStatus describes the embedded gateway.
@@ -58,6 +56,17 @@ type LLMGatewayStatus struct {
 	ModelProviderName   string `json:"modelProviderName"`
 	ProxyPath           string `json:"proxyPath"`
 	ModelsBackPopulated bool   `json:"modelsBackPopulated"`
+}
+
+// LLMGatewayBudgetBinding is the API shape of a budget binding subject.
+type LLMGatewayBudgetBinding struct {
+	VirtualKeyID string `json:"virtualKeyID"`
+	SubjectType  string `json:"subjectType"`
+	SubjectID    string `json:"subjectID,omitempty"`
+}
+
+func NewLLMGatewayHandler(engine *bifrost.Engine) *LLMGatewayHandler {
+	return &LLMGatewayHandler{engine: engine}
 }
 
 func (h *LLMGatewayHandler) Status(req api.Context) error {
@@ -140,7 +149,7 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 			req.ResponseWriter.Header().Add(k, v)
 		}
 	}
-	req.ResponseWriter.WriteHeader(rec.Code)
+	req.WriteHeader(rec.Code)
 	_, err = req.ResponseWriter.Write(rec.Body.Bytes())
 	return err
 }
@@ -173,13 +182,6 @@ func (h *LLMGatewayHandler) SyncModels(req api.Context) error {
 	}
 	req.WriteHeader(http.StatusNoContent)
 	return nil
-}
-
-// LLMGatewayBudgetBinding is the API shape of a budget binding subject.
-type LLMGatewayBudgetBinding struct {
-	VirtualKeyID string `json:"virtualKeyID"`
-	SubjectType  string `json:"subjectType"`
-	SubjectID    string `json:"subjectID,omitempty"`
 }
 
 func (h *LLMGatewayHandler) ListBudgetBindings(req api.Context) error {

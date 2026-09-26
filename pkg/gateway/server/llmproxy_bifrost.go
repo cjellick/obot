@@ -21,6 +21,35 @@ import (
 	kuser "k8s.io/apiserver/pkg/authentication/user"
 )
 
+// clientBifrostHeaders are the Bifrost request headers callers may set themselves. They only
+// tune caching and session stickiness for the caller's own requests; everything else under
+// x-bf- (virtual keys, log metadata, direct keys) is controlled by Obot.
+var (
+	clientBifrostHeaders = map[string]bool{
+		"x-bf-cache-ttl":       true,
+		"x-bf-cache-threshold": true,
+		"x-bf-cache-type":      true,
+		"x-bf-cache-no-store":  true,
+		"x-bf-session-id":      true,
+	}
+)
+
+// bifrostProviderBackend sends LLM proxy requests to the embedded Bifrost gateway. Obot
+// still authenticates the caller, checks model access, enforces message policies and
+// quotas, and records audit logs and usage; Bifrost then routes to the upstream provider
+// with load balancing, fallbacks, governance, and its own request logging.
+type bifrostProviderBackend struct {
+	engine *bifrost.Engine
+}
+
+// bifrostRoute maps a client path under /api/llm-proxy/bifrost to a Bifrost route.
+type bifrostRoute struct {
+	// base is the Bifrost path prefix the client path is joined to.
+	base string
+	// dialect is the API shape of the request and response.
+	dialect llmtypes.Dialect
+}
+
 // SetLLMGateway attaches the embedded Bifrost gateway, enabling the
 // /api/llm-proxy/bifrost routes.
 func (s *Server) SetLLMGateway(engine *bifrost.Engine) {
@@ -30,14 +59,6 @@ func (s *Server) SetLLMGateway(engine *bifrost.Engine) {
 // LLMGateway returns the embedded Bifrost gateway, or nil when it is disabled.
 func (s *Server) LLMGateway() *bifrost.Engine {
 	return s.llmGateway
-}
-
-// bifrostProviderBackend sends LLM proxy requests to the embedded Bifrost gateway. Obot
-// still authenticates the caller, checks model access, enforces message policies and
-// quotas, and records audit logs and usage; Bifrost then routes to the upstream provider
-// with load balancing, fallbacks, governance, and its own request logging.
-type bifrostProviderBackend struct {
-	engine *bifrost.Engine
 }
 
 func (s *Server) newBifrostLLMProviderProxy() *llmProviderProxy {
@@ -60,14 +81,6 @@ func (b *bifrostProviderBackend) requiresCredential() bool {
 	return false
 }
 
-// bifrostRoute maps a client path under /api/llm-proxy/bifrost to a Bifrost route.
-type bifrostRoute struct {
-	// base is the Bifrost path prefix the client path is joined to.
-	base string
-	// dialect is the API shape of the request and response.
-	dialect llmtypes.Dialect
-}
-
 // resolveBifrostRoute decides which Bifrost route serves a client path. Only model-bearing
 // inference endpoints and model listing are exposed, because Obot authorizes each request
 // by the model it names.
@@ -78,22 +91,21 @@ func resolveBifrostRoute(req *http.Request) (bifrostRoute, error) {
 		return bifrostRoute{}, types2.NewErrBadRequest("unsupported LLM gateway path %q: paths must start with v1/", reqPath)
 	}
 
-	switch {
-	case endpoint == "messages" || endpoint == "messages/count_tokens":
+	switch endpoint {
+	case "messages", "messages/count_tokens":
 		return bifrostRoute{base: "/anthropic", dialect: llmtypes.DialectAnthropicMessages}, nil
-	case endpoint == "models":
+	case "models":
 		// Anthropic clients send anthropic-version on every request, including model
 		// listing, and expect Anthropic's list format back.
 		if req.Header.Get("anthropic-version") != "" {
 			return bifrostRoute{base: "/anthropic", dialect: llmtypes.DialectAnthropicMessages}, nil
 		}
 		return bifrostRoute{base: "/"}, nil
-	case endpoint == "responses" || endpoint == "responses/input_tokens" || endpoint == "responses/compact":
+	case "responses", "responses/input_tokens", "responses/compact":
 		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIResponses}, nil
-	case endpoint == "chat/completions":
+	case "chat/completions":
 		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIChatCompletions}, nil
-	case endpoint == "completions", endpoint == "embeddings", endpoint == "images/generations",
-		endpoint == "audio/speech", endpoint == "rerank", endpoint == "moderations":
+	case "completions", "embeddings", "images/generations", "audio/speech", "rerank", "moderations":
 		return bifrostRoute{base: "/"}, nil
 	default:
 		return bifrostRoute{}, types2.NewErrBadRequest("unsupported LLM gateway endpoint %q", reqPath)
@@ -172,17 +184,6 @@ func (b *bifrostProviderBackend) authorizeExtraModels(l *llmProviderProxy, req a
 
 	// Send Bifrost the resolved provider-qualified names.
 	return sjson.SetBytes(body, "fallbacks", resolved)
-}
-
-// clientBifrostHeaders are the Bifrost request headers callers may set themselves. They only
-// tune caching and session stickiness for the caller's own requests; everything else under
-// x-bf- (virtual keys, log metadata, direct keys) is controlled by Obot.
-var clientBifrostHeaders = map[string]bool{
-	"x-bf-cache-ttl":       true,
-	"x-bf-cache-threshold": true,
-	"x-bf-cache-type":      true,
-	"x-bf-cache-no-store":  true,
-	"x-bf-session-id":      true,
 }
 
 // decorateRequest removes the caller's Obot credential and adds the identity and

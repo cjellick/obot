@@ -11,9 +11,12 @@ import (
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// legacyImportAnnotation marks the gateway's ModelProvider once legacy provider credentials
-// have been imported, so deleting imported providers later doesn't bring them back.
-const legacyImportAnnotation = "obot.ai/llm-gateway-legacy-import"
+const (
+	// legacyImportAnnotation marks the gateway's ModelProvider once legacy provider
+	// credentials have been imported, so deleting imported providers later doesn't bring
+	// them back.
+	legacyImportAnnotation = "obot.ai/llm-gateway-legacy-import"
+)
 
 // TriggerModelSync flips the sync annotation on the gateway's ModelProvider so
 // the provider controller re-lists models.

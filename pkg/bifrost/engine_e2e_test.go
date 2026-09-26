@@ -60,37 +60,67 @@ func TestEngineE2E(t *testing.T) {
 	if err := e.Start(ctx, Options{DataDir: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
+	defer e.Shutdown()
 
-	code, body := do(t, e, "POST", "/api/providers", `{"provider":"openai","network_config":{"base_url":"`+up.URL+`","allow_private_network":true,"default_request_timeout_in_seconds":30}}`)
-	t.Logf("create provider: %d %s", code, body)
-	code, body = do(t, e, "POST", "/api/providers/openai/keys", `{"name":"k1","value":"sk-test-123","models":["*"],"weight":1}`)
-	t.Logf("create key: %d %s", code, body)
-	time.Sleep(time.Second)
-
-	for _, tc := range []struct{ method, path, body string }{
-		{"GET", "/v1/models", ""},
-		{"GET", "/api/providers/openai", ""},
-		{"POST", "/v1/chat/completions", `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`},
-		{"POST", "/v1/chat/completions", `{"model":"openai/gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hi"}]}`},
-		{"POST", "/anthropic/v1/messages", `{"model":"openai/gpt-4o-mini","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}`},
-		{"POST", "/openai/v1/responses", `{"model":"openai/gpt-4o-mini","input":"hi"}`},
-		{"POST", "/v1/responses", `{"model":"openai/gpt-4o-mini","input":"hi"}`},
-	} {
-		code, body := do(t, e, tc.method, tc.path, tc.body)
-		if len(body) > 600 {
-			body = body[:600]
-		}
-		t.Logf("%s %s -> %d %s", tc.method, tc.path, code, body)
+	if e.HasUpstreamProviders(ctx) {
+		t.Fatal("expected no upstream providers before configuring one")
 	}
-	for i := 0; i < 30; i++ {
-		time.Sleep(500 * time.Millisecond)
-		code, body = do(t, e, "GET", "/api/logs?limit=10", "")
+
+	mustOK := func(method, path, body string) string {
+		t.Helper()
+		code, resp := do(t, e, method, path, body)
+		if code != http.StatusOK {
+			t.Fatalf("%s %s: got %d: %s", method, path, code, resp)
+		}
+		return resp
+	}
+
+	mustOK("POST", "/api/providers", `{"provider":"openai","network_config":{"base_url":"`+up.URL+`","allow_private_network":true,"default_request_timeout_in_seconds":30}}`)
+	mustOK("POST", "/api/providers/openai/keys", `{"name":"k1","value":"sk-test-123","models":["*"],"weight":1}`)
+
+	if !e.HasUpstreamProviders(ctx) {
+		t.Fatal("expected upstream providers after adding a key")
+	}
+
+	models, err := e.ListModels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range models.Models {
+		ids = append(ids, m.ID)
+		if m.ID == "openai/gpt-4o-mini" {
+			if m.Metadata["dialect"] != "OpenAIResponses" || m.Metadata["usage"] != "llm" {
+				t.Fatalf("unexpected metadata for %s: %v", m.ID, m.Metadata)
+			}
+		}
+	}
+	if !strings.Contains(strings.Join(ids, ","), "openai/gpt-4o-mini") {
+		t.Fatalf("expected openai/gpt-4o-mini in %v", ids)
+	}
+
+	for _, tc := range []struct{ path, body, want string }{
+		{"/v1/chat/completions", `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`, "Hello from mock"},
+		{"/v1/chat/completions", `{"model":"openai/gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hi"}]}`, "lo"},
+		// Anthropic Messages to an OpenAI model is translated by Bifrost.
+		{"/anthropic/v1/messages", `{"model":"openai/gpt-4o-mini","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}`, "Hello from responses"},
+		{"/v1/responses", `{"model":"openai/gpt-4o-mini","input":"hi"}`, "Hello from responses"},
+	} {
+		if resp := mustOK("POST", tc.path, tc.body); !strings.Contains(resp, tc.want) {
+			t.Fatalf("POST %s: expected %q in %s", tc.path, tc.want, resp)
+		}
+	}
+
+	// Request logs carry the Obot identity sent in x-bf-lh- headers.
+	var body string
+	for range 40 {
+		time.Sleep(250 * time.Millisecond)
+		body = mustOK("GET", "/api/logs?limit=10&objects=chat_completion", "")
 		if strings.Contains(body, `"has_logs":true`) {
 			break
 		}
 	}
-	if len(body) > 1500 {
-		body = body[:1500]
+	if !strings.Contains(body, `"obot-user-id":"user-123"`) {
+		t.Fatalf("expected Obot user metadata in logs: %s", body)
 	}
-	t.Logf("logs: %d %s", code, body)
 }
