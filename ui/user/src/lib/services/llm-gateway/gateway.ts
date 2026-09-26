@@ -332,7 +332,8 @@ export interface RoutingRule {
 	enabled?: boolean;
 	cel_expression: string;
 	targets: RoutingTarget[];
-	fallbacks?: RoutingFallback[];
+	// Bifrost returns unpinned fallbacks as "provider/model" strings.
+	fallbacks?: (RoutingFallback | string)[];
 	scope?: string;
 	scope_id?: string | null;
 	priority?: number;
@@ -368,6 +369,12 @@ export async function updateRoutingRule(
 
 export async function deleteRoutingRule(id: string, opts?: Opts): Promise<void> {
 	await doDelete(`${B}/governance/routing-rules/${encodeURIComponent(id)}`, opts);
+}
+
+export function parseFallback(f: RoutingFallback | string): RoutingFallback {
+	if (typeof f !== 'string') return f;
+	const i = f.indexOf('/');
+	return i < 0 ? { provider: '', model: f } : { provider: f.slice(0, i), model: f.slice(i + 1) };
 }
 
 // ---------- Logs & analytics ----------

@@ -13,6 +13,7 @@
 		getStatus,
 		listProviders,
 		listRoutingRules,
+		parseFallback,
 		updateRoutingRule,
 		type GatewayStatus,
 		type Provider,
@@ -81,7 +82,7 @@
 		targets = (rule?.targets ?? [{ provider: providers[0]?.name ?? '', model: '', weight: 1 }]).map(
 			(t) => ({ provider: t.provider ?? '', model: t.model ?? '', weight: t.weight })
 		);
-		fallbacks = (rule?.fallbacks ?? []).map((f) => ({ provider: f.provider, model: f.model }));
+		fallbacks = (rule?.fallbacks ?? []).map(parseFallback);
 		dialog?.open();
 	}
 
@@ -141,7 +142,13 @@
 			...r,
 			id: r.id ?? r.name,
 			targetsLabel: targetLabel(r),
-			fallbacksLabel: (r.fallbacks ?? []).map((f) => `${f.provider}/${f.model}`).join(' → ') || '—',
+			fallbacksLabel:
+				(r.fallbacks ?? [])
+					.map((f) => {
+						const p = parseFallback(f);
+						return `${p.provider}/${p.model}`;
+					})
+					.join(' → ') || '—',
 			enabledLabel: r.enabled === false ? 'Disabled' : 'Enabled'
 		}))
 	);
