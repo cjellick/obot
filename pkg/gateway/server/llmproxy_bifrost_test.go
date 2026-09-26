@@ -10,6 +10,10 @@ import (
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 )
 
+type fakeRoundTripper struct {
+	resp *http.Response
+}
+
 func TestResolveBifrostRoute(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -122,14 +126,6 @@ func TestChatCompletionsTokenUsageTracker(t *testing.T) {
 	}
 }
 
-type fakeRoundTripper struct {
-	resp *http.Response
-}
-
-func (f fakeRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
-	return f.resp, nil
-}
-
 func TestSanitizingTransport(t *testing.T) {
 	t.Run("json", func(t *testing.T) {
 		resp := &http.Response{
@@ -181,4 +177,8 @@ func TestSanitizingTransport(t *testing.T) {
 			t.Fatalf("got %q, want %q", body, want)
 		}
 	})
+}
+
+func (f fakeRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return f.resp, nil
 }
