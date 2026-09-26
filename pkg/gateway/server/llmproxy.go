@@ -27,6 +27,7 @@ import (
 	"github.com/obot-platform/obot/pkg/gateway/client"
 	"github.com/obot-platform/obot/pkg/gateway/server/dispatcher"
 	"github.com/obot-platform/obot/pkg/gateway/types"
+	"github.com/obot-platform/obot/pkg/guardrails"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 	"github.com/obot-platform/obot/pkg/messagepolicy"
 	"github.com/obot-platform/obot/pkg/modelaccesspolicy"
@@ -784,6 +785,12 @@ func logViolation(ctx context.Context, c *client.Client, v messagepolicy.Message
 		ThreadID:             threadID,
 	}); err != nil {
 		slog.Warn("failed to log policy violation", "policyID", v.PolicyID, "error", err)
+	}
+	// Message policies are guardrails now; record the violation with their events too.
+	if err := c.InsertGuardrailEvents(ctx, []types.GuardrailEvent{
+		guardrails.LegacyViolationEvent(v.PolicyID, v.PolicyName, userID, direction, v.Explanation),
+	}); err != nil {
+		slog.Warn("failed to record guardrail event", "policyID", v.PolicyID, "error", err)
 	}
 }
 

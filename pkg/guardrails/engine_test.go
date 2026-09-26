@@ -199,3 +199,31 @@ func TestCompileCondition(t *testing.T) {
 		t.Fatal("non-boolean conditions must be rejected")
 	}
 }
+
+func (f *fakeStore) GetGuardrailRule(_ context.Context, id string) (*types.GuardrailRule, error) {
+	for _, r := range f.rules {
+		if r.ID == id {
+			return &r, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (f *fakeStore) GetGuardrailProfile(_ context.Context, id string) (*types.GuardrailProfile, error) {
+	for _, p := range f.profiles {
+		if p.ID == id {
+			return &p, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (f *fakeStore) CreateGuardrailProfile(_ context.Context, p *types.GuardrailProfile, _ map[string]string) error {
+	f.profiles = append(f.profiles, *p)
+	return nil
+}
+
+func (f *fakeStore) CreateGuardrailRule(_ context.Context, r *types.GuardrailRule) error {
+	f.rules = append(f.rules, *r)
+	return nil
+}

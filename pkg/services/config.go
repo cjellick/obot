@@ -76,6 +76,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	kvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apiserver/pkg/authentication/request/union"
+	kuser "k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/server/options/encryptionconfig"
 	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -1140,29 +1141,20 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		}()
 	}
 
-	var msgPolicyHelper *messagepolicy.Helper
-	if config.EnableMessagePolicies {
-		msgPolicyHelper, err = messagepolicy.NewHelper(ctx, r.Backend(), storageClient, providerDispatcher, gatewayClient)
-		if err != nil {
-			return nil, err
-		}
-		if bifrostEngine != nil {
-			msgPolicyHelper.SetLLMGateway(bifrostEngine)
-		}
+	// Message policies are now guardrails: LLM-judge guardrails are evaluated with the message
+	// policy judge, and the legacy LLM proxy reads its policies from guardrails.
+	judge, err := messagepolicy.NewHelper(ctx, r.Backend(), storageClient, providerDispatcher, gatewayClient)
+	if err != nil {
+		return nil, err
 	}
-
-	// Guardrails check LLM gateway traffic and MCP tool calls. Their LLM-judge policies are
-	// evaluated with the message policy judge.
-	judge := msgPolicyHelper
-	if judge == nil {
-		if judge, err = messagepolicy.NewHelper(ctx, r.Backend(), storageClient, providerDispatcher, gatewayClient); err != nil {
-			return nil, err
-		}
-		if bifrostEngine != nil {
-			judge.SetLLMGateway(bifrostEngine)
-		}
+	if bifrostEngine != nil {
+		judge.SetLLMGateway(bifrostEngine)
 	}
 	guardrailEngine := guardrails.New(ctx, gatewayClient, judge)
+	judge.SetPolicySource(func(user kuser.Info, direction apiclienttypes.PolicyDirection) ([]messagepolicy.ApplicablePolicy, error) {
+		return guardrailEngine.JudgePolicies(ctx, guardrails.Identity{UserID: user.GetUID(), Groups: user.GetExtra()["auth_provider_groups"]}, direction)
+	})
+	go migrateMessagePolicies(ctx, storageClient, gatewayClient, guardrailEngine)
 	if bifrostEngine != nil {
 		go func() {
 			if err := bifrostEngine.Wait(ctx); err != nil {
@@ -1188,7 +1180,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	}
 
 	gatewayOpts := gserver.Options(config.GatewayConfig)
-	gatewayServer, err := gserver.New(gatewayDB, persistentTokenServer, providerDispatcher, acrHelper, mapHelper, msgPolicyHelper, gatewayOpts)
+	gatewayServer, err := gserver.New(gatewayDB, persistentTokenServer, providerDispatcher, acrHelper, mapHelper, judge, gatewayOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -1776,5 +1768,41 @@ func localK8sCacheByObject(mcpServerNamespace, runtimeNamespace string) map[kcli
 		&corev1.Secret{}: {
 			Namespaces: secretNamespaces,
 		},
+	}
+}
+
+// migrateMessagePolicies converts message policies into guardrails, once. MessagePolicy
+// resources are left in place, unenforced, so the conversion can be reviewed.
+func migrateMessagePolicies(ctx context.Context, storageClient kclient.Client, gatewayClient *client.Client, engine *guardrails.Engine) {
+	for {
+		err := gatewayClient.MigrateKinmIfNotRun(ctx, "guardrails_message_policies", func() error {
+			var list v1.MessagePolicyList
+			if err := storageClient.List(ctx, &list, kclient.InNamespace(system.DefaultNamespace)); err != nil {
+				return err
+			}
+			policies := make([]guardrails.LegacyPolicy, 0, len(list.Items))
+			for _, p := range list.Items {
+				if p.DeletionTimestamp.IsZero() {
+					policies = append(policies, guardrails.LegacyPolicy{ID: p.Name, Manifest: p.Spec.Manifest})
+				}
+			}
+			if err := guardrails.MigrateMessagePolicies(ctx, gatewayClient, policies); err != nil {
+				return err
+			}
+			if len(policies) > 0 {
+				slog.Info("converted message policies into guardrails", "count", len(policies))
+			}
+			return nil
+		})
+		if err == nil {
+			engine.Invalidate()
+			return
+		}
+		slog.Warn("failed to convert message policies into guardrails; retrying", "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
 	}
 }

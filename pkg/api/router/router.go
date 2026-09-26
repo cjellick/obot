@@ -655,6 +655,23 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("GET /api/llm-gateway/budgets/{budget_id}/usage", llmGateway.BudgetUsage)
 	mux.HandleFunc("/api/llm-gateway/admin/{path...}", llmGateway.Proxy)
 
+	// Guardrails, for LLM gateway traffic and MCP tool calls
+	guardrailsHandler := handlers.NewGuardrailsHandler(services.GuardrailEngine)
+	mux.HandleFunc("GET /api/llm-gateway/guardrails/providers", guardrailsHandler.Providers)
+	mux.HandleFunc("POST /api/llm-gateway/guardrails/validate-condition", guardrailsHandler.ValidateCondition)
+	mux.HandleFunc("GET /api/llm-gateway/guardrails/rules", guardrailsHandler.ListRules)
+	mux.HandleFunc("POST /api/llm-gateway/guardrails/rules", guardrailsHandler.CreateRule)
+	mux.HandleFunc("GET /api/llm-gateway/guardrails/rules/{rule_id}", guardrailsHandler.GetRule)
+	mux.HandleFunc("PUT /api/llm-gateway/guardrails/rules/{rule_id}", guardrailsHandler.UpdateRule)
+	mux.HandleFunc("DELETE /api/llm-gateway/guardrails/rules/{rule_id}", guardrailsHandler.DeleteRule)
+	mux.HandleFunc("GET /api/llm-gateway/guardrails/profiles", guardrailsHandler.ListProfiles)
+	mux.HandleFunc("POST /api/llm-gateway/guardrails/profiles", guardrailsHandler.CreateProfile)
+	mux.HandleFunc("GET /api/llm-gateway/guardrails/profiles/{profile_id}", guardrailsHandler.GetProfile)
+	mux.HandleFunc("PUT /api/llm-gateway/guardrails/profiles/{profile_id}", guardrailsHandler.UpdateProfile)
+	mux.HandleFunc("DELETE /api/llm-gateway/guardrails/profiles/{profile_id}", guardrailsHandler.DeleteProfile)
+	mux.HandleFunc("POST /api/llm-gateway/guardrails/profiles/{profile_id}/test", guardrailsHandler.TestProfile)
+	mux.HandleFunc("GET /api/llm-gateway/guardrails/events", guardrailsHandler.ListEvents)
+
 	// Model providers
 	mux.HandleFunc("GET /api/model-providers", modelProviders.List)
 	mux.HandleFunc("GET /api/model-proxy", modelProxy.Get)

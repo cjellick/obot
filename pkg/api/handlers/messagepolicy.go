@@ -2,13 +2,19 @@ package handlers
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
-	"github.com/obot-platform/obot/pkg/system"
 )
 
+var (
+	errMessagePoliciesMoved = types.NewErrHTTP(http.StatusGone, "Message policies are now managed as guardrails: create an LLM Judge profile and a rule under LLM Gateway > Guardrails, or use /api/llm-gateway/guardrails. Existing message policies were converted automatically.")
+)
+
+// MessagePolicyHandler serves the MessagePolicy resources left from before message policies
+// became guardrails. They are read-only and no longer enforced.
 type MessagePolicyHandler struct{}
 
 func NewMessagePolicyHandler() *MessagePolicyHandler {
@@ -44,56 +50,14 @@ func (*MessagePolicyHandler) Get(req api.Context) error {
 	return req.Write(convertMessagePolicy(policy))
 }
 
-// Create creates a new message policy.
-func (*MessagePolicyHandler) Create(req api.Context) error {
-	var manifest types.MessagePolicyManifest
-	if err := req.Read(&manifest); err != nil {
-		return types.NewErrBadRequest("failed to read message policy manifest: %v", err)
-	}
-
-	if err := manifest.Validate(); err != nil {
-		return types.NewErrBadRequest("invalid message policy manifest: %v", err)
-	}
-
-	policy := v1.MessagePolicy{
-		GenerateName: system.MessagePolicyPrefix,
-		Namespace:    req.Namespace(),
-		Spec: v1.MessagePolicySpec{
-			Manifest: manifest,
-		},
-	}
-
-	if err := req.Create(&policy); err != nil {
-		return fmt.Errorf("failed to create message policy: %w", err)
-	}
-
-	return req.Write(convertMessagePolicy(policy))
+// Create is no longer supported: message policies are guardrails now.
+func (*MessagePolicyHandler) Create(api.Context) error {
+	return errMessagePoliciesMoved
 }
 
-// Update updates an existing message policy.
-func (*MessagePolicyHandler) Update(req api.Context) error {
-	policyID := req.PathValue("id")
-
-	var manifest types.MessagePolicyManifest
-	if err := req.Read(&manifest); err != nil {
-		return types.NewErrBadRequest("failed to read message policy manifest: %v", err)
-	}
-
-	if err := manifest.Validate(); err != nil {
-		return types.NewErrBadRequest("invalid message policy manifest: %v", err)
-	}
-
-	var existing v1.MessagePolicy
-	if err := req.Get(&existing, policyID); err != nil {
-		return types.NewErrBadRequest("failed to get message policy: %v", err)
-	}
-
-	existing.Spec.Manifest = manifest
-	if err := req.Update(&existing); err != nil {
-		return fmt.Errorf("failed to update message policy: %w", err)
-	}
-
-	return req.Write(convertMessagePolicy(existing))
+// Update is no longer supported: message policies are guardrails now.
+func (*MessagePolicyHandler) Update(api.Context) error {
+	return errMessagePoliciesMoved
 }
 
 // Delete deletes a message policy.

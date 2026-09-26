@@ -31,7 +31,12 @@ type Helper struct {
 	gatewayClient   *gateway.Client
 	entraCredential azure.EntraCredentialCache
 	llmGateway      *bifrost.Engine
+	policySource    PolicySource
 }
+
+// PolicySource returns the policies that apply to a user and direction, replacing the
+// MessagePolicy resources as the source of policies.
+type PolicySource func(user kuser.Info, direction types.PolicyDirection) ([]ApplicablePolicy, error)
 
 // ApplicablePolicy pairs a policy's Kubernetes resource name with its manifest.
 type ApplicablePolicy struct {
@@ -68,6 +73,9 @@ func NewHelper(ctx context.Context, backend backend.Backend, client kclient.Clie
 
 // GetApplicablePolicies returns all policies that apply to the given user and direction.
 func (h *Helper) GetApplicablePolicies(user kuser.Info, direction types.PolicyDirection) ([]ApplicablePolicy, error) {
+	if h.policySource != nil {
+		return h.policySource(user, direction)
+	}
 	seen := make(map[string]struct{})
 	var result []ApplicablePolicy
 
@@ -160,4 +168,10 @@ func authGroupSet(user kuser.Info) map[string]struct{} {
 // SetLLMGateway lets policy evaluation call models served by the embedded LLM gateway.
 func (h *Helper) SetLLMGateway(engine *bifrost.Engine) {
 	h.llmGateway = engine
+}
+
+// SetPolicySource replaces the MessagePolicy resources as the source of policies. Message
+// policies are now guardrails, so Obot reads LLM judge guardrails instead.
+func (h *Helper) SetPolicySource(source PolicySource) {
+	h.policySource = source
 }

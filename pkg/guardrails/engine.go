@@ -396,10 +396,17 @@ func (e *Engine) record(r *compiledRule, p *compiledProfile, req Request, outcom
 		Findings:    findingsJSON,
 		Error:       errMsg,
 	}
+	e.enqueue(event)
+}
+
+func (e *Engine) enqueue(event types.GuardrailEvent) {
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now()
+	}
 	select {
 	case e.events <- event:
 	default:
-		slog.Warn("dropping guardrail event: the event buffer is full", "rule", r.rule.Name)
+		slog.Warn("dropping guardrail event: the event buffer is full", "rule", event.RuleName)
 	}
 }
 
@@ -439,4 +446,35 @@ func (e *Engine) Flush() {
 		time.Sleep(20 * time.Millisecond)
 	}
 	time.Sleep(1200 * time.Millisecond)
+}
+
+// TestProfile runs a profile's checker against sample text without recording events, so
+// admins can try a profile before relying on it.
+func (e *Engine) TestProfile(ctx context.Context, profile types.GuardrailProfile, secrets map[string]string, target, stage, text string) (Result, []Segment, error) {
+	var config map[string]any
+	if len(profile.Config) > 0 {
+		if err := json.Unmarshal(profile.Config, &config); err != nil {
+			return Result{}, nil, fmt.Errorf("invalid configuration: %w", err)
+		}
+	}
+	checker, err := newChecker(profile.Type, config, secrets, e.deps)
+	if err != nil {
+		return Result{}, nil, err
+	}
+	role := RoleUser
+	switch {
+	case target == types.GuardrailTargetMCP && stage == StageOutput:
+		role = RoleToolResult
+	case target == types.GuardrailTargetMCP:
+		role = RoleToolCall
+	case stage == StageOutput:
+		role = RoleAssistant
+	}
+	segments := []Segment{{Role: role, Text: text, Name: "test"}}
+	result, err := checker.Check(ctx, CheckInput{Target: target, Stage: stage, Segments: segments})
+	if err != nil {
+		return Result{}, nil, err
+	}
+	redacted, _ := redactResult(segments, result)
+	return result, redacted, nil
 }
