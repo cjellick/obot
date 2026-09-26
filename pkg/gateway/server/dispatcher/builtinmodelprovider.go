@@ -14,6 +14,8 @@ type BuiltinModelProvider interface {
 	// HasUpstreamProviders reports whether at least one upstream provider is configured,
 	// which is what makes the built-in provider usable.
 	HasUpstreamProviders(ctx context.Context) bool
+	// Ready reports whether the provider has finished starting.
+	Ready() bool
 }
 
 // RegisterBuiltinModelProvider registers a model provider that runs inside the Obot process.

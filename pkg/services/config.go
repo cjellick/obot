@@ -139,12 +139,12 @@ type Config struct {
 	EnableMessagePolicies                bool   `usage:"Enable message policies for LLM proxy content enforcement" default:"false"`
 	LLMAuditLogRetentionDays             int    `usage:"Number of days to retain LLM audit logs (0 to disable cleanup)." default:"90"`
 	DisableLLMAuditLog                   bool   `usage:"Disable LLM gateway audit logging" default:"false"`
-	DisableLLMGateway                    bool   `usage:"Disable the embedded Bifrost LLM gateway" default:"false" env:"OBOT_SERVER_DISABLE_LLM_GATEWAY"`
-	LLMGatewayDataDir                    string `usage:"Directory for the embedded LLM gateway's configuration and, without a Postgres DSN, its SQLite stores (default: $XDG_DATA_HOME/obot/llm-gateway)" env:"OBOT_SERVER_LLM_GATEWAY_DATA_DIR"`
-	LLMGatewayPostgresDSN                string `usage:"Postgres DSN for the embedded LLM gateway's config and log stores. Must be a different database from Obot's" env:"OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN"`
-	LLMGatewayEncryptionKey              string `usage:"Key used by the embedded LLM gateway to encrypt provider keys at rest (default: generated and stored in the data dir)" env:"OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY"`
-	LLMGatewayLogRetentionDays           int    `usage:"Number of days the embedded LLM gateway keeps request logs" default:"30" env:"OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS"`
-	LLMGatewayLogLevel                   string `usage:"Log level for the embedded LLM gateway (debug, info, warn, error)" default:"warn" env:"OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL"`
+	DisableLLMGateway                    bool   `usage:"Disable the embedded Bifrost LLM gateway" name:"disable-llm-gateway" default:"false" env:"OBOT_SERVER_DISABLE_LLM_GATEWAY"`
+	LLMGatewayDataDir                    string `usage:"Directory for the embedded LLM gateway's configuration and, without a Postgres DSN, its SQLite stores (default: $XDG_DATA_HOME/obot/llm-gateway)" name:"llm-gateway-data-dir" env:"OBOT_SERVER_LLM_GATEWAY_DATA_DIR"`
+	LLMGatewayPostgresDSN                string `usage:"Postgres DSN for the embedded LLM gateway's config and log stores. Must be a different database from Obot's" name:"llm-gateway-postgres-dsn" env:"OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN"`
+	LLMGatewayEncryptionKey              string `usage:"Key used by the embedded LLM gateway to encrypt provider keys at rest (default: generated and stored in the data dir)" name:"llm-gateway-encryption-key" env:"OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY"`
+	LLMGatewayLogRetentionDays           int    `usage:"Number of days the embedded LLM gateway keeps request logs" name:"llm-gateway-log-retention-days" default:"30" env:"OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS"`
+	LLMGatewayLogLevel                   string `usage:"Log level for the embedded LLM gateway (debug, info, warn, error)" name:"llm-gateway-log-level" default:"warn" env:"OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL"`
 	DeviceScanRetentionDays              int    `usage:"Number of days to retain submitted device scans (0 to disable cleanup)." default:"90"`
 	EnableAgents                         *bool  `usage:"Enable Obot Agent features. When unset, agents are disabled for new deployments but grandfathered in for deployments that already have agents. Explicitly set to true to force-enable, or false to force-disable, regardless of grandfathering." env:"OBOT_ENABLE_AGENTS"`
 	EnableHostedAgents                   bool   `usage:"Enable Hosted Agents features" default:"false"`

@@ -491,7 +491,14 @@ func (h *Handler) BackPopulateModels(req router.Request, _ router.Response) erro
 }
 
 func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *dispatcher.Dispatcher, modelProvider *v1.ModelProvider) error {
-	if !modelProvider.Status.Configured {
+	if builtin, ok := dispatcher.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name); ok {
+		// A built-in provider always lists, even with no upstream providers, so that removing
+		// its last provider prunes its models. While it is still starting, keep the current
+		// models until it can list them.
+		if !builtin.Ready() {
+			return nil
+		}
+	} else if !modelProvider.Status.Configured {
 		return nil
 	}
 
