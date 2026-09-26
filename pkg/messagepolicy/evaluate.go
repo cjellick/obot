@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/obot-platform/obot/pkg/bifrost"
 	"io"
 	"log/slog"
 	"net/http"
@@ -217,6 +218,24 @@ func (h *Helper) resolveModelByAlias(ctx context.Context, aliasType types.Defaul
 		return nil, fmt.Errorf("failed to get model provider: %w", err)
 	}
 
+	if modelProvider.Name == system.BifrostModelProvider {
+		if h.llmGateway == nil {
+			return nil, fmt.Errorf("the LLM gateway is disabled")
+		}
+		// The gateway translates every dialect, and Chat Completions is the one every
+		// upstream provider supports.
+		u := h.llmGateway.BaseURL()
+		u.Path = "/v1"
+		return &resolvedModel{
+			targetModel:  model.Spec.Manifest.TargetModel,
+			providerName: modelProvider.Name,
+			providerURL:  u.String(),
+			credHeaders:  map[string]string{bifrost.HeaderLogUserID: "system:message-policy"},
+			dialect:      string(llmtypes.DialectOpenAIChatCompletions),
+			httpClient:   &http.Client{Transport: h.llmGateway.Transport()},
+		}, nil
+	}
+
 	credEnv, err := dispatcher.CredentialEnvForModelProvider(ctx, h.gatewayClient, modelProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get model provider credentials: %w", err)
@@ -405,7 +424,11 @@ func (h *Helper) callLLMChatCompletions(ctx context.Context, resolved *resolvedM
 		httpReq.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	httpClient := http.DefaultClient
+	if resolved.httpClient != nil {
+		httpClient = resolved.httpClient
+	}
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		slog.Error("LLM call failed", "model", resolved.targetModel, "error", err)
 		return "", fmt.Errorf("LLM call failed: %w", err)

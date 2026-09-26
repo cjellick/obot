@@ -163,7 +163,7 @@ func TestHasModelProvider(t *testing.T) {
 			}
 
 			storage := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(objects...).Build()
-			got, err := hasModelProvider(t.Context(), storage, func(context.Context, v1.ModelProvider) (map[string]string, error) {
+			got, err := hasModelProvider(t.Context(), storage, nil, func(context.Context, v1.ModelProvider) (map[string]string, error) {
 				if tt.readErr {
 					return nil, errors.New("database down")
 				}
@@ -270,7 +270,7 @@ func TestHasModelProviderConfiguredProviderWins(t *testing.T) {
 					}
 
 					storage := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(objects...).Build()
-					got, err := hasModelProvider(t.Context(), storage, func(_ context.Context, provider v1.ModelProvider) (map[string]string, error) {
+					got, err := hasModelProvider(t.Context(), storage, nil, func(_ context.Context, provider v1.ModelProvider) (map[string]string, error) {
 						if provider.Name == configuredName {
 							return map[string]string{"KEY": "secret", "URL": "https://example.com"}, nil
 						}

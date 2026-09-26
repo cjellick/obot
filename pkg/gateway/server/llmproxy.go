@@ -33,6 +33,7 @@ import (
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	kuser "k8s.io/apiserver/pkg/authentication/user"
 )
 
@@ -88,6 +89,29 @@ type llmProviderProxyBackend interface {
 	modelProviderName() string
 	upstreamURL(req *http.Request, credEnv map[string]string) (url.URL, llmtypes.Dialect, error)
 	transport(provider v1.ModelProvider, credEnv map[string]string) (http.RoundTripper, error)
+}
+
+// credentialOptionalBackend is implemented by backends whose upstream credentials are not
+// stored as an Obot model provider credential.
+type credentialOptionalBackend interface {
+	requiresCredential() bool
+}
+
+// trackerDialectBackend is implemented by backends that choose the usage tracker from the
+// route's dialect rather than the model's.
+type trackerDialectBackend interface {
+	trackerDialect(routeDialect llmtypes.Dialect) llmtypes.Dialect
+}
+
+// modelResolvingBackend is implemented by backends with an additional way to resolve a
+// model reference that the standard lookup did not find. A nil model means no match.
+type modelResolvingBackend interface {
+	resolveModel(l *llmProviderProxy, reference string) (*v1.Model, error)
+}
+
+// requestDecoratingBackend is implemented by backends that add headers for the upstream.
+type requestDecoratingBackend interface {
+	decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) error
 }
 
 type llmProviderProxy struct {
@@ -221,7 +245,7 @@ func shouldWrapLLMResponse(resp *http.Response) bool {
 		return false
 	}
 	switch resp.Request.URL.Path {
-	case "/v1/messages", "/anthropic/v1/messages", "/v1/responses", "/openai/v1/responses":
+	case "/v1/messages", "/anthropic/v1/messages", "/v1/responses", "/openai/v1/responses", "/v1/chat/completions":
 		return true
 	default:
 		return false
@@ -958,12 +982,16 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 		l.lock.Unlock()
 	}
 
-	credEnv, err := dispatcher.CredentialEnvForModelProvider(req.Context(), req.GatewayClient, *modelProvider)
-	if err != nil {
-		if errors.As(err, &client.CredentialNotFoundError{}) {
-			return types2.NewErrBadRequest("model provider %q is not configured; verify that the LLM gateway endpoint matches the configured provider", modelProvider.Name)
+	var credEnv map[string]string
+	if b, ok := l.backend.(credentialOptionalBackend); !ok || b.requiresCredential() {
+		var err error
+		credEnv, err = dispatcher.CredentialEnvForModelProvider(req.Context(), req.GatewayClient, *modelProvider)
+		if err != nil {
+			if errors.As(err, &client.CredentialNotFoundError{}) {
+				return types2.NewErrBadRequest("model provider %q is not configured; verify that the LLM gateway endpoint matches the configured provider", modelProvider.Name)
+			}
+			return fmt.Errorf("failed to get credential environment for model provider: %w", err)
 		}
-		return fmt.Errorf("failed to get credential environment for model provider: %w", err)
 	}
 
 	var audit *llmAuditRecorder
@@ -989,14 +1017,32 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 	audit.setReasoningEffort(l.backend.modelProviderName(), body)
 
 	prepared := &preparedLLMProxyRequest{body: body}
+	var resolvedModel *v1.Model
 
-	if targetModel := extractModelFromBody(body); targetModel != "" {
+	targetModel := extractModelFromBody(body)
+	if targetModel == "" {
+		if _, gated := l.backend.(modelResolvingBackend); gated && !isModelsListRequest(req.Request) {
+			// Backends that can reach any model authorize every request by the model it
+			// names, so a request that names none cannot be authorized.
+			return types2.NewErrBadRequest("a model is required")
+		}
+	}
+	if targetModel != "" {
 		audit.setModel(modelProvider.Name, "", targetModel)
 
 		model, err := l.mapHelper.ResolveModelReference(req.Context(), req.Storage, modelProvider.Namespace, modelProvider.Name, targetModel)
+		if resolver, ok := l.backend.(modelResolvingBackend); ok && apierrors.IsNotFound(err) {
+			if fallback, fallbackErr := resolver.resolveModel(l, targetModel); fallbackErr == nil && fallback != nil {
+				model, err = fallback, nil
+			}
+		}
+		if apierrors.IsNotFound(err) {
+			return types2.NewErrNotFound("model %q is not available through this endpoint", targetModel)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to get model: %w", err)
 		}
+		resolvedModel = model
 		if model.Spec.Manifest.ModelProvider != modelProvider.Name {
 			return types2.NewErrBadRequest("requested model does not match configured provider %q", targetModel)
 		}
@@ -1021,7 +1067,11 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 			}
 		}
 
-		prepared.tokenUsageTracker = newTokenUsageTracker(*model)
+		if b, ok := l.backend.(trackerDialectBackend); ok {
+			prepared.tokenUsageTracker = newTokenUsageTrackerForDialect(*model, b.trackerDialect(routeDialect))
+		} else {
+			prepared.tokenUsageTracker = newTokenUsageTracker(*model)
+		}
 
 		prepared.body, err = rewriteModelInBody(body, prepared.model)
 		if err != nil {
@@ -1077,6 +1127,12 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 		return err
 	} else if remainingUsage.IsDepleted() {
 		return types2.NewErrHTTP(http.StatusTooManyRequests, fmt.Sprintf("no tokens remaining (input tokens remaining: %d, output tokens remaining: %d)", remainingUsage.InputTokens, remainingUsage.OutputTokens))
+	}
+
+	if decorator, ok := l.backend.(requestDecoratingBackend); ok {
+		if err := decorator.decorateRequest(req.Context(), req.GatewayClient, req.Request, req.User, resolvedModel); err != nil {
+			return err
+		}
 	}
 
 	transport, err := l.backend.transport(*modelProvider, credEnv)

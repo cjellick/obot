@@ -12,6 +12,9 @@ import (
 )
 
 func (d *Dispatcher) ModelsForProvider(ctx context.Context, modelProvider v1.ModelProvider) (*openai.ModelsList, error) {
+	if builtin, ok := d.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name); ok {
+		return builtin.ListModels(ctx)
+	}
 	return d.modelsForProvider(ctx, providerKeyForModelProvider(modelProvider.Namespace, modelProvider.Name), modelProvider)
 }
 
@@ -19,6 +22,9 @@ func (d *Dispatcher) ModelsForProvider(ctx context.Context, modelProvider v1.Mod
 // always reads the current credential. It cannot accidentally reuse a cached
 // provider process from before a credential change.
 func (d *Dispatcher) FreshModelsForProvider(ctx context.Context, modelProvider v1.ModelProvider) (*openai.ModelsList, error) {
+	if builtin, ok := d.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name); ok {
+		return builtin.ListModels(ctx)
+	}
 	key := fmt.Sprintf("%s/refresh/%d", providerKeyForModelProvider(modelProvider.Namespace, modelProvider.Name), d.modelRefreshSequence.Add(1))
 	defer d.stopDaemon(key)
 	return d.modelsForProvider(ctx, key, modelProvider)

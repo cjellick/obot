@@ -79,6 +79,7 @@ var (
 		"/api/local-auth/users/",
 		"/api/model-providers",
 		"/api/model-providers/",
+		"/api/llm-gateway/",
 		"GET /api/bookstrap",
 		"/api/models",
 		"/api/models/",
@@ -181,6 +182,7 @@ var (
 		types.GroupAdmin: adminAndOwnerRules,
 		types.GroupOwner: append(slices.Clone(adminAndOwnerRules), ownerRules...),
 		types.GroupAuditor: {
+			"GET /api/llm-gateway/",
 			"GET /api/model-proxy",
 			"GET /api/model-proxy/usage",
 			"GET /api/admin-api-keys",

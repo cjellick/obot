@@ -480,3 +480,35 @@ func authGroupSet(user kuser.Info) map[string]struct{} {
 	}
 	return set
 }
+
+// ResolveProviderQualifiedModel resolves a bare model ID against a provider whose target
+// models are qualified with an upstream provider prefix ("openai/gpt-4o"). This lets
+// clients that only know provider-native IDs, such as Claude Code sending
+// "claude-sonnet-4-5", reach the LLM gateway's "anthropic/claude-sonnet-4-5". When several
+// upstream providers serve the same model ID, the most recently created model wins.
+func (h *Helper) ResolveProviderQualifiedModel(provider, modelID string) (*v1.Model, error) {
+	objs, err := h.modelIndexer.ByIndex(modelProviderIndex, provider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get models for provider %q: %w", provider, err)
+	}
+
+	var newest *v1.Model
+	for _, obj := range objs {
+		m, ok := obj.(*v1.Model)
+		if !ok {
+			continue
+		}
+		_, target, found := strings.Cut(m.Spec.Manifest.TargetModel, "/")
+		if !found || target != modelID {
+			continue
+		}
+		if newest == nil || m.CreationTimestamp.After(newest.CreationTimestamp.Time) {
+			newest = m
+		}
+	}
+
+	if newest == nil {
+		return nil, apierrors.NewNotFound(schema.GroupResource{Group: v1.SchemeGroupVersion.Group, Resource: "model"}, modelID)
+	}
+	return newest, nil
+}

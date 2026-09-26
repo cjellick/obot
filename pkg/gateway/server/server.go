@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/obot-platform/obot/pkg/accesscontrolrule"
+	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/gateway/db"
 	"github.com/obot-platform/obot/pkg/gateway/server/dispatcher"
 	"github.com/obot-platform/obot/pkg/jwt/persistent"
@@ -27,6 +28,7 @@ type Server struct {
 	messagePolicyHelper       *messagepolicy.Helper
 	dailyUserInputTokenLimit  int
 	dailyUserOutputTokenLimit int
+	llmGateway                *bifrost.Engine
 }
 
 func New(db *db.DB, tokenService *persistent.TokenService, modelProviderDispatcher *dispatcher.Dispatcher, acrHelper *accesscontrolrule.Helper, mapHelper *modelaccesspolicy.Helper, messagePolicyHelper *messagepolicy.Helper, opts Options) (*Server, error) {

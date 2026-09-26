@@ -37,18 +37,36 @@ type responseTokenUsageTracker struct {
 	inputTokens, cachedTokens, output, reasoning int
 }
 
+// chatCompletionsTokenUsageTracker tracks OpenAI Chat Completions usage.
+//
+// Streaming responses carry usage on the final chunk; non-streaming responses put it at
+// the top-level usage field.
+type chatCompletionsTokenUsageTracker struct {
+	cost                                         types2.ModelCost
+	inputTokens, cachedTokens, output, reasoning int
+}
+
 // newTokenUsageTracker chooses a parser that matches the upstream usage shape.
 func newTokenUsageTracker(model v1.Model) *threadSafeTokenUsageTracker {
+	return newTokenUsageTrackerForDialect(model, llmtypes.Dialect(model.Spec.Manifest.Dialect))
+}
+
+// newTokenUsageTrackerForDialect chooses a parser for the given response dialect. The LLM
+// gateway serves every model in every dialect, so its tracker follows the route rather than
+// the model's native dialect.
+func newTokenUsageTrackerForDialect(model v1.Model, dialect llmtypes.Dialect) *threadSafeTokenUsageTracker {
 	var (
 		cost  = model.GetCost()
 		inner tokenUsageTracker
 	)
 
-	switch llmtypes.Dialect(model.Spec.Manifest.Dialect) {
+	switch dialect {
 	case llmtypes.DialectAnthropicMessages:
 		inner = &messageTokenUsageTracker{cost: cost}
 	case llmtypes.DialectOpenAIResponses, llmtypes.DialectOpenResponses:
 		inner = &responseTokenUsageTracker{cost: cost}
+	case llmtypes.DialectOpenAIChatCompletions:
+		inner = &chatCompletionsTokenUsageTracker{cost: cost}
 	default:
 		return nil
 	}
@@ -164,6 +182,35 @@ func (t *responseTokenUsageTracker) getTokenUsage() types.TokenUsage {
 	}
 	cost := costForTier(t.cost, t.inputTokens)
 	// Only the non-cached portion should use the normal input rate.
+	uncachedInput := max(t.inputTokens-t.cachedTokens, 0)
+	u.CacheReadSpend = spendUSD(t.cachedTokens, cost.CacheRead)
+	u.InputSpend = spendUSD(uncachedInput, cost.Input) + u.CacheReadSpend
+	u.OutputSpend = spendUSD(t.output, cost.Output)
+	u.TotalSpend = u.InputSpend + u.OutputSpend
+	return u
+}
+
+func (t *chatCompletionsTokenUsageTracker) addTokenUsage(line []byte) {
+	u := gjson.GetBytes(line, "usage")
+	if !u.Exists() || u.Type == gjson.Null {
+		return
+	}
+	t.inputTokens = max(t.inputTokens, int(u.Get("prompt_tokens").Int()))
+	t.cachedTokens = max(t.cachedTokens, int(u.Get("prompt_tokens_details.cached_tokens").Int()))
+	t.output = max(t.output, int(u.Get("completion_tokens").Int()))
+	t.reasoning = max(t.reasoning, int(u.Get("completion_tokens_details.reasoning_tokens").Int()))
+}
+
+func (t *chatCompletionsTokenUsageTracker) getTokenUsage() types.TokenUsage {
+	// prompt_tokens is cache-inclusive, like Responses input_tokens.
+	u := types.TokenUsage{
+		InputTokens:     t.inputTokens,
+		CacheReadTokens: t.cachedTokens,
+		OutputTokens:    t.output,
+		ThinkingTokens:  t.reasoning,
+		TotalTokens:     t.inputTokens + t.output,
+	}
+	cost := costForTier(t.cost, t.inputTokens)
 	uncachedInput := max(t.inputTokens-t.cachedTokens, 0)
 	u.CacheReadSpend = spendUSD(t.cachedTokens, cost.CacheRead)
 	u.InputSpend = spendUSD(uncachedInput, cost.Input) + u.CacheReadSpend

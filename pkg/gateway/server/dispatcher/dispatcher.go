@@ -41,8 +41,9 @@ type Dispatcher struct {
 	ports                *ports
 	modelRefreshSequence atomic.Uint64
 
-	builtinLock         sync.RWMutex
-	builtinAuthProvider map[string]url.URL
+	builtinLock          sync.RWMutex
+	builtinAuthProvider  map[string]url.URL
+	builtinModelProvider map[string]BuiltinModelProvider
 }
 
 func New(sessionManager *mcp.SessionManager, c kclient.Client, gatewayClient *client.Client, licenseProvider *license.Provider, serverURL, internalServerURL, postgresDSN string) *Dispatcher {

@@ -130,6 +130,7 @@ func (db *DB) AutoMigrate() (err error) {
 		types.AuthToken{},
 		types.TokenRequest{},
 		types.LLMAuditLog{},
+		types.LLMGatewayBudgetBinding{},
 		types.User{},
 		types.Identity{},
 		types.Group{},

@@ -15,7 +15,13 @@ import (
 // HasModelProvider reads installation-wide configuration without starting a
 // provider daemon or considering model access, licenses, or upstream health.
 func (d *Dispatcher) HasModelProvider(ctx context.Context) (bool, error) {
-	return hasModelProvider(ctx, d.client, func(ctx context.Context, provider v1.ModelProvider) (map[string]string, error) {
+	return hasModelProvider(ctx, d.client, func(ctx context.Context, provider v1.ModelProvider) (bool, bool) {
+		builtin, ok := d.BuiltinModelProvider(provider.Namespace, provider.Name)
+		if !ok {
+			return false, false
+		}
+		return builtin.HasUpstreamProviders(ctx), true
+	}, func(ctx context.Context, provider v1.ModelProvider) (map[string]string, error) {
 		env, err := CredentialEnvForModelProvider(ctx, d.gatewayClient, provider)
 		if errors.As(err, &client.CredentialNotFoundError{}) {
 			return map[string]string{}, nil
@@ -25,7 +31,7 @@ func (d *Dispatcher) HasModelProvider(ctx context.Context) (bool, error) {
 	})
 }
 
-func hasModelProvider(ctx context.Context, storage kclient.Client, credentials func(context.Context, v1.ModelProvider) (map[string]string, error)) (bool, error) {
+func hasModelProvider(ctx context.Context, storage kclient.Client, builtin func(context.Context, v1.ModelProvider) (configured bool, isBuiltin bool), credentials func(context.Context, v1.ModelProvider) (map[string]string, error)) (bool, error) {
 	checkPending := func() error {
 		var changes v1.ProviderConfigurationChangeList
 		if err := storage.List(ctx, &changes, kclient.InNamespace(system.DefaultNamespace)); err != nil {
@@ -53,6 +59,16 @@ func hasModelProvider(ctx context.Context, storage kclient.Client, credentials f
 		if !provider.DeletionTimestamp.IsZero() {
 			deletionPending = true
 			continue
+		}
+
+		// A built-in provider is configured when it has upstream providers of its own.
+		if builtin != nil {
+			if configured, isBuiltin := builtin(ctx, provider); isBuiltin {
+				if configured {
+					return true, nil
+				}
+				continue
+			}
 		}
 
 		// A provider with no required parameters is configured even without a

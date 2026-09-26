@@ -3,6 +3,7 @@ package messagepolicy
 import (
 	"context"
 	"fmt"
+	"github.com/obot-platform/obot/pkg/bifrost"
 
 	"github.com/obot-platform/nah/pkg/backend"
 	"github.com/obot-platform/obot/apiclient/types"
@@ -27,6 +28,12 @@ type Helper struct {
 	dispatcher      *dispatcher.Dispatcher
 	gatewayClient   *gateway.Client
 	entraCredential azure.EntraCredentialCache
+	llmGateway      *bifrost.Engine
+}
+
+// SetLLMGateway lets policy evaluation call models served by the embedded LLM gateway.
+func (h *Helper) SetLLMGateway(engine *bifrost.Engine) {
+	h.llmGateway = engine
 }
 
 // ApplicablePolicy pairs a policy's Kubernetes resource name with its manifest.

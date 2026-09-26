@@ -34,6 +34,7 @@ import (
 	"github.com/obot-platform/obot/pkg/api/server"
 	"github.com/obot-platform/obot/pkg/api/server/audit"
 	"github.com/obot-platform/obot/pkg/api/server/ratelimiter"
+	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/bootstrap"
 	"github.com/obot-platform/obot/pkg/encryption"
 	"github.com/obot-platform/obot/pkg/gateway/client"
@@ -138,6 +139,12 @@ type Config struct {
 	EnableMessagePolicies                bool   `usage:"Enable message policies for LLM proxy content enforcement" default:"false"`
 	LLMAuditLogRetentionDays             int    `usage:"Number of days to retain LLM audit logs (0 to disable cleanup)." default:"90"`
 	DisableLLMAuditLog                   bool   `usage:"Disable LLM gateway audit logging" default:"false"`
+	DisableLLMGateway                    bool   `usage:"Disable the embedded Bifrost LLM gateway" default:"false" env:"OBOT_SERVER_DISABLE_LLM_GATEWAY"`
+	LLMGatewayDataDir                    string `usage:"Directory for the embedded LLM gateway's configuration and, without a Postgres DSN, its SQLite stores (default: $XDG_DATA_HOME/obot/llm-gateway)" env:"OBOT_SERVER_LLM_GATEWAY_DATA_DIR"`
+	LLMGatewayPostgresDSN                string `usage:"Postgres DSN for the embedded LLM gateway's config and log stores. Must be a different database from Obot's" env:"OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN"`
+	LLMGatewayEncryptionKey              string `usage:"Key used by the embedded LLM gateway to encrypt provider keys at rest (default: generated and stored in the data dir)" env:"OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY"`
+	LLMGatewayLogRetentionDays           int    `usage:"Number of days the embedded LLM gateway keeps request logs" default:"30" env:"OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS"`
+	LLMGatewayLogLevel                   string `usage:"Log level for the embedded LLM gateway (debug, info, warn, error)" default:"warn" env:"OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL"`
 	DeviceScanRetentionDays              int    `usage:"Number of days to retain submitted device scans (0 to disable cleanup)." default:"90"`
 	EnableAgents                         *bool  `usage:"Enable Obot Agent features. When unset, agents are disabled for new deployments but grandfathered in for deployments that already have agents. Explicitly set to true to force-enable, or false to force-disable, regardless of grandfathering." env:"OBOT_ENABLE_AGENTS"`
 	EnableHostedAgents                   bool   `usage:"Enable Hosted Agents features" default:"false"`
@@ -208,14 +215,16 @@ type Services struct {
 	MCPSecretBindingAllowedLabel string
 	RegistryNoAuth               bool
 
-	PostgresDSN                   string
-	ProviderRegistryPaths         []string
-	DevUIPort                     int
-	DevMode                       bool
-	UserUIPort                    int
-	GatewayServer                 *gserver.Server
-	Bootstrapper                  *bootstrap.Bootstrap
-	LocalAuthProvider             *localauth.Provider
+	PostgresDSN           string
+	ProviderRegistryPaths []string
+	DevUIPort             int
+	DevMode               bool
+	UserUIPort            int
+	GatewayServer         *gserver.Server
+	Bootstrapper          *bootstrap.Bootstrap
+	LocalAuthProvider     *localauth.Provider
+	// BifrostEngine is the embedded LLM gateway. It is nil when the gateway is disabled.
+	BifrostEngine                 *bifrost.Engine
 	AuthEnabled                   bool
 	DefaultMCPCatalogPath         string
 	DefaultSystemMCPCatalogPath   string
@@ -1093,11 +1102,35 @@ func New(ctx context.Context, config Config) (*Services, error) {
 
 	providerDispatcher := dispatcher.New(mcpSessionManager, storageClient, gatewayClient, licenseProvider, config.Hostname, fmt.Sprintf("http://localhost:%d", config.HTTPListenPort), postgresDSN)
 
+	var bifrostEngine *bifrost.Engine
+	if !config.DisableLLMGateway {
+		dataDir := config.LLMGatewayDataDir
+		if dataDir == "" {
+			dataDir = filepath.Join(xdg.DataHome, "obot", "llm-gateway")
+		}
+		bifrostEngine = bifrost.New()
+		providerDispatcher.RegisterBuiltinModelProvider(system.DefaultNamespace, system.BifrostModelProvider, bifrostEngine)
+		// Bootstrapping contacts configured providers to list their models, so it runs in
+		// the background; requests made before it finishes get a 503.
+		go func() {
+			_ = bifrostEngine.Start(ctx, bifrost.Options{
+				DataDir:          dataDir,
+				PostgresDSN:      config.LLMGatewayPostgresDSN,
+				EncryptionKey:    config.LLMGatewayEncryptionKey,
+				LogRetentionDays: config.LLMGatewayLogRetentionDays,
+				LogLevel:         config.LLMGatewayLogLevel,
+			})
+		}()
+	}
+
 	var msgPolicyHelper *messagepolicy.Helper
 	if config.EnableMessagePolicies {
 		msgPolicyHelper, err = messagepolicy.NewHelper(ctx, r.Backend(), storageClient, providerDispatcher, gatewayClient)
 		if err != nil {
 			return nil, err
+		}
+		if bifrostEngine != nil {
+			msgPolicyHelper.SetLLMGateway(bifrostEngine)
 		}
 	}
 
@@ -1117,6 +1150,9 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	gatewayServer, err := gserver.New(gatewayDB, persistentTokenServer, providerDispatcher, acrHelper, mapHelper, msgPolicyHelper, gatewayOpts)
 	if err != nil {
 		return nil, err
+	}
+	if bifrostEngine != nil {
+		gatewayServer.SetLLMGateway(bifrostEngine)
 	}
 
 	authenticators := gserver.NewGatewayTokenReviewer(gatewayClient, providerDispatcher)
@@ -1392,6 +1428,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		AuthEnabled:                  config.EnableAuthentication,
 		Bootstrapper:                 bootstrapper,
 		LocalAuthProvider:            localAuthProvider,
+		BifrostEngine:                bifrostEngine,
 
 		DefaultMCPCatalogPath:          config.DefaultMCPCatalogPath,
 		GitMaxRepoSizeMB:               config.GitMaxRepoSizeMB,

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
+	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/controller/data"
 	"github.com/obot-platform/obot/pkg/controller/handlers/adminworkspace"
 	"github.com/obot-platform/obot/pkg/controller/handlers/compositemigration"
@@ -754,9 +755,40 @@ func (c *Controller) ensureLocalAuthProvider(ctx context.Context) error {
 	return c.services.StorageClient.Update(ctx, &existing)
 }
 
+// ensureBifrostModelProvider creates the ModelProvider resource for the embedded LLM
+// gateway. Like the local auth provider it runs inside this process, so it doesn't come
+// from the provider registry.
+func (c *Controller) ensureBifrostModelProvider(ctx context.Context) error {
+	if c.services.BifrostEngine == nil {
+		return nil
+	}
+
+	modelProvider := bifrost.ModelProviderResource()
+
+	var existing v1.ModelProvider
+	if err := c.services.StorageClient.Get(ctx, kclient.ObjectKeyFromObject(modelProvider), &existing); apierrors.IsNotFound(err) {
+		return c.services.StorageClient.Create(ctx, modelProvider)
+	} else if err != nil {
+		return fmt.Errorf("failed to get LLM gateway model provider: %w", err)
+	}
+
+	if equality.Semantic.DeepEqual(existing.Spec, modelProvider.Spec) {
+		return nil
+	}
+
+	existing.Spec = modelProvider.Spec
+	return c.services.StorageClient.Update(ctx, &existing)
+}
+
 func (c *Controller) ensureAuthProvidersAndModelProviders(ctx context.Context) error {
 	if err := c.ensureLocalAuthProvider(ctx); err != nil {
 		return fmt.Errorf("failed to ensure local auth provider: %w", err)
+	}
+	if err := c.ensureBifrostModelProvider(ctx); err != nil {
+		return fmt.Errorf("failed to ensure LLM gateway model provider: %w", err)
+	}
+	if c.services.BifrostEngine != nil {
+		go c.services.BifrostEngine.RunStartupTasks(ctx, c.services.StorageClient, c.services.GatewayClient)
 	}
 
 	var authProviders v1.AuthProviderList

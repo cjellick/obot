@@ -207,6 +207,12 @@ func Default(ctx context.Context, client kclient.Client, namespace string, model
 // fails later at the endpoint, with an error naming the format -- which is the
 // better failure of the two.
 func APIsFor(provider, dialect string) []string {
+	// The LLM gateway translates between protocols, so every model it serves accepts
+	// all of them regardless of its native dialect.
+	if provider == system.BifrostModelProvider {
+		return []string{APIAnthropic, APIOpenAIResponses, APIOpenAIChatCompletions}
+	}
+
 	switch dialect {
 	case "AnthropicMessages":
 		return []string{APIAnthropic}
@@ -248,6 +254,8 @@ func ProxyPath(provider string) (string, bool) {
 		return "azure", true
 	case system.AzureEntraModelProvider:
 		return "azure-entra", true
+	case system.BifrostModelProvider:
+		return "bifrost", true
 	default:
 		return "", false
 	}

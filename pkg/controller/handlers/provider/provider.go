@@ -22,6 +22,7 @@ import (
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api/handlers/providers"
 	"github.com/obot-platform/obot/pkg/auth"
+	"github.com/obot-platform/obot/pkg/bifrost"
 	gateway "github.com/obot-platform/obot/pkg/gateway/client"
 	"github.com/obot-platform/obot/pkg/gateway/server/dispatcher"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
@@ -442,7 +443,15 @@ func SetAuthProviderConfiguredStatus(ctx context.Context, gatewayClient *gateway
 
 func (h *Handler) SetModelProviderConfiguredStatus(req router.Request, _ router.Response) error {
 	modelProvider := req.Object.(*v1.ModelProvider)
-	return SetModelProviderConfiguredStatus(req.Ctx, h.gatewayClient, h.licenseProvider, modelProvider)
+	if err := SetModelProviderConfiguredStatus(req.Ctx, h.gatewayClient, h.licenseProvider, modelProvider); err != nil {
+		return err
+	}
+	// A built-in provider has no credential of its own; it is usable once it has at least
+	// one upstream provider configured.
+	if builtin, ok := h.dispatcher.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name); ok {
+		modelProvider.Status.Configured = builtin.HasUpstreamProviders(req.Ctx)
+	}
+	return nil
 }
 
 func SetModelProviderConfiguredStatus(ctx context.Context, gatewayClient *gateway.Client, licenseProvider *license.Provider, modelProvider *v1.ModelProvider) error {
@@ -548,6 +557,23 @@ func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *
 		}
 
 		models = append(models, discovered)
+
+		// The embedded gateway reports its own pricing, so project it into ModelInfo for
+		// the model controller to copy onto the model's status.
+		if modelProvider.Name == system.BifrostModelProvider {
+			if cost, ok := bifrost.CostFromMetadata(model.Metadata); ok {
+				models = append(models, &v1.ModelInfo{
+					Namespace: modelProvider.Namespace,
+					Name:      v1.ModelInfoName(modelProvider.Name, model.ID),
+					Spec: v1.ModelInfoSpec{
+						ModelInfoSourceName: system.DefaultModelInfoSource,
+						Provider:            modelProvider.Name,
+						Model:               model.ID,
+						Cost:                cost,
+					},
+				})
+			}
+		}
 	}
 
 	if err = apply.New(client).Apply(ctx, modelProvider, models...); err != nil {
