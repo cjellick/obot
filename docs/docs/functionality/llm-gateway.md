@@ -43,6 +43,8 @@ Administrators manage the gateway under **LLM Gateway** in the sidebar:
 | **Request Logs** | Every routed request with its user, provider, key, retries, fallbacks, tokens, cost, latency and content. |
 | **Settings** | Request logging and retention, content logging, queueing behavior, and response caching. |
 
+Prometheus metrics for the gateway (requests, latency, tokens and cost by provider, model, key and budget) are served at `GET /api/llm-gateway/metrics` to administrators, auditors and credentials allowed to read `/debug/metrics`.
+
 Models from gateway providers are listed on the **Models** page under the *LLM Gateway* provider and are granted to users with Model Access Policies like any other model.
 
 ### Server configuration

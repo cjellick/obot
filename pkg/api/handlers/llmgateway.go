@@ -173,6 +173,20 @@ func (h *LLMGatewayHandler) afterMutation(ctx context.Context, req api.Context, 
 	}
 }
 
+// Metrics serves the gateway's Prometheus metrics: request counts, latencies, tokens and cost
+// by provider, model and key.
+func (h *LLMGatewayHandler) Metrics(req api.Context) error {
+	if err := h.requireEngine(); err != nil {
+		return err
+	}
+	out, err := http.NewRequestWithContext(req.Context(), http.MethodGet, "/metrics", nil)
+	if err != nil {
+		return err
+	}
+	h.engine.ServeHTTP(req.ResponseWriter, out)
+	return nil
+}
+
 func (h *LLMGatewayHandler) SyncModels(req api.Context) error {
 	if err := h.requireEngine(); err != nil {
 		return err
