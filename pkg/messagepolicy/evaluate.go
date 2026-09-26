@@ -220,7 +220,7 @@ func (h *Helper) resolveModelByAlias(ctx context.Context, aliasType types.Defaul
 		return nil, fmt.Errorf("failed to get model provider: %w", err)
 	}
 
-	if modelProvider.Name == system.BifrostModelProvider {
+	if modelProvider.Name == system.LLMGatewayModelProvider {
 		if h.llmGateway == nil {
 			return nil, fmt.Errorf("the LLM gateway is disabled")
 		}

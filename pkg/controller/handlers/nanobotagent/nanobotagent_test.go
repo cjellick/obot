@@ -565,19 +565,19 @@ func TestNanobotParseModelProviderLLMGateway(t *testing.T) {
 	for _, dialect := range []llmtypes.Dialect{llmtypes.DialectAnthropicMessages, llmtypes.DialectOpenAIResponses} {
 		p, qualifiedName, err := h.parseModelProvider(resolvedLLMModel{
 			Name:            "m1-gateway-model",
-			ModelProvider:   system.BifrostModelProvider,
+			ModelProvider:   system.LLMGatewayModelProvider,
 			ProviderDialect: dialect,
 		})
 		if err != nil {
 			t.Fatalf("parseModelProvider: %v", err)
 		}
-		if p.BaseURL != "https://obot.example.com/api/llm-proxy/bifrost/v1" {
+		if p.BaseURL != "https://obot.example.com/api/llm-proxy/v1" {
 			t.Errorf("baseURL = %q", p.BaseURL)
 		}
 		if p.Dialect != dialect {
 			t.Errorf("dialect = %q, want %q", p.Dialect, dialect)
 		}
-		if qualifiedName != system.BifrostModelProvider+"/m1-gateway-model" {
+		if qualifiedName != system.LLMGatewayModelProvider+"/m1-gateway-model" {
 			t.Errorf("qualified name = %q", qualifiedName)
 		}
 	}

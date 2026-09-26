@@ -8,15 +8,15 @@ import (
 )
 
 func TestLLMGatewayModelsAcceptEveryAPI(t *testing.T) {
-	apis := APIsFor(system.BifrostModelProvider, "AnthropicMessages")
+	apis := APIsFor(system.LLMGatewayModelProvider, "AnthropicMessages")
 	for _, want := range []string{APIAnthropic, APIOpenAIResponses, APIOpenAIChatCompletions} {
 		if !slices.Contains(apis, want) {
 			t.Errorf("expected %q in %v", want, apis)
 		}
 	}
 
-	path, ok := ProxyPath(system.BifrostModelProvider)
-	if !ok || path != "bifrost" {
+	path, ok := ProxyPath(system.LLMGatewayModelProvider)
+	if !ok || path != "" {
 		t.Fatalf("ProxyPath = %q, %v", path, ok)
 	}
 }

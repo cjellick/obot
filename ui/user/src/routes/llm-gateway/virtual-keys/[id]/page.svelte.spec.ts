@@ -15,7 +15,7 @@ vi.mock(import('$lib/url'), async (importOriginal) => ({
 
 function mockProviders() {
 	worker.use(
-		http.get('/api/llm-gateway/bifrost/providers', () =>
+		http.get('/api/llm-gateway/admin/providers', () =>
 			HttpResponse.json({
 				providers: [{ name: 'openai', network_config: {}, concurrency_and_buffer_size: {} }]
 			})
@@ -33,7 +33,7 @@ describe('LLM gateway budget page', () => {
 		const created = vi.fn();
 		const bound = vi.fn();
 		worker.use(
-			http.post('/api/llm-gateway/bifrost/governance/virtual-keys', async ({ request }) => {
+			http.post('/api/llm-gateway/admin/governance/virtual-keys', async ({ request }) => {
 				created(await request.json());
 				return HttpResponse.json({ virtual_key: { id: 'vk-1', name: 'Engineering' } });
 			}),
@@ -71,7 +71,7 @@ describe('LLM gateway budget page', () => {
 		mockProviders();
 		(appPage.params as Record<string, string>).id = 'vk-2';
 		worker.use(
-			http.get('/api/llm-gateway/bifrost/governance/virtual-keys/vk-2', () =>
+			http.get('/api/llm-gateway/admin/governance/virtual-keys/vk-2', () =>
 				HttpResponse.json({
 					virtual_key: {
 						id: 'vk-2',

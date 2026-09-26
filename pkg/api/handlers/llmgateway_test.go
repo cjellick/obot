@@ -15,53 +15,53 @@ func TestAllowedBifrostAPIPath(t *testing.T) {
 		{
 			name:    "provider list",
 			raw:     "providers",
-			escaped: "/api/llm-gateway/bifrost/providers",
+			escaped: "/api/llm-gateway/admin/providers",
 			want:    "providers",
 			wantOK:  true,
 		},
 		{
 			name:    "provider keys",
 			raw:     "providers/openai/keys",
-			escaped: "/api/llm-gateway/bifrost/providers/openai/keys",
+			escaped: "/api/llm-gateway/admin/providers/openai/keys",
 			want:    "providers/openai/keys",
 			wantOK:  true,
 		},
 		{
 			name:    "virtual keys",
 			raw:     "governance/virtual-keys",
-			escaped: "/api/llm-gateway/bifrost/governance/virtual-keys",
+			escaped: "/api/llm-gateway/admin/governance/virtual-keys",
 			want:    "governance/virtual-keys",
 			wantOK:  true,
 		},
 		{
 			name:    "hidden api",
 			raw:     "mcp/clients",
-			escaped: "/api/llm-gateway/bifrost/mcp/clients",
+			escaped: "/api/llm-gateway/admin/mcp/clients",
 		},
 		{
 			name:    "dot segments",
 			raw:     "providers/../session/login",
-			escaped: "/api/llm-gateway/bifrost/providers/../session/login",
+			escaped: "/api/llm-gateway/admin/providers/../session/login",
 		},
 		{
 			name:    "encoded dot segments",
 			raw:     "providers/../mcp/clients",
-			escaped: "/api/llm-gateway/bifrost/providers/%2e%2e/mcp/clients",
+			escaped: "/api/llm-gateway/admin/providers/%2e%2e/mcp/clients",
 		},
 		{
 			name:    "encoded slash",
 			raw:     "providers/../mcp/clients",
-			escaped: "/api/llm-gateway/bifrost/providers%2F..%2Fmcp%2Fclients",
+			escaped: "/api/llm-gateway/admin/providers%2F..%2Fmcp%2Fclients",
 		},
 		{
 			name:    "prefix lookalike",
 			raw:     "providersx",
-			escaped: "/api/llm-gateway/bifrost/providersx",
+			escaped: "/api/llm-gateway/admin/providersx",
 		},
 		{
 			name:    "double slash",
 			raw:     "providers//openai",
-			escaped: "/api/llm-gateway/bifrost/providers//openai",
+			escaped: "/api/llm-gateway/admin/providers//openai",
 		},
 	}
 	for _, tt := range tests {

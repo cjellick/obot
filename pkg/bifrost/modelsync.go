@@ -22,7 +22,7 @@ const (
 // the provider controller re-lists models.
 func TriggerModelSync(ctx context.Context, c kclient.Client) error {
 	var mp v1.ModelProvider
-	if err := c.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: system.BifrostModelProvider}, &mp); err != nil {
+	if err := c.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: system.LLMGatewayModelProvider}, &mp); err != nil {
 		return err
 	}
 	if mp.Annotations[v1.ModelProviderSyncAnnotation] == "" {
@@ -46,7 +46,7 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 
 	var mp v1.ModelProvider
 	for {
-		err := c.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: system.BifrostModelProvider}, &mp)
+		err := c.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: system.LLMGatewayModelProvider}, &mp)
 		if err == nil {
 			break
 		}

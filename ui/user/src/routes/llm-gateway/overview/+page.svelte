@@ -110,14 +110,9 @@
 
 	<div class="flex flex-col gap-6">
 		<p class="text-muted-content max-w-4xl text-sm">
-			Obot's LLM gateway, powered by <a
-				href="https://github.com/maximhq/bifrost"
-				target="_blank"
-				rel="noreferrer"
-				class="text-link">Bifrost</a
-			>, puts every model behind one endpoint with Obot authentication, access policies and audit
-			logs, plus load balancing, automatic fallbacks, budgets, rate limits, routing rules and
-			caching.
+			Obot's LLM gateway puts every model behind one endpoint with Obot authentication, access
+			policies and audit logs, plus load balancing, automatic fallbacks, budgets, rate limits,
+			routing rules and caching.
 		</p>
 
 		<GatewayStatusBanner {status} />

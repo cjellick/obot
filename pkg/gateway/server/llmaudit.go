@@ -284,7 +284,7 @@ func extractLLMReasoningEffort(modelProvider string, body []byte) string {
 		return gjson.GetBytes(body, "reasoning.effort").String()
 	case system.AnthropicModelProvider:
 		return gjson.GetBytes(body, "output_config.effort").String()
-	case system.BifrostModelProvider:
+	case system.LLMGatewayModelProvider:
 		if effort := gjson.GetBytes(body, "reasoning.effort").String(); effort != "" {
 			return effort
 		}

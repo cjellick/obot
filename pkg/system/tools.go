@@ -2,8 +2,8 @@ package system
 
 const (
 	ModelProxyModelProvider = "model-proxy"
-	// BifrostModelProvider is the built-in LLM gateway, which embeds Bifrost in-process.
-	BifrostModelProvider             = "bifrost-model-provider"
+	// LLMGatewayModelProvider is the built-in LLM gateway.
+	LLMGatewayModelProvider          = "llm-gateway-model-provider"
 	OpenAIModelProvider              = "openai-model-provider"
 	AnthropicModelProvider           = "anthropic-model-provider"
 	GenericResponsesModelProvider    = "generic-responses-model-provider"

@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -22,16 +25,16 @@ import (
 	kuser "k8s.io/apiserver/pkg/authentication/user"
 )
 
-// clientBifrostHeaders are the Bifrost request headers callers may set themselves. They only
-// tune caching and session stickiness for the caller's own requests; everything else under
-// x-bf- (virtual keys, log metadata, direct keys) is controlled by Obot.
+// clientGatewayHeaders are the request headers callers may use to tune the gateway for
+// their own requests, and the engine headers they map to. Everything else the engine reads
+// from headers (virtual keys, log metadata, direct keys) is controlled by Obot.
 var (
-	clientBifrostHeaders = map[string]bool{
-		"x-bf-cache-ttl":       true,
-		"x-bf-cache-threshold": true,
-		"x-bf-cache-type":      true,
-		"x-bf-cache-no-store":  true,
-		"x-bf-session-id":      true,
+	clientGatewayHeaders = map[string]string{
+		"X-Obot-Cache-TTL":       "x-bf-cache-ttl",
+		"X-Obot-Cache-Threshold": "x-bf-cache-threshold",
+		"X-Obot-Cache-Type":      "x-bf-cache-type",
+		"X-Obot-Cache-No-Store":  "x-bf-cache-no-store",
+		"X-Obot-Session-ID":      "x-bf-session-id",
 	}
 )
 
@@ -43,7 +46,7 @@ type bifrostProviderBackend struct {
 	engine *bifrost.Engine
 }
 
-// bifrostRoute maps a client path under /api/llm-proxy/bifrost to a Bifrost route.
+// bifrostRoute maps a client path under /api/llm-proxy/v1 to a Bifrost route.
 type bifrostRoute struct {
 	// base is the Bifrost path prefix the client path is joined to.
 	base string
@@ -51,8 +54,24 @@ type bifrostRoute struct {
 	dialect llmtypes.Dialect
 }
 
+// sanitizingTransport strips implementation details from gateway responses before they
+// reach clients: engine-specific headers (which include upstream key names), the engine's
+// CORS headers, and the engine's extra response fields. The provider and model that served
+// the request are passed on under Obot's own header names.
+type sanitizingTransport struct {
+	next http.RoundTripper
+}
+
+// sseSanitizer strips the engine's fields from each "data:" event of a stream, one line at a
+// time so streaming isn't delayed.
+type sseSanitizer struct {
+	r       *bufio.Reader
+	c       io.Closer
+	pending []byte
+}
+
 // SetLLMGateway attaches the embedded Bifrost gateway, enabling the
-// /api/llm-proxy/bifrost routes.
+// /api/llm-proxy/v1 routes.
 func (s *Server) SetLLMGateway(engine *bifrost.Engine) {
 	s.llmGateway = engine
 }
@@ -73,7 +92,7 @@ func (s *Server) newBifrostLLMProviderProxy() *llmProviderProxy {
 }
 
 func (b *bifrostProviderBackend) modelProviderName() string {
-	return system.BifrostModelProvider
+	return system.LLMGatewayModelProvider
 }
 
 // requiresCredential reports that the gateway has no Obot-managed credential: upstream
@@ -136,7 +155,88 @@ func (b *bifrostProviderBackend) upstreamURL(req *http.Request, _ map[string]str
 }
 
 func (b *bifrostProviderBackend) transport(v1.ModelProvider, map[string]string) (http.RoundTripper, error) {
-	return b.engine.Transport(), nil
+	return sanitizingTransport{next: b.engine.Transport()}, nil
+}
+
+func (t sanitizingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.next.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	provider := resp.Header.Get("X-Bifrost-Provider")
+	model := resp.Header.Get("X-Bifrost-Resolved-Model")
+	for name := range resp.Header {
+		lower := strings.ToLower(name)
+		if strings.HasPrefix(lower, "x-bifrost-") || strings.HasPrefix(lower, "x-bf-") ||
+			strings.HasPrefix(lower, "access-control-") || lower == "server" || lower == "vary" {
+			resp.Header.Del(name)
+		}
+	}
+	if provider != "" {
+		resp.Header.Set("X-Obot-LLM-Provider", provider)
+	}
+	if model != "" {
+		resp.Header.Set("X-Obot-LLM-Model", model)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	switch {
+	case strings.Contains(contentType, "text/event-stream"):
+		resp.Body = &sseSanitizer{r: bufio.NewReader(resp.Body), c: resp.Body}
+	case strings.Contains(contentType, "application/json"):
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		body = stripEngineFields(body)
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		resp.ContentLength = int64(len(body))
+		resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	}
+	return resp, nil
+}
+
+// stripEngineFields removes the engine's own fields from a JSON response object.
+func stripEngineFields(body []byte) []byte {
+	if !gjson.ValidBytes(body) {
+		return body
+	}
+	for _, field := range []string{"extra_fields", "is_bifrost_error"} {
+		if gjson.GetBytes(body, field).Exists() {
+			if stripped, err := sjson.DeleteBytes(body, field); err == nil {
+				body = stripped
+			}
+		}
+	}
+	return body
+}
+
+func (s *sseSanitizer) Read(p []byte) (int, error) {
+	for len(s.pending) == 0 {
+		line, err := s.r.ReadBytes('\n')
+		if len(line) > 0 {
+			if data, ok := bytes.CutPrefix(line, []byte("data: ")); ok && len(data) > 0 && data[0] == '{' {
+				trimmed := bytes.TrimRight(data, "\r\n")
+				line = append(append([]byte("data: "), stripEngineFields(trimmed)...), data[len(trimmed):]...)
+			}
+			s.pending = line
+		}
+		if err != nil {
+			if len(s.pending) == 0 {
+				return 0, err
+			}
+			break
+		}
+	}
+	n := copy(p, s.pending)
+	s.pending = s.pending[n:]
+	return n, nil
+}
+
+func (s *sseSanitizer) Close() error {
+	return s.c.Close()
 }
 
 // trackerDialect lets usage tracking follow the route: every model is served in every
@@ -151,7 +251,7 @@ func (b *bifrostProviderBackend) resolveModel(l *llmProviderProxy, reference str
 	if strings.Contains(reference, "/") {
 		return nil, nil
 	}
-	return l.mapHelper.ResolveProviderQualifiedModel(system.BifrostModelProvider, reference)
+	return l.mapHelper.ResolveProviderQualifiedModel(system.LLMGatewayModelProvider, reference)
 }
 
 // authorizeExtraModels checks every fallback model the request names. Bifrost tries
@@ -173,11 +273,11 @@ func (b *bifrostProviderBackend) authorizeExtraModels(l *llmProviderProxy, req a
 		if f.IsObject() {
 			reference = f.Get("provider").String() + "/" + f.Get("model").String()
 		}
-		model, err := l.mapHelper.ResolveModelReference(req.Context(), req.Storage, system.DefaultNamespace, system.BifrostModelProvider, reference)
+		model, err := l.mapHelper.ResolveModelReference(req.Context(), req.Storage, system.DefaultNamespace, system.LLMGatewayModelProvider, reference)
 		if apierrors.IsNotFound(err) {
 			model, err = b.resolveModel(l, reference)
 		}
-		if err != nil || model == nil || model.Spec.Manifest.ModelProvider != system.BifrostModelProvider {
+		if err != nil || model == nil || model.Spec.Manifest.ModelProvider != system.LLMGatewayModelProvider {
 			return nil, types2.NewErrBadRequest("fallback model %q is not available through this endpoint", reference)
 		}
 		if isAgent {
@@ -204,9 +304,14 @@ func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayCli
 	}
 	// Never let callers pick a virtual key or smuggle log metadata of their own.
 	for name := range req.Header {
-		lower := strings.ToLower(name)
-		if strings.HasPrefix(lower, "x-bf-") && !clientBifrostHeaders[lower] {
+		if strings.HasPrefix(strings.ToLower(name), "x-bf-") {
 			req.Header.Del(name)
+		}
+	}
+	for client, engine := range clientGatewayHeaders {
+		if v := req.Header.Get(client); v != "" {
+			req.Header.Set(engine, v)
+			req.Header.Del(client)
 		}
 	}
 

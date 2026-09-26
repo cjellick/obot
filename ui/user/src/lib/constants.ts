@@ -36,7 +36,7 @@ export const CommonModelProviderIds = {
 	GENERIC_OPENAI: 'generic-openai-model-provider',
 	AZURE: 'azure-model-provider',
 	AZURE_ENTRA: 'azure-entra-model-provider',
-	BIFROST: 'bifrost-model-provider'
+	LLM_GATEWAY: 'llm-gateway-model-provider'
 };
 
 export const RecommendedModelProviders = [

@@ -14,7 +14,7 @@
 	type Tab = 'claude-code' | 'codex' | 'openai-sdk' | 'anthropic-sdk' | 'curl';
 	let tab = $state<Tab>('claude-code');
 
-	let baseURL = $derived(`${obotURL}/api/llm-proxy/bifrost`);
+	let baseURL = $derived(`${obotURL}/api/llm-proxy`);
 	let token = $derived(`$(obot login --url ${obotURL} --scope llm --print-token)`);
 	let anthropicModel = $derived(
 		models.find((m) => m.dialect === 'AnthropicMessages')?.targetModel ??

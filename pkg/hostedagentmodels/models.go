@@ -209,7 +209,7 @@ func Default(ctx context.Context, client kclient.Client, namespace string, model
 func APIsFor(provider, dialect string) []string {
 	// The LLM gateway translates between protocols, so every model it serves accepts
 	// all of them regardless of its native dialect.
-	if provider == system.BifrostModelProvider {
+	if provider == system.LLMGatewayModelProvider {
 		return []string{APIAnthropic, APIOpenAIResponses, APIOpenAIChatCompletions}
 	}
 
@@ -237,7 +237,8 @@ func APIsFor(provider, dialect string) []string {
 	}
 }
 
-// ProxyPath is the segment of Obot's LLM proxy route that serves a provider.
+// ProxyPath is the segment of Obot's LLM proxy route that serves a provider. The LLM
+// gateway is served at the root of the proxy, so its segment is empty.
 func ProxyPath(provider string) (string, bool) {
 	switch provider {
 	case system.AnthropicModelProvider:
@@ -254,8 +255,8 @@ func ProxyPath(provider string) (string, bool) {
 		return "azure", true
 	case system.AzureEntraModelProvider:
 		return "azure-entra", true
-	case system.BifrostModelProvider:
-		return "bifrost", true
+	case system.LLMGatewayModelProvider:
+		return "", true
 	default:
 		return "", false
 	}

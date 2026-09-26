@@ -133,7 +133,7 @@ func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.
 
 	var results []LegacyImportResult
 	for _, mp := range providers.Items {
-		if mp.Name == system.BifrostModelProvider || mp.Name == system.ModelProxyModelProvider {
+		if mp.Name == system.LLMGatewayModelProvider || mp.Name == system.ModelProxyModelProvider {
 			continue
 		}
 		plan, ok := legacyImportPlans[mp.Name]

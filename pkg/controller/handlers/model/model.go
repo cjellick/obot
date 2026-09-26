@@ -46,7 +46,7 @@ func (h *Handler) Cleanup(req router.Request, _ router.Response) error {
 
 	// The built-in LLM gateway keeps upstream credentials in Bifrost rather than in an Obot
 	// credential, and its model sync prunes models that are no longer served.
-	if modelProvider.Name == system.BifrostModelProvider {
+	if modelProvider.Name == system.LLMGatewayModelProvider {
 		return nil
 	}
 

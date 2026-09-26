@@ -73,7 +73,13 @@ func (s *Server) AddRoutes(mux *server.Server, tunnelBridge http.Handler) {
 	mux.HandleFunc("/api/llm-proxy/aws-bedrock-api-key/{path...}", s.newAWSBedrockAPIKeyLLMProviderProxy().proxy)
 	mux.HandleFunc("/api/llm-proxy/azure/{path...}", s.newAzureLLMProviderProxy(system.AzureModelProvider).proxy)
 	mux.HandleFunc("/api/llm-proxy/azure-entra/{path...}", s.newAzureLLMProviderProxy(system.AzureEntraModelProvider).proxy)
-	mux.HandleFunc("/api/llm-proxy/bifrost/{path...}", s.newBifrostLLMProviderProxy().proxy)
+	// The LLM gateway serves every model at the root of the LLM proxy. The per-provider
+	// routes above are more specific, so they keep matching their own prefixes.
+	gatewayProxy := s.newBifrostLLMProviderProxy()
+	mux.HandleFunc("/api/llm-proxy/v1/{path...}", func(req api.Context) error {
+		req.SetPathValue("path", "v1/"+req.PathValue("path"))
+		return gatewayProxy.proxy(req)
+	})
 
 	// API Keys for MCP server access - user's own keys
 	mux.HandleFunc("POST /api/api-keys", wrap(s.createAPIKey))

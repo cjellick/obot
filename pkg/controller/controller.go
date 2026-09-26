@@ -827,7 +827,7 @@ func (c *Controller) ensureAuthProvidersAndModelProviders(ctx context.Context) e
 		}
 
 		for _, modelProvider := range modelProviders.Items {
-			if modelProvider.Name == system.BifrostModelProvider {
+			if modelProvider.Name == system.LLMGatewayModelProvider {
 				// The gateway may still be starting; its startup tasks sync its models.
 				continue
 			}

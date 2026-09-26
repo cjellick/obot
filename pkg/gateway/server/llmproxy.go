@@ -214,7 +214,7 @@ func (r *responseModifier) modifyResponse(resp *http.Response) error {
 		if err != nil {
 			return fmt.Errorf("failed to determine accessible models: %w", err)
 		}
-		if r.modelProvider == system.BifrostModelProvider {
+		if r.modelProvider == system.LLMGatewayModelProvider {
 			// The gateway's Anthropic-format model list uses bare model IDs, which the
 			// gateway also accepts in requests, so allow the bare form of each target too.
 			for target := range maps.Clone(allowedTargetModels) {
@@ -273,7 +273,7 @@ func shouldWrapLLMResponse(resp *http.Response) bool {
 // Obot must meter. The gateway also serves Chat Completions and embeddings, which the
 // per-provider routes pass through unmetered.
 func (r *responseModifier) shouldWrapGatewayResponse(resp *http.Response) bool {
-	if r.modelProvider != system.BifrostModelProvider || resp.StatusCode != http.StatusOK {
+	if r.modelProvider != system.LLMGatewayModelProvider || resp.StatusCode != http.StatusOK {
 		return false
 	}
 	switch resp.Request.URL.Path {

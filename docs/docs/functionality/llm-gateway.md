@@ -15,12 +15,12 @@ The gateway proxies your requests transparently to the upstream provider while e
 - You can only call models that an administrator has granted you through a [Model Access Policy](./model-access-policies.md).
 - The model list returned to your client (`/v1/models`) is scoped to the models you are allowed to use.
 
-## Unified gateway (powered by Bifrost)
+## Unified gateway
 
-Obot includes an embedded LLM gateway built on [Bifrost](https://github.com/maximhq/bifrost). It serves every configured model — from OpenAI, Anthropic, Amazon Bedrock, Google Vertex AI and Gemini, Azure, Mistral, Groq, xAI, DeepSeek, OpenRouter, Cohere, vLLM, Ollama and more — behind a single base URL:
+Obot includes a built-in LLM gateway. It serves every configured model — from OpenAI, Anthropic, Amazon Bedrock, Google Vertex AI and Gemini, Azure, Mistral, Groq, xAI, DeepSeek, OpenRouter, Cohere, vLLM, Ollama and more — behind a single base URL:
 
 ```
-https://<your-obot-host>/api/llm-proxy/bifrost
+https://<your-obot-host>/api/llm-proxy
 ```
 
 - **Any model, any API format.** Every model is available in the OpenAI Chat Completions (`/v1/chat/completions`), OpenAI Responses (`/v1/responses`) and Anthropic Messages (`/v1/messages`) formats, so Claude Code can use GPT models and the OpenAI SDK can use Claude.
@@ -44,7 +44,7 @@ Administrators manage the gateway under **LLM Gateway** in the sidebar:
 | **Request Logs** | Every routed request with its user, provider, key, retries, fallbacks, tokens, cost, latency and content. |
 | **Settings** | Request logging and retention, content logging, queueing behavior, and response caching. |
 
-Prometheus metrics for the gateway (requests, latency, tokens and cost by provider, model, key and budget) are served at `GET /api/llm-gateway/metrics` to administrators, auditors and credentials allowed to read `/debug/metrics`.
+Prometheus metrics for the gateway (requests, latency, tokens and cost by provider, model, key and budget) are served at `GET /api/llm-gateway/metrics` (metric names start with `obot_llm_gateway_`) to administrators, auditors and credentials allowed to read `/debug/metrics`.
 
 Models from gateway providers are listed on the **Models** page under the *LLM Gateway* provider and are granted to users with Model Access Policies like any other model.
 
@@ -57,7 +57,7 @@ Models from gateway providers are listed on the **Models** page under the *LLM G
 | `--llm-gateway-postgres-dsn` / `OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN` | Postgres database for gateway configuration and request logs. Must be a different database from Obot's. When Obot itself uses Postgres and this is unset, Obot creates a `<database>_llm_gateway` database on the same server (falling back to SQLite in the data dir if it can't), so every replica shares the gateway's state. |
 | `--llm-gateway-encryption-key` / `OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY` | Key that encrypts provider credentials at rest. Generated and stored in the data dir if unset; set it explicitly when the data dir is not persistent. |
 | `--llm-gateway-log-retention-days` | Days of request logs to keep (default 30). |
-| `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` | Redis or Valkey server used for response caching. Cached responses are kept per user. |
+| `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` | Redis or Valkey server used for response caching. Cached responses are kept per user; clients can send `X-Obot-Cache-TTL` or `X-Obot-Cache-No-Store` to tune a request. |
 
 ## Per-provider routes
 

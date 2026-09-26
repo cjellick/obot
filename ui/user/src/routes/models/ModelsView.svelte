@@ -27,7 +27,7 @@
 	});
 
 	let gatewayModels = $derived(
-		models.filter((m) => m.modelProvider === CommonModelProviderIds.BIFROST)
+		models.filter((m) => m.modelProvider === CommonModelProviderIds.LLM_GATEWAY)
 	);
 	let openaiModels = $derived(
 		models.filter((m) => m.modelProvider === CommonModelProviderIds.OPENAI)
@@ -147,7 +147,7 @@
 			{#if gatewayModels.length > 0}
 				<div class="paper flex flex-col gap-4 p-4">
 					<div class="flex items-center gap-3">
-						<img src="/admin/assets/bifrost_icon.svg" alt="" class="size-8 rounded-md" />
+						<img src="/admin/assets/llm_gateway_icon.svg" alt="" class="size-8 rounded-md" />
 						<div class="flex flex-col">
 							<h3 class="text-base font-semibold">LLM Gateway</h3>
 							<p class="text-muted-content text-xs">

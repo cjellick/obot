@@ -439,8 +439,8 @@ func (h *Handler) parseModelProvider(model resolvedLLMModel) (nanobotLLMProvider
 		baseURL += "/azure/v1"
 	case system.AzureEntraModelProvider:
 		baseURL += "/azure-entra/v1"
-	case system.BifrostModelProvider:
-		baseURL += "/bifrost/v1"
+	case system.LLMGatewayModelProvider:
+		baseURL += "/v1"
 	default:
 		return nanobotLLMProvider{}, "", fmt.Errorf("unsupported model provider %q", model.ModelProvider)
 	}

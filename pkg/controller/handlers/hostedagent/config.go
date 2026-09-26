@@ -205,7 +205,7 @@ func modelConfigs(ctx context.Context, client kclient.Client, namespace, serverU
 			Model:    model.Model,
 			APIs:     model.APIs,
 			Provider: model.Provider,
-			BaseURL:  fmt.Sprintf("%s/api/llm-proxy/%s", strings.TrimSuffix(serverURL, "/"), path),
+			BaseURL:  strings.TrimSuffix(fmt.Sprintf("%s/api/llm-proxy/%s", strings.TrimSuffix(serverURL, "/"), path), "/"),
 			Default:  model.ID == defaultID,
 		})
 	}

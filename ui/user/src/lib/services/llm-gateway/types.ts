@@ -97,7 +97,7 @@ export const SUPPORTED_PROVIDER_IDS = new Set<string>([
 	CommonModelProviderIds.AMAZON_BEDROCK_API_KEY,
 	CommonModelProviderIds.AZURE,
 	CommonModelProviderIds.AZURE_ENTRA,
-	CommonModelProviderIds.BIFROST
+	CommonModelProviderIds.LLM_GATEWAY
 ]);
 
 export interface RenderContext {

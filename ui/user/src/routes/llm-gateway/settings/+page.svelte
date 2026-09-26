@@ -58,7 +58,7 @@
 			status = await getStatus();
 			if (!status.ready) return;
 			[config, plugins, providers] = await Promise.all([
-				doGet('/llm-gateway/bifrost/config') as Promise<FullConfig>,
+				doGet('/llm-gateway/admin/config') as Promise<FullConfig>,
 				listPlugins(),
 				listProviders()
 			]);
@@ -84,7 +84,7 @@
 		if (!config) return;
 		savingGeneral = true;
 		try {
-			await doPut('/llm-gateway/bifrost/config', {
+			await doPut('/llm-gateway/admin/config', {
 				client_config: config.client_config,
 				framework_config: config.framework_config
 			});
@@ -222,7 +222,7 @@
 						/>
 						<p class="text-muted-content text-xs">
 							Cached responses are kept per user and are never shared between users. Clients can
-							send <code>x-bf-cache-ttl</code> or <code>x-bf-cache-no-store</code> to tune a request.
+							send <code>X-Obot-Cache-TTL</code> or <code>X-Obot-Cache-No-Store</code> to tune a request.
 						</p>
 						<div class="flex gap-4 text-sm">
 							<label class="flex items-center gap-2">

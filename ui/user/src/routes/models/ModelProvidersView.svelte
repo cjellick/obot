@@ -145,7 +145,7 @@
 		href={resolve('/llm-gateway/providers')}
 		class="paper hover:border-primary mb-6 flex flex-row items-center gap-4 border border-transparent p-4 transition-colors"
 	>
-		<img src="/admin/assets/bifrost_icon.svg" alt="" class="size-10 rounded-md" />
+		<img src="/admin/assets/llm_gateway_icon.svg" alt="" class="size-10 rounded-md" />
 		<div class="flex flex-col">
 			<span class="font-semibold">LLM Gateway</span>
 			<span class="text-muted-content text-sm">

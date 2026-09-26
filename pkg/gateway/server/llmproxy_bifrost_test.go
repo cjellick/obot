@@ -1,8 +1,10 @@
 package server
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
@@ -87,7 +89,7 @@ func TestResolveBifrostRoute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/api/llm-proxy/bifrost/"+tt.path, nil)
+			req := httptest.NewRequest(http.MethodPost, "/api/llm-proxy/"+tt.path, nil)
 			req.SetPathValue("path", tt.path)
 			for k, v := range tt.header {
 				req.Header.Set(k, v)
@@ -118,4 +120,65 @@ func TestChatCompletionsTokenUsageTracker(t *testing.T) {
 	if usage.InputTokens != 100 || usage.OutputTokens != 20 || usage.CacheReadTokens != 40 || usage.ThinkingTokens != 5 || usage.TotalTokens != 120 {
 		t.Fatalf("unexpected usage: %+v", usage)
 	}
+}
+
+type fakeRoundTripper struct {
+	resp *http.Response
+}
+
+func (f fakeRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return f.resp, nil
+}
+
+func TestSanitizingTransport(t *testing.T) {
+	t.Run("json", func(t *testing.T) {
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type":                []string{"application/json"},
+				"X-Bifrost-Provider":          []string{"openai"},
+				"X-Bifrost-Resolved-Model":    []string{"gpt-4.1"},
+				"X-Bifrost-Routing-Info-Key":  []string{"primary"},
+				"Server":                      []string{"fasthttp"},
+				"Access-Control-Allow-Origin": []string{"*"},
+				"X-Request-Id":                []string{"abc"},
+			},
+			Body: io.NopCloser(strings.NewReader(`{"id":"c1","is_bifrost_error":false,"extra_fields":{"routing_info":{"key":"primary"}},"choices":[]}`)),
+		}
+		out, err := sanitizingTransport{next: fakeRoundTripper{resp: resp}}.RoundTrip(httptest.NewRequest(http.MethodPost, "/", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(out.Body)
+		if strings.Contains(string(body), "extra_fields") || strings.Contains(string(body), "bifrost") || !strings.Contains(string(body), `"id":"c1"`) {
+			t.Fatalf("unexpected body %s", body)
+		}
+		for name := range out.Header {
+			if strings.Contains(strings.ToLower(name), "bifrost") || name == "Server" || strings.HasPrefix(name, "Access-Control-") {
+				t.Fatalf("header %s was not removed", name)
+			}
+		}
+		if out.Header.Get("X-Obot-LLM-Provider") != "openai" || out.Header.Get("X-Obot-LLM-Model") != "gpt-4.1" || out.Header.Get("X-Request-Id") != "abc" {
+			t.Fatalf("unexpected headers %v", out.Header)
+		}
+	})
+
+	t.Run("stream", func(t *testing.T) {
+		stream := "data: {\"id\":\"c1\",\"extra_fields\":{\"routing_info\":{}},\"choices\":[]}\n\n" +
+			"event: ping\ndata: [DONE]\n\n"
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(stream)),
+		}
+		out, err := sanitizingTransport{next: fakeRoundTripper{resp: resp}}.RoundTrip(httptest.NewRequest(http.MethodPost, "/", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(out.Body)
+		want := "data: {\"id\":\"c1\",\"choices\":[]}\n\nevent: ping\ndata: [DONE]\n\n"
+		if string(body) != want {
+			t.Fatalf("got %q, want %q", body, want)
+		}
+	})
 }

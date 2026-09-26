@@ -50,14 +50,13 @@ type listedModel struct {
 func ModelProviderResource() *v1.ModelProvider {
 	return &v1.ModelProvider{
 		Namespace: system.DefaultNamespace,
-		Name:      system.BifrostModelProvider,
+		Name:      system.LLMGatewayModelProvider,
 		Spec: v1.ModelProviderSpec{
 			ModelProviderManifest: types.ModelProviderManifest{
 				CommonProviderMetadata: types.CommonProviderMetadata{
 					Name:        "LLM Gateway",
-					Description: "Obot's built-in LLM gateway, powered by Bifrost. Route to 20+ providers with load balancing, fallbacks, budgets, rate limits, caching and analytics.",
-					Icon:        "/admin/assets/bifrost_icon.svg",
-					Link:        "https://github.com/maximhq/bifrost",
+					Description: "Obot's built-in LLM gateway. Route to 20+ providers with load balancing, fallbacks, budgets, rate limits, caching and analytics.",
+					Icon:        "/admin/assets/llm_gateway_icon.svg",
 				},
 			},
 		},

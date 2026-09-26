@@ -17,8 +17,8 @@ const readyStatus = {
 	enabled: true,
 	ready: true,
 	hasProviders: true,
-	modelProviderName: 'bifrost-model-provider',
-	proxyPath: '/api/llm-proxy/bifrost'
+	modelProviderName: 'llm-gateway-model-provider',
+	proxyPath: '/api/llm-proxy'
 };
 
 const openai = {
@@ -39,10 +39,10 @@ function mockGateway({
 } = {}) {
 	worker.use(
 		http.get('/api/llm-gateway/status', () => HttpResponse.json(status)),
-		http.get('/api/llm-gateway/bifrost/providers', () =>
+		http.get('/api/llm-gateway/admin/providers', () =>
 			HttpResponse.json({ providers, total: providers.length })
 		),
-		http.get('/api/llm-gateway/bifrost/providers/:name/keys', () =>
+		http.get('/api/llm-gateway/admin/providers/:name/keys', () =>
 			HttpResponse.json({ keys, total: keys.length })
 		)
 	);
@@ -124,11 +124,11 @@ describe('LLM gateway providers page', () => {
 		const created = vi.fn();
 		const keyCreated = vi.fn();
 		worker.use(
-			http.post('/api/llm-gateway/bifrost/providers', async ({ request }) => {
+			http.post('/api/llm-gateway/admin/providers', async ({ request }) => {
 				created(await request.json());
 				return HttpResponse.json({ ...openai, name: 'groq' });
 			}),
-			http.post('/api/llm-gateway/bifrost/providers/groq/keys', async ({ request }) => {
+			http.post('/api/llm-gateway/admin/providers/groq/keys', async ({ request }) => {
 				keyCreated(await request.json());
 				return HttpResponse.json({ id: 'k2', name: 'groq-key-1' });
 			})

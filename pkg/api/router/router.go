@@ -648,7 +648,7 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("POST /api/llm-gateway/import-legacy-providers", llmGateway.ImportLegacyProviders)
 	mux.HandleFunc("GET /api/llm-gateway/budget-bindings", llmGateway.ListBudgetBindings)
 	mux.HandleFunc("PUT /api/llm-gateway/budget-bindings/{virtual_key_id}", llmGateway.SetBudgetBindings)
-	mux.HandleFunc("/api/llm-gateway/bifrost/{path...}", llmGateway.Proxy)
+	mux.HandleFunc("/api/llm-gateway/admin/{path...}", llmGateway.Proxy)
 
 	// Model providers
 	mux.HandleFunc("GET /api/model-providers", modelProviders.List)

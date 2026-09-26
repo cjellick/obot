@@ -1111,7 +1111,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 			dataDir = filepath.Join(xdg.DataHome, "obot", "llm-gateway")
 		}
 		bifrostEngine = bifrost.New()
-		providerDispatcher.RegisterBuiltinModelProvider(system.DefaultNamespace, system.BifrostModelProvider, bifrostEngine)
+		providerDispatcher.RegisterBuiltinModelProvider(system.DefaultNamespace, system.LLMGatewayModelProvider, bifrostEngine)
 		// Bootstrapping contacts configured providers to list their models, so it runs in
 		// the background; requests made before it finishes get a 503.
 		go func() {

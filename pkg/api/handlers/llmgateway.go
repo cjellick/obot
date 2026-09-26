@@ -74,8 +74,8 @@ func NewLLMGatewayHandler(engine *bifrost.Engine) *LLMGatewayHandler {
 func (h *LLMGatewayHandler) Status(req api.Context) error {
 	status := LLMGatewayStatus{
 		Enabled:           h.engine != nil,
-		ModelProviderName: system.BifrostModelProvider,
-		ProxyPath:         "/api/llm-proxy/bifrost",
+		ModelProviderName: system.LLMGatewayModelProvider,
+		ProxyPath:         "/api/llm-proxy",
 	}
 	if h.engine != nil {
 		status.Ready = h.engine.Ready()
@@ -85,7 +85,7 @@ func (h *LLMGatewayHandler) Status(req api.Context) error {
 		status.HasProviders = h.engine.HasUpstreamProviders(req.Context())
 	}
 	var mp v1.ModelProvider
-	if err := req.Get(&mp, system.BifrostModelProvider); err == nil && mp.Status.ModelsBackPopulated != nil {
+	if err := req.Get(&mp, system.LLMGatewayModelProvider); err == nil && mp.Status.ModelsBackPopulated != nil {
 		status.ModelsBackPopulated = *mp.Status.ModelsBackPopulated
 	}
 	return req.Write(status)
@@ -104,7 +104,7 @@ func (h *LLMGatewayHandler) requireEngine() error {
 	return nil
 }
 
-// Proxy forwards /api/llm-gateway/bifrost/{path...} to Bifrost's /api/{path...}.
+// Proxy forwards /api/llm-gateway/admin/{path...} to Bifrost's /api/{path...}.
 func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	if err := h.requireEngine(); err != nil {
 		return err
@@ -254,8 +254,14 @@ func (h *LLMGatewayHandler) Metrics(req api.Context) error {
 	if err != nil {
 		return err
 	}
-	h.engine.ServeHTTP(req.ResponseWriter, out)
-	return nil
+	rec := httptest.NewRecorder()
+	h.engine.ServeHTTP(rec, out)
+	// Publish the metrics under Obot's own name.
+	metrics := strings.ReplaceAll(rec.Body.String(), "bifrost_", "obot_llm_gateway_")
+	req.ResponseWriter.Header().Set("Content-Type", rec.Header().Get("Content-Type"))
+	req.WriteHeader(rec.Code)
+	_, err = req.ResponseWriter.Write([]byte(metrics))
+	return err
 }
 
 func (h *LLMGatewayHandler) SyncModels(req api.Context) error {

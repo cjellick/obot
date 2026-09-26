@@ -1,11 +1,11 @@
 // Client for Obot's LLM gateway API. Obot embeds Bifrost (https://github.com/maximhq/bifrost)
-// and exposes its management API under /api/llm-gateway/bifrost, alongside Obot-specific
+// and exposes its management API under /api/llm-gateway/admin, alongside Obot-specific
 // endpoints for status, model sync, budget bindings and legacy provider import.
 import { doDelete, doGet, doPost, doPut, type Fetcher } from '../http';
 
 type Opts = { fetch?: Fetcher; signal?: AbortSignal; dontLogErrors?: boolean };
 
-const B = '/llm-gateway/bifrost';
+const B = '/llm-gateway/admin';
 
 // ---------- Obot endpoints ----------
 

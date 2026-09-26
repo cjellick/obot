@@ -567,7 +567,7 @@ func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *
 
 		// The embedded gateway reports its own pricing, so project it into ModelInfo for
 		// the model controller to copy onto the model's status.
-		if modelProvider.Name == system.BifrostModelProvider {
+		if modelProvider.Name == system.LLMGatewayModelProvider {
 			if cost, ok := bifrost.CostFromMetadata(model.Metadata); ok {
 				models = append(models, &v1.ModelInfo{
 					Namespace: modelProvider.Namespace,
