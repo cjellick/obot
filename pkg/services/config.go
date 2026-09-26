@@ -43,6 +43,7 @@ import (
 	"github.com/obot-platform/obot/pkg/gateway/server/dispatcher"
 	otime "github.com/obot-platform/obot/pkg/gateway/time"
 	"github.com/obot-platform/obot/pkg/gateway/types"
+	"github.com/obot-platform/obot/pkg/guardrails"
 	"github.com/obot-platform/obot/pkg/hash"
 	"github.com/obot-platform/obot/pkg/hostedagentaccessrule"
 	"github.com/obot-platform/obot/pkg/imagepullsecrets"
@@ -226,7 +227,9 @@ type Services struct {
 	Bootstrapper          *bootstrap.Bootstrap
 	LocalAuthProvider     *localauth.Provider
 	// BifrostEngine is the embedded LLM gateway. It is nil when the gateway is disabled.
-	BifrostEngine                 *bifrost.Engine
+	BifrostEngine *bifrost.Engine
+	// GuardrailEngine checks LLM gateway traffic and MCP tool calls.
+	GuardrailEngine               *guardrails.Engine
 	AuthEnabled                   bool
 	DefaultMCPCatalogPath         string
 	DefaultSystemMCPCatalogPath   string
@@ -1148,6 +1151,30 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		}
 	}
 
+	// Guardrails check LLM gateway traffic and MCP tool calls. Their LLM-judge policies are
+	// evaluated with the message policy judge.
+	judge := msgPolicyHelper
+	if judge == nil {
+		if judge, err = messagepolicy.NewHelper(ctx, r.Backend(), storageClient, providerDispatcher, gatewayClient); err != nil {
+			return nil, err
+		}
+		if bifrostEngine != nil {
+			judge.SetLLMGateway(bifrostEngine)
+		}
+	}
+	guardrailEngine := guardrails.New(ctx, gatewayClient, judge)
+	if bifrostEngine != nil {
+		go func() {
+			if err := bifrostEngine.Wait(ctx); err != nil {
+				return
+			}
+			input, output := guardrailEngine.Plugins()
+			if err := bifrostEngine.RegisterLLMPlugins(input, output); err != nil {
+				slog.Error("failed to enable guardrails on the LLM gateway", "error", err)
+			}
+		}()
+	}
+
 	apply.AddValidOwnerChange("otto-controller", "obot-controller")
 	apply.AddValidOwnerChange("mcpcatalogentries", "catalog-default")
 
@@ -1450,6 +1477,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		Bootstrapper:                 bootstrapper,
 		LocalAuthProvider:            localAuthProvider,
 		BifrostEngine:                bifrostEngine,
+		GuardrailEngine:              guardrailEngine,
 
 		DefaultMCPCatalogPath:          config.DefaultMCPCatalogPath,
 		GitMaxRepoSizeMB:               config.GitMaxRepoSizeMB,

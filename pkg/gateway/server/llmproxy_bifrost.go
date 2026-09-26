@@ -15,6 +15,7 @@ import (
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/gateway/client"
+	"github.com/obot-platform/obot/pkg/guardrails"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 	"github.com/obot-platform/obot/pkg/principal"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
@@ -87,7 +88,7 @@ func (s *Server) newBifrostLLMProviderProxy() *llmProviderProxy {
 		dailyUserOutputTokenLimit: s.dailyUserOutputTokenLimit,
 		backend:                   &bifrostProviderBackend{engine: s.llmGateway},
 		mapHelper:                 s.mapHelper,
-		messagePolicyHelper:       s.messagePolicyHelper,
+		// Guardrails, which include LLM-judge policies, run inside the gateway instead.
 	}
 }
 
@@ -298,8 +299,8 @@ func (b *bifrostProviderBackend) authorizeExtraModels(l *llmProviderProxy, req a
 
 // decorateRequest removes the caller's Obot credential and adds the identity and
 // virtual-key headers Bifrost uses for logging, analytics, and governance.
-func (b *bifrostProviderBackend) decorateRequest(_ context.Context, _ *client.Client, req *http.Request, user kuser.Info, model *v1.Model) error {
-	for _, h := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie"} {
+func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (func(), error) {
+	for _, h := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie", guardrails.HeaderRequestToken} {
 		req.Header.Del(h)
 	}
 	// Never let callers pick a virtual key or smuggle log metadata of their own.
@@ -315,12 +316,12 @@ func (b *bifrostProviderBackend) decorateRequest(_ context.Context, _ *client.Cl
 		}
 	}
 
-	userID := principal.ResourceOwnerID(user)
+	ownerID := principal.ResourceOwnerID(user)
 	// Cache entries are scoped per user so one user's cached response is never served to
 	// another. This only takes effect when an admin enables the cache.
-	req.Header.Set(bifrost.HeaderCacheKey, "obot-user-"+userID)
-	req.Header.Set(bifrost.HeaderLogUserID, userID)
-	req.Header.Set(bifrost.HeaderDimUser, userID)
+	req.Header.Set(bifrost.HeaderCacheKey, "obot-user-"+ownerID)
+	req.Header.Set(bifrost.HeaderLogUserID, ownerID)
+	req.Header.Set(bifrost.HeaderDimUser, ownerID)
 	if name := user.GetName(); name != "" {
 		req.Header.Set(bifrost.HeaderLogUserName, name)
 	}
@@ -329,30 +330,24 @@ func (b *bifrostProviderBackend) decorateRequest(_ context.Context, _ *client.Cl
 		req.Header.Set(bifrost.HeaderDimObotModel, model.Spec.Manifest.Name)
 	}
 
-	return nil
+	// Tell the gateway's guardrail plugins who the request is for. Only a reference is sent;
+	// the identity itself stays in this process.
+	userID, groups, _, err := gatewayIdentity(ctx, gatewayClient, user)
+	if err != nil {
+		return nil, err
+	}
+	token, release := guardrails.BindRequest(guardrails.Identity{UserID: userID, Groups: groups})
+	req.Header.Set(guardrails.HeaderRequestToken, token)
+	return release, nil
 }
 
 // admit enforces LLM gateway budgets. It replaces the daily token quota for gateway traffic:
 // budgets are enforced by Obot from the usage it records in its own database, so they hold
 // exactly across replicas. A hosted agent spends its owner's budgets.
 func (b *bifrostProviderBackend) admit(ctx context.Context, gatewayClient *client.Client, user kuser.Info, model *v1.Model) ([]string, error) {
-	userID := principal.ResourceOwnerID(user)
-	groups := user.GetExtra()["auth_provider_groups"]
-	isAdmin := slices.Contains(user.GetGroups(), types2.GroupAdmin) || slices.Contains(user.GetGroups(), types2.GroupOwner)
-
-	if principal.IsHostedAgent(user) {
-		ownerID, err := strconv.ParseUint(userID, 10, 64)
-		if err != nil {
-			return nil, types2.NewErrForbidden("cannot determine the owner of this agent")
-		}
-		if groups, err = gatewayClient.ListGroupIDsForUser(ctx, uint(ownerID)); err != nil {
-			return nil, err
-		}
-		owner, err := gatewayClient.UserByID(ctx, userID)
-		if err != nil {
-			return nil, err
-		}
-		isAdmin = owner.Role.HasRole(types2.RoleAdmin)
+	userID, groups, isAdmin, err := gatewayIdentity(ctx, gatewayClient, user)
+	if err != nil {
+		return nil, err
 	}
 
 	budgets, err := gatewayClient.LLMGatewayBudgetsForUser(ctx, userID, groups, isAdmin, model.Name)
@@ -367,4 +362,27 @@ func (b *bifrostProviderBackend) admit(ctx context.Context, gatewayClient *clien
 		ids = append(ids, budget.ID)
 	}
 	return ids, nil
+}
+
+// gatewayIdentity resolves whose budgets and guardrails apply to a request. A hosted agent
+// acts for its owner, so it gets the owner's ID, groups and role.
+func gatewayIdentity(ctx context.Context, gatewayClient *client.Client, user kuser.Info) (userID string, groups []string, isAdmin bool, _ error) {
+	userID = principal.ResourceOwnerID(user)
+	groups = user.GetExtra()["auth_provider_groups"]
+	isAdmin = slices.Contains(user.GetGroups(), types2.GroupAdmin) || slices.Contains(user.GetGroups(), types2.GroupOwner)
+	if !principal.IsHostedAgent(user) {
+		return userID, groups, isAdmin, nil
+	}
+	ownerID, err := strconv.ParseUint(userID, 10, 64)
+	if err != nil {
+		return "", nil, false, types2.NewErrForbidden("cannot determine the owner of this agent")
+	}
+	if groups, err = gatewayClient.ListGroupIDsForUser(ctx, uint(ownerID)); err != nil {
+		return "", nil, false, err
+	}
+	owner, err := gatewayClient.UserByID(ctx, userID)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return userID, groups, owner.Role.HasRole(types2.RoleAdmin), nil
 }

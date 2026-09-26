@@ -499,3 +499,39 @@ func postgresConfigFromDSN(dsn string) (map[string]any, error) {
 		"max_open_conns": 20,
 	}, nil
 }
+
+// RegisterLLMPlugins adds Obot's own plugins to the gateway. first runs before every other
+// plugin, so its request hook sees requests before anything (including request logging)
+// records them; last runs after every other plugin, so its response hook runs first.
+func (e *Engine) RegisterLLMPlugins(first, last schemas.LLMPlugin) error {
+	if !e.Ready() {
+		return errors.New("LLM gateway is not ready")
+	}
+	cfg := e.server.Config
+	pre, post := schemas.PluginPlacementPreBuiltin, schemas.PluginPlacementPostBuiltin
+	firstOrder, lastOrder := -1_000_000, 1_000_000
+	for _, reg := range []struct {
+		plugin    schemas.LLMPlugin
+		placement *schemas.PluginPlacement
+		order     *int
+	}{{first, &pre, &firstOrder}, {last, &post, &lastOrder}} {
+		cfg.SetPluginOrderInfo(reg.plugin.GetName(), reg.placement, reg.order)
+		if err := cfg.ReloadPlugin(reg.plugin); err != nil {
+			return fmt.Errorf("failed to register plugin %s: %w", reg.plugin.GetName(), err)
+		}
+		if err := e.server.Client.ReloadPlugin(reg.plugin, []schemas.PluginType{schemas.PluginTypeLLM}); err != nil {
+			return fmt.Errorf("failed to register plugin %s: %w", reg.plugin.GetName(), err)
+		}
+	}
+	cfg.SortAndRebuildPlugins()
+	e.server.Client.ReorderPlugins(cfg.GetPluginOrder())
+	return nil
+}
+
+// LLMPluginOrder returns the names of the gateway's LLM plugins in execution order.
+func (e *Engine) LLMPluginOrder() []string {
+	if !e.Ready() {
+		return nil
+	}
+	return e.server.Config.GetPluginOrder()
+}

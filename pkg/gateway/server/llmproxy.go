@@ -130,7 +130,7 @@ type budgetEnforcingBackend interface {
 
 // requestDecoratingBackend is implemented by backends that add headers for the upstream.
 type requestDecoratingBackend interface {
-	decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) error
+	decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (release func(), err error)
 }
 
 type llmProviderProxy struct {
@@ -1197,9 +1197,11 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 	}
 
 	if decorator, ok := l.backend.(requestDecoratingBackend); ok {
-		if err := decorator.decorateRequest(req.Context(), req.GatewayClient, req.Request, req.User, resolvedModel); err != nil {
+		release, err := decorator.decorateRequest(req.Context(), req.GatewayClient, req.Request, req.User, resolvedModel)
+		if err != nil {
 			return err
 		}
+		defer release()
 	}
 
 	transport, err := l.backend.transport(*modelProvider, credEnv)
