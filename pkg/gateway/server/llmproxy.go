@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -31,6 +32,7 @@ import (
 	"github.com/obot-platform/obot/pkg/modelaccesspolicy"
 	"github.com/obot-platform/obot/pkg/principal"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
+	"github.com/obot-platform/obot/pkg/system"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -211,6 +213,15 @@ func (r *responseModifier) modifyResponse(resp *http.Response) error {
 		}
 		if err != nil {
 			return fmt.Errorf("failed to determine accessible models: %w", err)
+		}
+		if r.modelProvider == system.BifrostModelProvider {
+			// The gateway's Anthropic-format model list uses bare model IDs, which the
+			// gateway also accepts in requests, so allow the bare form of each target too.
+			for target := range maps.Clone(allowedTargetModels) {
+				if _, bare, ok := strings.Cut(target, "/"); ok {
+					allowedTargetModels[bare] = true
+				}
+			}
 		}
 		if err := filterModelListResponse(resp, allowedTargetModels, allowAllModels); err != nil {
 			return err
