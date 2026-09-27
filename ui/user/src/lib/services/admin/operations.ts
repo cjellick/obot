@@ -93,11 +93,6 @@ import type {
 	HostedAgentInstanceManifest,
 	HostedAgentAccessPolicy,
 	HostedAgentAccessPolicyManifest,
-	MessagePolicy,
-	MessagePolicyManifest,
-	MessagePolicyViolation,
-	MessagePolicyViolationFilters,
-	MessagePolicyViolationStats,
 	RestartNanobotAgentDeploymentsResult,
 	SystemMCPCatalog,
 	SystemMCPCatalogManifest,
@@ -1478,88 +1473,6 @@ export async function updateMCPTunnel(
 	opts?: RequestOptions
 ): Promise<MCPTunnel> {
 	return (await doPut(`/mcp-tunnels/${id}`, input, opts)) as MCPTunnel;
-}
-
-// Message policies
-
-export async function listMessagePolicies(opts?: { fetch?: Fetcher }): Promise<MessagePolicy[]> {
-	const response = (await doGet('/message-policies', opts)) as ItemsResponse<MessagePolicy>;
-	return response.items ?? [];
-}
-
-export async function getMessagePolicy(
-	id: string,
-	opts?: { fetch?: Fetcher }
-): Promise<MessagePolicy> {
-	return (await doGet(`/message-policies/${id}`, opts)) as MessagePolicy;
-}
-
-export async function createMessagePolicy(manifest: MessagePolicyManifest): Promise<MessagePolicy> {
-	return (await doPost('/message-policies', manifest)) as MessagePolicy;
-}
-
-export async function updateMessagePolicy(
-	id: string,
-	manifest: MessagePolicyManifest
-): Promise<MessagePolicy> {
-	return (await doPut(`/message-policies/${id}`, manifest)) as MessagePolicy;
-}
-
-export async function deleteMessagePolicy(id: string): Promise<void> {
-	await doDelete(`/message-policies/${id}`);
-}
-
-// Message policy violations
-
-function buildMessagePolicyViolationParams(filters?: MessagePolicyViolationFilters): string {
-	if (!filters) return '';
-	const params = new URLSearchParams();
-	for (const [key, value] of Object.entries(filters)) {
-		if (value != null && value !== '') {
-			params.set(key, String(value));
-		}
-	}
-	const str = params.toString();
-	return str ? `?${str}` : '';
-}
-
-export async function listMessagePolicyViolations(
-	filters?: MessagePolicyViolationFilters,
-	opts?: { fetch?: Fetcher }
-): Promise<PaginatedResponse<MessagePolicyViolation>> {
-	return (await doGet(
-		`/message-policy-violations${buildMessagePolicyViolationParams(filters)}`,
-		opts
-	)) as PaginatedResponse<MessagePolicyViolation>;
-}
-
-export async function getMessagePolicyViolation(
-	id: number | string,
-	opts?: { fetch?: Fetcher }
-): Promise<MessagePolicyViolation> {
-	return (await doGet(`/message-policy-violations/${id}`, opts)) as MessagePolicyViolation;
-}
-
-export async function listMessagePolicyViolationFilterOptions(
-	filter: string,
-	filters?: MessagePolicyViolationFilters,
-	opts?: { fetch?: Fetcher }
-): Promise<string[]> {
-	const response = (await doGet(
-		`/message-policy-violations/filter-options/${filter}${buildMessagePolicyViolationParams(filters)}`,
-		opts
-	)) as { options: string[] };
-	return response.options ?? [];
-}
-
-export async function getMessagePolicyViolationStats(
-	filters?: MessagePolicyViolationFilters,
-	opts?: { fetch?: Fetcher }
-): Promise<MessagePolicyViolationStats> {
-	return (await doGet(
-		`/message-policy-violation-stats${buildMessagePolicyViolationParams(filters)}`,
-		opts
-	)) as MessagePolicyViolationStats;
 }
 
 // Model access policies

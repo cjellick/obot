@@ -1,12 +1,7 @@
-import { UserService } from '$lib/services';
 import type { PageLoad } from './$types';
 import { redirect } from '@sveltejs/kit';
 
-export const load: PageLoad = async ({ fetch }) => {
-	const version = await UserService.getVersion({ fetch });
-	if (!version.messagePoliciesEnabled) {
-		throw redirect(302, '/admin');
-	}
-
-	return {};
+// Message policy violations are now recorded as guardrail events.
+export const load: PageLoad = () => {
+	throw redirect(307, '/llm-gateway/guardrails/events');
 };

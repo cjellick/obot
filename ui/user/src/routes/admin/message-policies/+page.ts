@@ -1,25 +1,7 @@
-import { handleRouteError } from '$lib/errors';
-import { AdminService, UserService } from '$lib/services';
-import type { MessagePolicy } from '$lib/services/admin/types';
-import { profile } from '$lib/stores';
 import type { PageLoad } from './$types';
 import { redirect } from '@sveltejs/kit';
 
-export const load: PageLoad = async ({ fetch }) => {
-	const version = await UserService.getVersion({ fetch });
-	if (!version.messagePoliciesEnabled) {
-		throw redirect(302, '/admin');
-	}
-
-	let messagePolicies: MessagePolicy[] = [];
-
-	try {
-		messagePolicies = await AdminService.listMessagePolicies({ fetch });
-	} catch (err) {
-		handleRouteError(err, '/admin/message-policies', profile.current);
-	}
-
-	return {
-		messagePolicies
-	};
+// Message policies are now guardrails: each became an LLM Judge profile and a blocking rule.
+export const load: PageLoad = () => {
+	throw redirect(307, '/llm-gateway/guardrails');
 };
