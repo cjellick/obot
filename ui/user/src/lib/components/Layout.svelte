@@ -296,6 +296,11 @@
 								label: 'Budgets & Limits',
 								href: '/llm-gateway/budgets'
 							},
+							{
+								id: 'llm-gateway-guardrails',
+								label: 'Guardrails',
+								href: '/llm-gateway/guardrails'
+							},
 							{ id: 'llm-gateway-routing', label: 'Routing', href: '/llm-gateway/routing' },
 							{ id: 'llm-gateway-logs', label: 'Request Logs', href: '/llm-gateway/logs' },
 							{

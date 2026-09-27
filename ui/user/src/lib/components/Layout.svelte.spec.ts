@@ -166,6 +166,7 @@ describe('Layout.svelte', () => {
 			'/llm-gateway/overview',
 			'/llm-gateway/providers',
 			'/llm-gateway/budgets',
+			'/llm-gateway/guardrails',
 			'/llm-gateway/routing',
 			'/llm-gateway/logs',
 			'/llm-gateway/settings'
