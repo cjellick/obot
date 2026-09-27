@@ -75,7 +75,12 @@ func TestMCPToolResult(t *testing.T) {
 	}
 
 	store.rules = []types.GuardrailRule{mcpRule("block", types.GuardrailActionBlock, "", "secrets")}
+	// The default input scope (latest) must not skip tool call arguments.
+	store.rules[0].InputScope = types.GuardrailScopeLatest
 	e.Invalidate()
+	if d := e.CheckMCPToolCall(context.Background(), MCPCall{Tool: "write", Arguments: json.RawMessage(`{"text":"` + leakedKey + `"}`)}); !d.Blocked {
+		t.Fatalf("expected the tool call to be blocked, got %+v", d)
+	}
 	if d := e.CheckMCPToolResult(context.Background(), call, result); !d.Blocked || !strings.Contains(d.Message, "block") {
 		t.Fatalf("expected a block, got %+v", d)
 	}

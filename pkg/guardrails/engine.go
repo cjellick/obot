@@ -249,7 +249,8 @@ func (e *Engine) Evaluate(ctx context.Context, plan Plan, req Request) Decision 
 	for _, r := range plan.rules {
 		segments := d.Segments
 		offset := 0
-		if req.Stage == StageInput && r.rule.InputScope == types.GuardrailScopeLatest && r.rule.Action != types.GuardrailActionRedact {
+		// Input scope only applies to conversations; an MCP tool call has no earlier turns.
+		if req.Target == types.GuardrailTargetLLM && req.Stage == StageInput && r.rule.InputScope == types.GuardrailScopeLatest && r.rule.Action != types.GuardrailActionRedact {
 			offset = latestStart(segments)
 			segments = segments[offset:]
 		}
