@@ -369,9 +369,15 @@ func validateGuardrailRule(req api.Context, rule *gatewaytypes.GuardrailRule) er
 		return types.NewErrBadRequest("name is required")
 	}
 	switch rule.Target {
-	case gatewaytypes.GuardrailTargetLLM, gatewaytypes.GuardrailTargetMCP:
+	case gatewaytypes.GuardrailTargetLLM:
+	case "":
+		rule.Target = gatewaytypes.GuardrailTargetLLM
+	case gatewaytypes.GuardrailTargetMCP:
+		// MCP traffic is checked by guardrail filters, which share the targeting, ordering
+		// and auditing of other MCP filters.
+		return types.NewErrBadRequest("guardrail rules apply to LLM traffic only; check MCP traffic with a guardrail filter (MCP Servers > Filters)")
 	default:
-		return types.NewErrBadRequest("target must be llm or mcp")
+		return types.NewErrBadRequest("target must be llm")
 	}
 	switch rule.ApplyTo {
 	case gatewaytypes.GuardrailApplyInput, gatewaytypes.GuardrailApplyOutput, gatewaytypes.GuardrailApplyBoth:

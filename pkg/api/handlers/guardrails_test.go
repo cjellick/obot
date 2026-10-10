@@ -2,10 +2,20 @@ package handlers
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/obot-platform/obot/pkg/api"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 )
+
+func TestGuardrailRulesAreLLMOnly(t *testing.T) {
+	rule := gatewaytypes.GuardrailRule{Name: "r", Target: gatewaytypes.GuardrailTargetMCP}
+	err := validateGuardrailRule(api.Context{}, &rule)
+	if err == nil || !strings.Contains(err.Error(), "guardrail filter") {
+		t.Fatalf("an MCP rule must be rejected, got %v", err)
+	}
+}
 
 func TestCheckDestinationChange(t *testing.T) {
 	existing := &gatewaytypes.GuardrailProfile{Type: "presidio", Config: json.RawMessage(`{"analyzerURL":"https://presidio.internal"}`)}

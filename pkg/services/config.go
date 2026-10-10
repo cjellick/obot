@@ -1128,6 +1128,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		return guardrailEngine.JudgePolicies(ctx, guardrails.Identity{UserID: user.GetUID(), Groups: user.GetExtra()["auth_provider_groups"]}, direction)
 	})
 	go migrateMessagePolicies(ctx, storageClient, gatewayClient, guardrailEngine, config.EnableMessagePolicies)
+	go migrateMCPGuardrailRules(ctx, storageClient, gatewayClient, guardrailEngine)
 	if bifrostEngine != nil {
 		guardrailInput, guardrailOutput := guardrailEngine.Plugins()
 		dataDir := config.LLMGatewayDataDir
@@ -1769,6 +1770,30 @@ func localK8sCacheByObject(mcpServerNamespace, runtimeNamespace string) map[kcli
 		&corev1.Secret{}: {
 			Namespaces: secretNamespaces,
 		},
+	}
+}
+
+// migrateMCPGuardrailRules converts guardrail rules that target MCP traffic into guardrail
+// filters, once. Guardrail rules now apply to LLM traffic only.
+func migrateMCPGuardrailRules(ctx context.Context, storageClient kclient.Client, gatewayClient *client.Client, engine *guardrails.Engine) {
+	for {
+		err := gatewayClient.MigrateKinmIfNotRun(ctx, "guardrails_mcp_rules_to_filters", func() error {
+			converted, err := guardrails.MigrateMCPRules(ctx, gatewayClient, storageClient, system.DefaultNamespace)
+			if converted > 0 {
+				slog.Info("converted MCP guardrail rules into guardrail filters", "count", converted)
+			}
+			return err
+		})
+		if err == nil {
+			engine.Invalidate()
+			return
+		}
+		slog.Warn("failed to convert MCP guardrail rules into guardrail filters; retrying", "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
 	}
 }
 
