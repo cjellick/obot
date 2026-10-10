@@ -8,7 +8,7 @@
 	import FiltersDrawer from '$lib/components/admin/filters-drawer/FiltersDrawer.svelte';
 	import Table from '$lib/components/table/Table.svelte';
 	import { isAbortError } from '$lib/errors';
-	import { UserService, type OrgUser } from '$lib/services';
+	import { AdminService, UserService, type OrgUser } from '$lib/services';
 	import {
 		APPLY_TO_LABELS,
 		findingsSummary,
@@ -45,12 +45,14 @@
 	let total = $state(0);
 	let pageIndex = $state(0);
 	let users = $state<OrgUser[]>([]);
-	let rules = $state<GuardrailRule[]>([]);
+	// Events come from model rules and from MCP guardrail filters (whose rule ID is the
+	// filter's ID), so both are offered in the Rule filter.
+	let rules = $state<{ id: string; name: string }[]>([]);
 	let showFilters = $state(false);
 	let rightSidebar = $state<HTMLDivElement>();
 
 	let usersMap = $derived(new Map(users.map((u) => [u.id, u])));
-	let ruleNames = $derived(new Map(rules.map((r) => [r.id ?? '', r.name])));
+	let ruleNames = $derived(new Map(rules.map((r) => [r.id, r.name])));
 	let query = $derived(page.url.searchParams.get('query') ?? '');
 
 	const numberOfPages = $derived(Math.ceil(total / pageLimit));
@@ -78,7 +80,11 @@
 	});
 
 	const filterKey = $derived(
-		JSON.stringify({ ...pillsSearchParamFilters, start: timeRange.startTime.toISOString() })
+		JSON.stringify({
+			...pillsSearchParamFilters,
+			start: timeRange.startTime.toISOString(),
+			end: timeRange.endTime.toISOString()
+		})
 	);
 
 	$effect(() => {
@@ -94,17 +100,16 @@
 			outcome: (pillsSearchParamFilters.outcome ?? '') as GuardrailOutcome | '',
 			target: (pillsSearchParamFilters.target ?? '') as GuardrailTarget | '',
 			ruleID: pillsSearchParamFilters.rule_id ?? undefined,
-			since: timeRange.startTime.toISOString()
+			since: timeRange.startTime.toISOString(),
+			until: timeRange.endTime.toISOString()
 		};
-		const end = timeRange.endTime.getTime();
 
 		loading = true;
 		fetchError = null;
 		listGuardrailEvents(filters, { signal: controller.signal })
 			.then((resp) => {
 				if (controller.signal.aborted) return;
-				// The API has no end time, so newer events are dropped here.
-				events = resp.items.filter((e) => new Date(e.created).getTime() <= end);
+				events = resp.items;
 				total = resp.total;
 			})
 			.catch((err) => {
@@ -122,10 +127,21 @@
 		UserService.listUsersIncludeDeleted()
 			.then((u) => (users = u))
 			.catch(() => {});
-		listGuardrailRules()
+		loadRuleSources()
 			.then((r) => (rules = r))
 			.catch(() => {});
 	});
+
+	async function loadRuleSources(): Promise<{ id: string; name: string }[]> {
+		const [modelRules, filters] = await Promise.all([
+			listGuardrailRules().catch((): GuardrailRule[] => []),
+			AdminService.listMCPFilters().catch(() => [])
+		]);
+		return [
+			...modelRules.filter((r) => r.id).map((r) => ({ id: r.id as string, name: r.name })),
+			...filters.filter((f) => f.guardrail).map((f) => ({ id: f.id, name: f.name || f.id }))
+		];
+	}
 
 	function userLabel(id?: string) {
 		return id ? getUserDisplayName(usersMap, id) : '—';
@@ -192,8 +208,8 @@
 		if (filterId === 'outcome') return { options: Object.keys(OUTCOME_LABELS) };
 		if (filterId === 'target') return { options: Object.keys(TARGET_LABELS) };
 		if (filterId === 'rule_id') {
-			rules = await listGuardrailRules().catch(() => rules);
-			return { options: rules.map((r) => r.id).filter((id): id is string => !!id) };
+			rules = await loadRuleSources().catch(() => rules);
+			return { options: rules.map((r) => r.id) };
 		}
 		return { options: [] };
 	}

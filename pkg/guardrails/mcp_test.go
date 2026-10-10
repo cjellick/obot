@@ -179,3 +179,23 @@ func TestMCPFilterSubjects(t *testing.T) {
 		t.Fatalf("filter should block its subjects: %+v", d)
 	}
 }
+
+func TestMCPFilterIgnoresMessagesWithoutContent(t *testing.T) {
+	e, store := secretsEngine(t)
+	f := secretsFilter(apitypes.MCPGuardrailActionBlock, `mcp_arguments.x == "y"`)
+	f.Config.FailClosed = true
+	for _, msg := range []MCPMessage{
+		{Method: "initialize", Stage: StageInput, Params: json.RawMessage(`{"protocolVersion":"2025-06-18"}`)},
+		{Method: "tools/list", Stage: StageOutput, Result: json.RawMessage(`{"tools":[]}`)},
+		{Method: MCPMethodResourcesRead, Stage: StageInput, Params: json.RawMessage(`{"uri":"file:///a"}`)},
+		{Method: "tools/list", Stage: StageInput, Params: json.RawMessage(`["not","an","object"]`)},
+	} {
+		if d := e.CheckMCPFilter(t.Context(), f, msg); d.Applied || d.Blocked {
+			t.Fatalf("%s %s must pass a guardrail filter untouched: %+v", msg.Method, msg.Stage, d)
+		}
+	}
+	e.Flush()
+	if got := store.outcomes(); len(got) != 0 {
+		t.Fatalf("no events expected, got %v", got)
+	}
+}

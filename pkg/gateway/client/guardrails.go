@@ -22,6 +22,7 @@ type GuardrailEventFilter struct {
 	UserID  string
 	Target  string
 	Since   time.Time
+	Until   time.Time
 	Limit   int
 	Offset  int
 }
@@ -142,6 +143,9 @@ func (c *Client) ListGuardrailEvents(ctx context.Context, f GuardrailEventFilter
 	}
 	if !f.Since.IsZero() {
 		q = q.Where("created_at >= ?", f.Since)
+	}
+	if !f.Until.IsZero() {
+		q = q.Where("created_at <= ?", f.Until)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {

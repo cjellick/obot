@@ -87,7 +87,7 @@ A blocked request gets HTTP 400 with an error of type `guardrail_intervention`.
 
 MCP traffic is checked by [guardrail filters](./filters.md#guardrail-filters), which run in-process in the MCP gateway's filter chain, in order with any other filters. See that page for what is checked and how outcomes are audited.
 
-Earlier versions of Obot let a rule target MCP tool calls. When Obot starts, each such rule is converted once into a guardrail filter that applies to `tools/call` on every MCP server, as the rule did, with the rule's detectors, action, direction (input becomes request, output becomes response), fail closed, sampling rate, assignment, condition and block message. The rule is then deleted. A disabled rule becomes a disabled filter.
+Earlier versions of Obot let a rule target MCP tool calls. Each time Obot starts, any such rule is converted into a guardrail filter that applies to `tools/call` on every MCP server, as the rule did, with the rule's detectors, action, direction (input becomes request, output becomes response), fail closed, sampling rate, assignment, condition and block message. The rule is then deleted. A disabled rule becomes a disabled filter.
 
 ## Events
 

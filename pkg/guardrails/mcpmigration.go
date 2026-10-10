@@ -30,7 +30,7 @@ func MCPRuleFilterName(ruleID string) string {
 }
 
 // MCPRuleFilter converts an MCP guardrail rule into a guardrail filter that applies to tool
-// calls on every server in the default catalog.
+// calls on every MCP server, as the rule applied.
 func MCPRuleFilter(rule gatewaytypes.GuardrailRule, namespace string) *v1.MCPWebhookValidation {
 	direction := types.MCPGuardrailDirectionBoth
 	switch rule.ApplyTo {

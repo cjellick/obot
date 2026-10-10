@@ -52,6 +52,14 @@ function mockSupport() {
 		),
 		http.get('/api/llm-gateway/guardrails/rules', () =>
 			HttpResponse.json({ items: [{ id: 'r1', name: 'Block secrets' }] })
+		),
+		http.get('/api/mcp-webhook-validations', () =>
+			HttpResponse.json({
+				items: [
+					{ id: 'f1', name: 'MCP secrets', guardrail: { detectorIDs: ['d1'], action: 'block' } },
+					{ id: 'f2', name: 'Webhook check', url: 'https://hooks.example.com' }
+				]
+			})
 		)
 	);
 }
@@ -102,7 +110,8 @@ describe('Guardrail events view', () => {
 				outcome: 'redacted',
 				target: 'mcp',
 				ruleID: 'r1',
-				since: '2026-08-31T00:00:00.000Z'
+				since: '2026-08-31T00:00:00.000Z',
+				until: '2026-09-02T00:00:59.000Z'
 			})
 		);
 		await expect.element(page.getByText('Redacted', { exact: true })).toBeInTheDocument();
@@ -110,19 +119,21 @@ describe('Guardrail events view', () => {
 		await expect.element(page.getByText('Block secrets')).toBeInTheDocument();
 	});
 
-	it('drops events newer than the end of the range', async () => {
+	it('asks the API for events up to the end of the range', async () => {
 		setParams({ start_time: range.start_time, end_time: '2026-09-01T11:30:00.000Z' });
 		mockSupport();
+		const requested = vi.fn();
 		worker.use(
-			http.get('/api/llm-gateway/guardrails/events', () =>
-				HttpResponse.json({ items: [blocked, failed], total: 2 })
-			)
+			http.get('/api/llm-gateway/guardrails/events', ({ request }) => {
+				requested(new URL(request.url).searchParams.get('until'));
+				return HttpResponse.json({ items: [blocked], total: 1 });
+			})
 		);
 		await preparePageData();
 		render(EventsView);
 
-		await expect.element(page.getByRole('cell', { name: 'Tool check' })).toBeInTheDocument();
-		await expect.element(page.getByText('Block secrets')).not.toBeInTheDocument();
+		await vi.waitFor(() => expect(requested).toHaveBeenLastCalledWith('2026-09-01T11:30:59.000Z'));
+		await expect.element(page.getByRole('cell', { name: 'Block secrets' })).toBeInTheDocument();
 	});
 
 	it('shows an empty state without events', async () => {
@@ -165,5 +176,12 @@ describe('Guardrail events view', () => {
 		await expect
 			.element(page.getByRole('button', { name: 'Block secrets', exact: true }))
 			.toBeInTheDocument();
+		// MCP guardrail filters produce events too; other filter types don't.
+		await expect
+			.element(page.getByRole('button', { name: 'MCP secrets', exact: true }))
+			.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('button', { name: 'Webhook check', exact: true }))
+			.not.toBeInTheDocument();
 	});
 });

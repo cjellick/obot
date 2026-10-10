@@ -337,6 +337,13 @@ func (h *GuardrailsHandler) ListEvents(req api.Context) error {
 		}
 		filter.Since = t
 	}
+	if until := q.Get("until"); until != "" {
+		t, err := time.Parse(time.RFC3339, until)
+		if err != nil {
+			return types.NewErrBadRequest("invalid until: %v", err)
+		}
+		filter.Until = t
+	}
 	events, total, err := req.GatewayClient.ListGuardrailEvents(req.Context(), filter)
 	if err != nil {
 		return err

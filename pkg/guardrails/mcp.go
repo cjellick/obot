@@ -136,10 +136,28 @@ func filterRule(f MCPFilter, profiles map[string]*compiledProfile) *compiledRule
 	return r
 }
 
+// mcpMessageHasContent reports whether a guardrail filter has anything to check in msg:
+// tool call arguments and results, prompt arguments and messages, and resource contents
+// (resources/read requests carry only a URI).
+func mcpMessageHasContent(msg MCPMessage) bool {
+	switch msg.Method {
+	case MCPMethodToolsCall, MCPMethodPromptsGet:
+		return true
+	case MCPMethodResourcesRead:
+		return msg.Stage == StageOutput
+	}
+	return false
+}
+
 // CheckMCPFilter runs a guardrail filter on an MCP request or response. Tool call arguments
 // and results, resource contents, and prompt arguments and messages are checked; other
 // methods carry no content to check and pass unchanged.
 func (e *Engine) CheckMCPFilter(ctx context.Context, f MCPFilter, msg MCPMessage) MCPDecision {
+	if !mcpMessageHasContent(msg) {
+		// Nothing to check, so the filter doesn't apply: it neither runs, records, nor (when
+		// its condition can't be evaluated for this message) blocks.
+		return MCPDecision{}
+	}
 	_, profiles, err := e.loadAll(ctx)
 	if err != nil {
 		// Unlike a detector failing (which the filter's fail-closed setting decides), this means

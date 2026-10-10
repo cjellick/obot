@@ -435,9 +435,13 @@ filter sits alongside webhook, custom MCP server and built-in filters.
   unparseable calls are refused, since they would skip the per-message checks.
 - **Every stream.** Results are checked whichever stream they arrive on,
   including GET streams.
-- **Migration.** Guardrail rules are now LLM-only. Earlier MCP-target rules
-  are converted once into guardrail filters on every server, under the marker
-  `guardrails_mcp_rules_to_filters`.
+- **Migration.** Guardrail rules are now LLM-only. MCP-target rules are
+  converted into guardrail filters on every server, at every start, so rules
+  created by an old-version replica during a rolling upgrade are converted
+  too. Conversion is idempotent.
+- **Scope.** Same as all filters: not system, component or agent servers.
+  Agents reach real MCP servers through the MCP gateway, where filters
+  apply.
 
 **Custom filters are kept, not retired.** Filters run arbitrary customer code
 on any MCP method and can make any mutation, which guardrails don't replace.

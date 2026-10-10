@@ -119,6 +119,7 @@ export interface GuardrailEventFilters {
 	outcome?: GuardrailOutcome | '';
 	target?: GuardrailTarget | '';
 	since?: string;
+	until?: string;
 }
 
 export const TARGET_LABELS: Record<GuardrailTarget, string> = {

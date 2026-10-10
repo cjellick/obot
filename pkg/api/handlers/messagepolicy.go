@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	errMessagePoliciesMoved = types.NewErrHTTP(http.StatusGone, "Message policies are now managed as guardrails: create an LLM Judge profile and a rule under LLM Gateway > Guardrails, or use /api/llm-gateway/guardrails. Existing message policies were converted automatically.")
+	errMessagePoliciesMoved = types.NewErrHTTP(http.StatusGone, "Message policies are now managed as guardrails: create an LLM Judge detector under AI Resources > Guardrails and a rule under AI Resources > Models > Guardrails, or use /api/llm-gateway/guardrails. Existing message policies were converted automatically.")
 )
 
 // MessagePolicyHandler serves the MessagePolicy resources left from before message policies

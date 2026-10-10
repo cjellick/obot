@@ -1774,16 +1774,16 @@ func localK8sCacheByObject(mcpServerNamespace, runtimeNamespace string) map[kcli
 }
 
 // migrateMCPGuardrailRules converts guardrail rules that target MCP traffic into guardrail
-// filters, once. Guardrail rules now apply to LLM traffic only.
+// filters. Guardrail rules now apply to LLM traffic only. It runs on every start rather than
+// once: during a rolling upgrade a replica still on the old version can create an MCP rule
+// after a new replica has converted the others. Converting is idempotent, so it is safe on
+// several replicas at once.
 func migrateMCPGuardrailRules(ctx context.Context, storageClient kclient.Client, gatewayClient *client.Client, engine *guardrails.Engine) {
 	for {
-		err := gatewayClient.MigrateKinmIfNotRun(ctx, "guardrails_mcp_rules_to_filters", func() error {
-			converted, err := guardrails.MigrateMCPRules(ctx, gatewayClient, storageClient, system.DefaultNamespace)
-			if converted > 0 {
-				slog.Info("converted MCP guardrail rules into guardrail filters", "count", converted)
-			}
-			return err
-		})
+		converted, err := guardrails.MigrateMCPRules(ctx, gatewayClient, storageClient, system.DefaultNamespace)
+		if converted > 0 {
+			slog.Info("converted MCP guardrail rules into guardrail filters", "count", converted)
+		}
 		if err == nil {
 			engine.Invalidate()
 			return

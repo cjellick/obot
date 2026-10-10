@@ -18,6 +18,7 @@
 		type OrgUser
 	} from '$lib/services';
 	import { convertSubjectsToTableData, resolveSubjects } from '$lib/subjectResolver';
+	import Select from '../Select.svelte';
 	import Toggle from '../Toggle.svelte';
 	import IconButton from '../primitives/IconButton.svelte';
 	import Table from '../table/Table.svelte';
@@ -58,6 +59,8 @@
 			description: 'Lets the traffic through and records an event.'
 		}
 	];
+	const selectClass =
+		'bg-base-200 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-inner';
 	const directionOptions: { value: MCPGuardrailFilterDirection; label: string }[] = [
 		{ value: 'request', label: 'Requests (tool call arguments)' },
 		{ value: 'response', label: 'Responses (tool results)' },
@@ -388,33 +391,31 @@
 
 			<div class="grid grid-cols-1 gap-6 md:grid-cols-2">
 				<div class="flex flex-col gap-2">
-					<label for="guardrail-action" class="text-sm font-light">Action</label>
-					<select
+					<span id="guardrail-action-label" class="text-sm font-light">Action</span>
+					<Select
 						id="guardrail-action"
-						class="select"
-						bind:value={filter.action}
+						class={selectClass}
+						ariaLabelledby="guardrail-action-label"
+						options={actionOptions.map((o) => ({ id: o.value, label: o.label }))}
+						selected={filter.action}
+						onSelect={(option) => (filter.action = option.id as MCPGuardrailFilterAction)}
 						disabled={readonly}
-					>
-						{#each actionOptions as option (option.value)}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
+					/>
 					<p class="text-muted-content text-xs">
 						{actionOptions.find((o) => o.value === filter.action)?.description}
 					</p>
 				</div>
 				<div class="flex flex-col gap-2">
-					<label for="guardrail-direction" class="text-sm font-light">Direction</label>
-					<select
+					<span id="guardrail-direction-label" class="text-sm font-light">Direction</span>
+					<Select
 						id="guardrail-direction"
-						class="select"
-						bind:value={filter.direction}
+						class={selectClass}
+						ariaLabelledby="guardrail-direction-label"
+						options={directionOptions.map((o) => ({ id: o.value, label: o.label }))}
+						selected={filter.direction}
+						onSelect={(option) => (filter.direction = option.id as MCPGuardrailFilterDirection)}
 						disabled={readonly}
-					>
-						{#each directionOptions as option (option.value)}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
+					/>
 					<p class="text-muted-content text-xs">Which side of the tool call is checked.</p>
 				</div>
 				<div class="flex flex-col gap-2">

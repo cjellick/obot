@@ -116,8 +116,10 @@ describe('GuardrailFilterForm.svelte', () => {
 
 		await page.getByLabelText('Name').fill('  Secrets  ');
 		await page.getByRole('checkbox', { name: /Secrets scanner/ }).click();
-		await page.getByLabelText('Action').selectOptions('block');
-		await page.getByLabelText('Direction').selectOptions('request');
+		await page.getByRole('combobox', { name: 'Action' }).click();
+		await page.getByRole('button', { name: 'Block', exact: true }).click();
+		await page.getByRole('combobox', { name: 'Direction' }).click();
+		await page.getByRole('button', { name: 'Requests (tool call arguments)', exact: true }).click();
 		await page.getByLabelText('Sampling rate (%)').fill('25');
 		await page.getByLabelText('Block Message (Optional)').fill('Secrets are not allowed');
 		await save();
@@ -178,7 +180,8 @@ describe('GuardrailFilterForm.svelte', () => {
 		await page.getByRole('checkbox', { name: /Moderation/ }).click();
 		await expect.element(page.getByText(/locate findings for redaction/)).not.toBeInTheDocument();
 
-		await page.getByLabelText('Action').selectOptions('redact');
+		await page.getByRole('combobox', { name: 'Action' }).click();
+		await page.getByRole('button', { name: 'Redact', exact: true }).click();
 		await expect.element(page.getByText(/locate findings for redaction/)).toBeVisible();
 	});
 
@@ -202,8 +205,12 @@ describe('GuardrailFilterForm.svelte', () => {
 		await expect.element(page.getByLabelText('Name')).toHaveValue('Block secrets');
 		await expect.element(page.getByRole('checkbox', { name: /Secrets scanner/ })).toBeChecked();
 		await expect.element(page.getByRole('checkbox', { name: /Moderation/ })).not.toBeChecked();
-		await expect.element(page.getByLabelText('Action')).toHaveValue('redact');
-		await expect.element(page.getByLabelText('Direction')).toHaveValue('response');
+		await expect
+			.element(page.getByRole('combobox', { name: 'Action' }))
+			.toHaveTextContent('Redact');
+		await expect
+			.element(page.getByRole('combobox', { name: 'Direction' }))
+			.toHaveTextContent('Responses (tool results)');
 		await expect.element(page.getByLabelText('Sampling rate (%)')).toHaveValue(50);
 
 		await save();
