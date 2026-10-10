@@ -24,7 +24,6 @@
 		'hosted-agent-management': true,
 		'device-management': true,
 		'user-management': true,
-		'llm-gateway': true,
 		advanced: true
 	};
 
@@ -97,8 +96,7 @@
 		Logs,
 		Settings2,
 		MessageSquareText,
-		ChevronRight,
-		Waypoints
+		ChevronRight
 	} from '@lucide/svelte';
 	import { tick, untrack } from 'svelte';
 	import { fade, slide, type TransitionConfig } from 'svelte/transition';
@@ -265,44 +263,18 @@
 					id: 'models',
 					label: 'Models',
 					href: '/models'
-				}
-			]
-		},
-		...(profile.current.hasAdminAccess?.()
-			? [
-					{
-						id: 'llm-gateway',
-						icon: Waypoints,
-						label: 'LLM Gateway',
-						collapsible: true,
-						items: [
-							{ id: 'llm-gateway-overview', label: 'Overview', href: '/llm-gateway/overview' },
+				},
+				...(profile.current.hasAdminAccess?.()
+					? [
 							{
-								id: 'llm-gateway-providers',
-								label: 'Providers',
-								href: '/llm-gateway/providers'
-							},
-							{
-								id: 'llm-gateway-budgets',
-								label: 'Budgets & Limits',
-								href: '/llm-gateway/budgets'
-							},
-							{
-								id: 'llm-gateway-guardrails',
+								id: 'guardrails',
 								label: 'Guardrails',
-								href: '/llm-gateway/guardrails'
-							},
-							{ id: 'llm-gateway-routing', label: 'Routing', href: '/llm-gateway/routing' },
-							{ id: 'llm-gateway-logs', label: 'Request Logs', href: '/llm-gateway/logs' },
-							{
-								id: 'llm-gateway-settings',
-								label: 'Settings',
-								href: '/llm-gateway/settings'
+								href: '/guardrails'
 							}
 						]
-					}
-				]
-			: []),
+					: [])
+			]
+		},
 		{
 			id: 'operations',
 			icon: Logs,

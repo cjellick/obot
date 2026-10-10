@@ -24,7 +24,7 @@ const children = createRawSnippet(() => ({ render: () => '<div></div>' }));
 
 const sharedLinks = ['/vmcps', '/skills', '/models', '/audit-logs', '/usage', '/identity-access'];
 
-const adminOnlyLinks = ['/admin/enforcement-events', '/admin/platform'];
+const adminOnlyLinks = ['/guardrails', '/admin/enforcement-events', '/admin/platform'];
 
 function createProfile(groups: string[]): Profile {
 	return {
@@ -150,35 +150,39 @@ describe('Layout.svelte', () => {
 		});
 	});
 
-	describe('LLM gateway navigation', () => {
-		const gatewayLinks = [
-			'/llm-gateway/overview',
-			'/llm-gateway/providers',
-			'/llm-gateway/budgets',
-			'/llm-gateway/guardrails',
-			'/llm-gateway/routing',
-			'/llm-gateway/logs',
-			'/llm-gateway/settings'
-		];
-
-		it('shows the LLM gateway section to administrators', async () => {
+	describe('guardrails navigation', () => {
+		it('shows Guardrails under AI Resources to administrators', async () => {
 			await renderLayout([Group.ADMIN]);
-			await expandSection('llm-gateway', '/llm-gateway/overview');
-			for (const href of gatewayLinks) {
-				await expectLink(href);
-			}
+			await expandSection('ai-resources', '/models');
+			await expectLink('/guardrails');
 		});
 
-		it('shows the LLM gateway section to auditors', async () => {
+		it('shows Guardrails to auditors', async () => {
 			await renderLayout([Group.USER, Group.AUDITOR]);
-			await expandSection('llm-gateway', '/llm-gateway/overview');
-			await expectLink('/llm-gateway/logs');
+			await expandSection('ai-resources', '/models');
+			await expectLink('/guardrails');
 		});
 
-		it('hides the LLM gateway section from basic users', async () => {
+		it('hides Guardrails from basic users', async () => {
 			await renderLayout([Group.USER]);
-			await expectNoLink('/llm-gateway/overview');
+			await expandSection('ai-resources', '/models');
+			await expectNoLink('/guardrails');
+		});
+
+		it('no longer has a separate LLM Gateway section', async () => {
+			await renderLayout([Group.ADMIN]);
 			await expect.element(page.getByCSS('#sidebar-collapse-llm-gateway')).not.toBeInTheDocument();
+			for (const href of [
+				'/llm-gateway/overview',
+				'/llm-gateway/providers',
+				'/llm-gateway/budgets',
+				'/llm-gateway/guardrails',
+				'/llm-gateway/routing',
+				'/llm-gateway/logs',
+				'/llm-gateway/settings'
+			]) {
+				await expectNoLink(href);
+			}
 		});
 	});
 

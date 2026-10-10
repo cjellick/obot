@@ -65,7 +65,7 @@ describe('GatewayStatusBanner', () => {
 		await expect.element(page.getByText(noProvidersText, { exact: false })).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'Add a provider' }))
-			.toHaveAttribute('href', '/llm-gateway/providers');
+			.toHaveAttribute('href', '/models?view=providers');
 	});
 
 	it('can hide the no-providers notice', async () => {

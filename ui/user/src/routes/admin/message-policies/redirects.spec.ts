@@ -15,21 +15,21 @@ function redirectOf(load: () => unknown) {
 }
 
 describe('message policy redirects', () => {
-	it('sends message policies to guardrails', () => {
+	it('sends message policies to model guardrails', () => {
 		expect(redirectOf(messagePoliciesLoad as () => unknown)).toEqual({
 			status: 307,
-			location: '/llm-gateway/guardrails'
+			location: '/models?view=guardrails'
 		});
 		expect(redirectOf(messagePolicyLoad as () => unknown)).toEqual({
 			status: 307,
-			location: '/llm-gateway/guardrails'
+			location: '/models?view=guardrails'
 		});
 	});
 
 	it('sends policy violations to guardrail events', () => {
 		expect(redirectOf(policyViolationsLoad as () => unknown)).toEqual({
 			status: 307,
-			location: '/llm-gateway/guardrails/events'
+			location: '/guardrails?view=events'
 		});
 	});
 });

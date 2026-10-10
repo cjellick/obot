@@ -31,7 +31,7 @@
 		<Info class="size-4 shrink-0" />
 		<span>
 			No upstream providers are configured yet.
-			<a href={resolve('/llm-gateway/providers')} class="text-link">Add a provider</a> to start routing
+			<a href={resolve('/models?view=providers')} class="text-link">Add a provider</a> to start routing
 			requests.
 		</span>
 	</div>
