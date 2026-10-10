@@ -864,7 +864,42 @@ export interface MCPFilterManifest {
 	selectors?: MCPFilterWebhookSelector[];
 	disabled?: boolean;
 	allowedToMutate?: boolean;
+	/** Set for guardrail filters, which run in-process with guardrail detectors and have no server. */
+	guardrail?: MCPGuardrailFilterConfig;
 }
+export type MCPGuardrailFilterAction = 'block' | 'redact' | 'log';
+export type MCPGuardrailFilterDirection = 'request' | 'response' | 'both';
+export interface MCPGuardrailFilterSubject {
+	type: 'user' | 'group' | 'everyone';
+	id?: string;
+}
+export interface MCPGuardrailFilterConfig {
+	detectorIDs: string[];
+	action: MCPGuardrailFilterAction;
+	direction?: MCPGuardrailFilterDirection;
+	failClosed?: boolean;
+	samplingRate?: number;
+	subjects?: MCPGuardrailFilterSubject[];
+	condition?: string;
+	blockMessage?: string;
+}
+/** A guardrail profile, as used by a guardrail filter's detector list. */
+export interface MCPGuardrailDetector {
+	id: string;
+	name: string;
+	description?: string;
+	type: string;
+	error?: string;
+}
+/** A guardrail provider type, used to label detectors and check redaction support. */
+export interface MCPGuardrailDetectorProvider {
+	type: string;
+	label: string;
+	description?: string;
+	category?: string;
+	redacts: boolean;
+}
+export type MCPFilterKind = 'guardrail' | 'webhook' | 'builtin' | 'mcpServer';
 export interface MCPFilterResource {
 	type: 'mcpServerCatalogEntry' | 'mcpServer' | 'selector' | 'mcpCatalog';
 	id: string;

@@ -8,6 +8,8 @@ import {
 	UserService,
 	type Fetcher,
 	type LaunchServerType,
+	type MCPFilterKind,
+	type MCPFilterManifest,
 	type Profile
 } from '$lib/services';
 
@@ -64,4 +66,20 @@ export function getSingleOrRemoteMcpServer(
 		});
 	}
 	return UserService.getSingleOrRemoteMcpServer(mcpServerId, { fetch });
+}
+
+export const MCP_FILTER_KIND_LABELS: Record<MCPFilterKind, string> = {
+	guardrail: 'Guardrail',
+	webhook: 'Webhook',
+	builtin: 'Built-in',
+	mcpServer: 'MCP server'
+};
+
+/** Classifies a filter by what backs it: guardrail detectors, a webhook, a built-in or an MCP server. */
+export function getMCPFilterKind(filter: MCPFilterManifest): MCPFilterKind {
+	if (filter.guardrail) return 'guardrail';
+	if (filter.systemMCPServerCatalogEntryID) return 'builtin';
+	if (filter.url) return 'webhook';
+	if (filter.mcpServerManifest) return 'mcpServer';
+	return 'webhook';
 }

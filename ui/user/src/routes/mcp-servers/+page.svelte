@@ -105,7 +105,9 @@
 			case 'entries':
 				return 'Add MCP Server';
 			case 'filters':
-				return 'Create Filter';
+				return page.url.searchParams.get('new') === 'guardrail'
+					? 'Create Guardrail Filter'
+					: 'Create Filter';
 			case 'tunnels':
 				return 'Create MCP Tunnel';
 			case 'access-policies':
@@ -303,6 +305,13 @@
 				onclick={() => filtersTab?.openBuiltInPicker()}
 			>
 				Create From Built-in
+			</button>
+			<button
+				id={MCP_FILTERS_FIELD_IDS.createGuardrailBtn}
+				class="menu-button"
+				onclick={() => openCreate('filters', 'guardrail')}
+			>
+				Create Guardrail
 			</button>
 		</DotDotDot>
 	{:else if view === 'tunnels' && !isAdminReadonly}

@@ -120,6 +120,63 @@ afterEach(() => {
 });
 
 describe('MCP Servers Page', () => {
+	describe('filters tab', () => {
+		beforeEach(() => {
+			resetMcpServersAndEntriesStore();
+			worker.use(
+				http.get('/api/llm-gateway/guardrails/profiles', () =>
+					HttpResponse.json({ items: [{ id: 'gp1secrets', name: 'Secrets', type: 'secrets' }] })
+				),
+				http.get('/api/llm-gateway/guardrails/providers', () => HttpResponse.json({ items: [] }))
+			);
+		});
+
+		afterEach(() => {
+			appPage.url.searchParams.delete('new');
+		});
+
+		it('offers Create Guardrail in the Add New Filter menu', async () => {
+			await renderMcpServersPage({ view: 'filters' });
+
+			await page.getByRole('button', { name: 'Add New Filter' }).click();
+
+			await expect
+				.element(page.getByRole('button', { name: 'Create Custom', exact: true }))
+				.toBeVisible();
+			await expect
+				.element(page.getByRole('button', { name: 'Create From Built-in', exact: true }))
+				.toBeVisible();
+			await expect
+				.element(page.getByRole('button', { name: 'Create Guardrail', exact: true }))
+				.toBeEnabled();
+		});
+
+		it('opens the guardrail filter form for new=guardrail', async () => {
+			appPage.url.searchParams.set('new', 'guardrail');
+			await renderMcpServersPage({ view: 'filters' });
+
+			// The layout title repeats the heading.
+			await expect
+				.element(page.getByRole('heading', { name: 'Create Guardrail Filter' }).last())
+				.toBeVisible();
+			await expect.element(page.getByRole('checkbox', { name: /Secrets/ })).toBeVisible();
+			await expect.element(page.getByLabelText('Webhook URL')).not.toBeInTheDocument();
+		});
+
+		it('opens the custom filter form for other new values', async () => {
+			appPage.url.searchParams.set('new', 'true');
+			await renderMcpServersPage({ view: 'filters' });
+
+			await expect
+				.element(page.getByRole('heading', { name: 'Create Filter', exact: true }).last())
+				.toBeVisible();
+			await expect.element(page.getByLabelText('Webhook URL')).toBeVisible();
+			await expect
+				.element(page.getByRole('heading', { name: 'Create Guardrail Filter' }))
+				.not.toBeInTheDocument();
+		});
+	});
+
 	describe('deployments tab', () => {
 		beforeEach(async () => {
 			resetMcpServersAndEntriesStore();

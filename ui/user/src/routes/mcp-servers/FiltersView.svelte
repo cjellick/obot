@@ -5,6 +5,7 @@
 	import Search from '$lib/components/Search.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import FilterForm from '$lib/components/admin/FilterForm.svelte';
+	import GuardrailFilterForm from '$lib/components/admin/GuardrailFilterForm.svelte';
 	import IconButton from '$lib/components/primitives/IconButton.svelte';
 	import Table from '$lib/components/table/Table.svelte';
 	import { AdminService, type MCPFilter, type SystemMCPServerCatalogEntry } from '$lib/services';
@@ -20,6 +21,7 @@
 	} from '$lib/url';
 	import { openUrl } from '$lib/utils';
 	import BuiltInFilters from './BuiltInFilters.svelte';
+	import { getMCPFilterKind, MCP_FILTER_KIND_LABELS } from './utils';
 	import { Funnel, Trash2 } from '@lucide/svelte';
 	import { untrack } from 'svelte';
 
@@ -36,6 +38,7 @@
 	}: Props = $props();
 
 	let showCreateFilter = $derived(page.url.searchParams.has('new'));
+	let createGuardrailFilter = $derived(page.url.searchParams.get('new') === 'guardrail');
 	let filterToDelete = $state<MCPFilter>();
 	let builtInFiltersDialog = $state<ReturnType<typeof ResponsiveDialog>>();
 	let query = $derived(page.url.searchParams.get('query') || '');
@@ -44,6 +47,7 @@
 	let tableData = $derived(
 		localFilters.map((filter) => ({
 			...filter,
+			kind: MCP_FILTER_KIND_LABELS[getMCPFilterKind(filter)],
 			status: filter.disabled ? 'Disabled' : 'Enabled'
 		}))
 	);
@@ -85,7 +89,9 @@
 	}
 </script>
 
-{#if showCreateFilter}
+{#if showCreateFilter && createGuardrailFilter}
+	<GuardrailFilterForm onCreate={navigateAfterCreated} />
+{:else if showCreateFilter}
 	<FilterForm onCreate={navigateAfterCreated} />
 {:else if loading}
 	<Skeleton
@@ -115,11 +121,11 @@
 
 		<Table
 			data={filteredTableData}
-			fields={['name', 'selectors', 'status']}
+			fields={['name', 'kind', 'selectors', 'status']}
 			onClickRow={(d, isCtrlClick) => {
 				openUrl(`/mcp-servers/filters/${d.id}`, isCtrlClick);
 			}}
-			filterable={['name', 'status']}
+			filterable={['name', 'kind', 'status']}
 			filters={urlFilters}
 			onFilter={setFilterUrlParams}
 			onClearAllFilters={clearUrlParams}
@@ -129,11 +135,15 @@
 					property: 'name'
 				},
 				{
+					title: 'Type',
+					property: 'kind'
+				},
+				{
 					title: 'Selectors',
 					property: 'selectors'
 				}
 			]}
-			sortable={['name', 'status']}
+			sortable={['name', 'kind', 'status']}
 			onSort={setSortUrlParams}
 			{initSort}
 		>
@@ -154,6 +164,8 @@
 			{#snippet onRenderColumn(property, d: (typeof tableData)[number])}
 				{#if property === 'name'}
 					{d.name || '-'}
+				{:else if property === 'kind'}
+					{d.kind}
 				{:else if property === 'url'}
 					{d.url || '-'}
 				{:else if property === 'selectors'}

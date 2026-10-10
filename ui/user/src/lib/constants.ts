@@ -447,6 +447,7 @@ export const MCP_FILTERS_FIELD_IDS = {
 	addFilterBtn: 'filter-add-button',
 	createCustomBtn: 'filter-create-custom-button',
 	createBuiltInBtn: 'filter-create-built-in-button',
+	createGuardrailBtn: 'filter-create-guardrail-button',
 	basicDetails: 'filter-basic-details',
 	runtimeFormDetails: 'filter-runtime-form-details',
 	filterSelectors: 'filter-selectors',

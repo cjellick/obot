@@ -45,6 +45,8 @@ import type {
 	AuthProvider,
 	MCPFilter,
 	MCPFilterManifest,
+	MCPGuardrailDetector,
+	MCPGuardrailDetectorProvider,
 	TempUser,
 	ScheduledAuditLogExport,
 	StorageCredentials,
@@ -1377,6 +1379,38 @@ export async function revealMCPFilter(
 
 export async function restartMCPFilter(id: string, opts?: { fetch?: Fetcher }): Promise<void> {
 	await doPost(`/mcp-webhook-validations/${id}/restart`, {}, opts);
+}
+
+// Guardrail filters run in-process with guardrail detectors (profiles), which are managed under
+// the LLM gateway guardrails API.
+
+export async function listMCPGuardrailDetectors(opts?: {
+	fetch?: Fetcher;
+}): Promise<MCPGuardrailDetector[]> {
+	const response = (await doGet('/llm-gateway/guardrails/profiles', opts)) as {
+		items: MCPGuardrailDetector[] | null;
+	};
+	return response.items ?? [];
+}
+
+export async function listMCPGuardrailDetectorProviders(opts?: {
+	fetch?: Fetcher;
+}): Promise<MCPGuardrailDetectorProvider[]> {
+	const response = (await doGet('/llm-gateway/guardrails/providers', opts)) as {
+		items: MCPGuardrailDetectorProvider[] | null;
+	};
+	return response.items ?? [];
+}
+
+export async function validateMCPGuardrailCondition(
+	condition: string,
+	opts?: { dontLogErrors?: boolean }
+): Promise<{ valid: boolean; error?: string }> {
+	return (await doPost(
+		'/llm-gateway/guardrails/validate-condition',
+		{ target: 'mcp', condition },
+		opts
+	)) as { valid: boolean; error?: string };
 }
 
 export async function getMCPFilterDetails(

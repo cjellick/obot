@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import Confirm from '$lib/components/Confirm.svelte';
 	import Layout from '$lib/components/Layout.svelte';
 	import FilterForm from '$lib/components/admin/FilterForm.svelte';
+	import GuardrailFilterForm from '$lib/components/admin/GuardrailFilterForm.svelte';
 	import AuditLogsPageContent from '$lib/components/admin/audit-logs/AuditLogsPageContent.svelte';
 	import UsageGraphs from '$lib/components/admin/usage/UsageGraphs.svelte';
 	import McpServerDetails from '$lib/components/mcp/McpServerDetails.svelte';
@@ -12,7 +14,7 @@
 	import type { MCPFilterInput, SystemMCPServerCatalogEntry } from '$lib/services/admin/types';
 	import { profile } from '$lib/stores';
 	import { goto } from '$lib/url';
-	import { BookOpenText, Trash2 } from '@lucide/svelte';
+	import { BookOpenText, Info, Trash2 } from '@lucide/svelte';
 	import type { Component } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { twMerge } from 'tailwind-merge';
@@ -29,12 +31,24 @@
 
 	let deletingFilter = $state(false);
 
-	const tabs = [
-		{ label: 'Configuration', view: 'configuration' },
-		{ label: 'Server Details', view: 'server-details' },
-		{ label: 'Audit Logs', view: 'audit-logs' },
-		{ label: 'Usage', view: 'usage' }
-	];
+	// Guardrail filters run in-process, so there is no server to show details or usage for.
+	const isGuardrail = $derived(!!filter?.guardrail);
+	const tabs = $derived(
+		isGuardrail
+			? [
+					{ label: 'Configuration', view: 'configuration' },
+					{ label: 'Audit Logs', view: 'audit-logs' }
+				]
+			: [
+					{ label: 'Configuration', view: 'configuration' },
+					{ label: 'Server Details', view: 'server-details' },
+					{ label: 'Audit Logs', view: 'audit-logs' },
+					{ label: 'Usage', view: 'usage' }
+				]
+	);
+	const currentView = $derived(
+		tabs.some((tab) => tab.view === selected) ? selected : 'configuration'
+	);
 
 	const duration = PAGE_TRANSITION_DURATION;
 	const mcpServerId = $derived(filter?.id ? `sms1${filter.id}` : undefined);
@@ -48,7 +62,7 @@
 			as: 'main',
 			itemHeight: 56,
 			overscan: 5,
-			disabled: selected !== 'audit-logs'
+			disabled: currentView !== 'audit-logs'
 		}
 	}}
 	{title}
@@ -78,9 +92,9 @@
 						}}
 						class={twMerge(
 							'min-w-fit flex-1 rounded-md border border-transparent px-3 py-2 text-center whitespace-nowrap transition-colors duration-300',
-							selected === tab.view &&
+							currentView === tab.view &&
 								'dark:bg-base-200 dark:border-base-400 bg-base-100 shadow-sm',
-							selected !== tab.view && 'hover:bg-base-400'
+							currentView !== tab.view && 'hover:bg-base-400'
 						)}
 					>
 						{tab.label}
@@ -88,7 +102,15 @@
 				{/each}
 			</div>
 
-			{#if selected === 'configuration'}
+			{#if currentView === 'configuration' && isGuardrail}
+				<GuardrailFilterForm
+					{filter}
+					onUpdate={() => {
+						goto('/mcp-servers?view=filters', { invalidateAll: true });
+					}}
+					readonly={profile.current.isAdminReadonly?.()}
+				/>
+			{:else if currentView === 'configuration'}
 				<FilterForm
 					{filter}
 					onUpdate={() => {
@@ -97,7 +119,7 @@
 					readonly={profile.current.isAdminReadonly?.()}
 					mcpSystemCatalogEntryId={entry?.id || filter.systemMCPServerCatalogEntryID}
 				/>
-			{:else if selected === 'server-details'}
+			{:else if currentView === 'server-details'}
 				<McpServerDetails
 					entity="webhook-validation"
 					entityId={filter.id}
@@ -111,21 +133,35 @@
 						}
 					}}
 				/>
-			{:else if selected === 'audit-logs'}
+			{:else if currentView === 'audit-logs'}
 				<div class="mt-4 flex flex-1 flex-col gap-8 pb-8">
+					{#if isGuardrail}
+						<div class="notification-info flex items-center gap-2 rounded-md p-3 text-sm">
+							<Info class="size-4 shrink-0" />
+							<span>
+								This filter runs inside Obot, so its findings are recorded as guardrail events, not
+								in these audit logs.
+								<a href={resolve('/guardrails?view=events')} class="text-link"
+									>View guardrail events</a
+								>
+							</span>
+						</div>
+					{/if}
 					<AuditLogsPageContent mcpId={mcpServerId} mcpServerDisplayName={filter.name}>
 						{#snippet emptyContent()}
 							<div class="mt-12 flex w-md flex-col items-center gap-4 self-center text-center">
 								<BookOpenText class="text-muted-content size-24 opacity-50" />
 								<h4 class="text-muted-content text-lg font-semibold">No recent audit logs</h4>
 								<p class="text-muted-content text-sm font-light">
-									This web validation server has not had any active usage in the last 7 days.
+									{isGuardrail
+										? 'This filter has not had any active usage in the last 7 days.'
+										: 'This web validation server has not had any active usage in the last 7 days.'}
 								</p>
 							</div>
 						{/snippet}
 					</AuditLogsPageContent>
 				</div>
-			{:else if selected === 'usage'}
+			{:else if currentView === 'usage'}
 				<div class="mt-4 flex min-h-full flex-col gap-8 pb-8">
 					<UsageGraphs mcpId={mcpServerId} mcpServerDisplayName={filter.name} />
 				</div>

@@ -1,0 +1,221 @@
+import type {
+	MCPFilter,
+	MCPFilterManifest,
+	MCPGuardrailDetector,
+	MCPGuardrailDetectorProvider
+} from '$lib/services';
+import { worker } from '../../../tests/mocks/worker';
+import GuardrailFilterForm from './GuardrailFilterForm.svelte';
+import { http, HttpResponse } from 'msw';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render } from 'vitest-browser-svelte';
+import { page } from 'vitest/browser';
+
+const detectors: MCPGuardrailDetector[] = [
+	{ id: 'gp1secrets', name: 'Secrets scanner', type: 'secrets' },
+	{ id: 'gp1moderation', name: 'Moderation', type: 'moderation' }
+];
+
+const providers: MCPGuardrailDetectorProvider[] = [
+	{ type: 'secrets', label: 'Secrets detection', redacts: true },
+	{ type: 'moderation', label: 'Content moderation', redacts: false }
+];
+
+function createGuardrailFilter(overrides: Partial<MCPFilter> = {}): MCPFilter {
+	return {
+		id: 'mwv1guardrail',
+		created: '2026-01-01T00:00:00Z',
+		type: 'mcpwebhookvalidation',
+		hasSecret: false,
+		configured: true,
+		name: 'Block secrets',
+		resources: [{ id: 'default', type: 'mcpCatalog' }],
+		selectors: [],
+		disabled: false,
+		guardrail: {
+			detectorIDs: ['gp1secrets'],
+			action: 'redact',
+			direction: 'response',
+			failClosed: true,
+			samplingRate: 50,
+			subjects: [],
+			condition: '',
+			blockMessage: ''
+		},
+		...overrides
+	};
+}
+
+beforeEach(() => {
+	worker.use(
+		http.get('/api/llm-gateway/guardrails/profiles', () => HttpResponse.json({ items: detectors })),
+		http.get('/api/llm-gateway/guardrails/providers', () => HttpResponse.json({ items: providers }))
+	);
+});
+
+async function save() {
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+}
+
+describe('GuardrailFilterForm.svelte', () => {
+	it('lists detectors with their type label and links to detector management', async () => {
+		await render(GuardrailFilterForm, {});
+
+		await expect
+			.element(page.getByRole('heading', { name: 'Create Guardrail Filter' }))
+			.toBeVisible();
+		await expect.element(page.getByRole('checkbox', { name: /Secrets scanner/ })).toBeVisible();
+		await expect.element(page.getByText('Secrets detection')).toBeVisible();
+		await expect.element(page.getByText('Content moderation')).toBeVisible();
+		await expect
+			.element(page.getByRole('link', { name: 'Manage detectors' }))
+			.toHaveAttribute('href', expect.stringContaining('/guardrails?view=detectors'));
+	});
+
+	it('does not show server, runtime, URL, secret or tool name fields', async () => {
+		await render(GuardrailFilterForm, {});
+
+		await expect.element(page.getByRole('checkbox', { name: /Secrets scanner/ })).toBeVisible();
+		await expect.element(page.getByLabelText('Webhook URL')).not.toBeInTheDocument();
+		await expect.element(page.getByLabelText('Secret (Optional)')).not.toBeInTheDocument();
+		await expect.element(page.getByLabelText('Tool Name')).not.toBeInTheDocument();
+		await expect.element(page.getByText('Enable Mutable Response')).not.toBeInTheDocument();
+	});
+
+	it('requires a name and at least one detector', async () => {
+		const create = vi.fn();
+		worker.use(
+			http.post('/api/mcp-webhook-validations', () => {
+				create();
+				return HttpResponse.json({});
+			})
+		);
+		await render(GuardrailFilterForm, {});
+
+		await save();
+		await expect.element(page.getByText('Name is required')).toBeVisible();
+		await expect.element(page.getByText('Select at least one detector')).toBeVisible();
+
+		await page.getByLabelText('Name').fill('My guardrail');
+		await save();
+		await expect.element(page.getByText('Name is required')).not.toBeInTheDocument();
+		await expect.element(page.getByText('Select at least one detector')).toBeVisible();
+		expect(create).not.toHaveBeenCalled();
+	});
+
+	it('creates a guardrail filter with only guardrail fields', async () => {
+		let body: MCPFilterManifest | undefined;
+		worker.use(
+			http.post('/api/mcp-webhook-validations', async ({ request }) => {
+				body = (await request.json()) as MCPFilterManifest;
+				return HttpResponse.json(createGuardrailFilter({ name: body.name }));
+			})
+		);
+		const onCreate = vi.fn();
+		await render(GuardrailFilterForm, { onCreate });
+
+		await page.getByLabelText('Name').fill('  Secrets  ');
+		await page.getByRole('checkbox', { name: /Secrets scanner/ }).click();
+		await page.getByLabelText('Action').selectOptions('block');
+		await page.getByLabelText('Direction').selectOptions('request');
+		await page.getByLabelText('Sampling rate (%)').fill('25');
+		await page.getByLabelText('Block Message (Optional)').fill('Secrets are not allowed');
+		await save();
+
+		await vi.waitFor(() => expect(onCreate).toHaveBeenCalled());
+		expect(body).toEqual({
+			name: 'Secrets',
+			resources: [{ id: 'default', type: 'mcpCatalog' }],
+			disabled: false,
+			guardrail: {
+				detectorIDs: ['gp1secrets'],
+				action: 'block',
+				direction: 'request',
+				failClosed: false,
+				samplingRate: 25,
+				subjects: [],
+				blockMessage: 'Secrets are not allowed'
+			}
+		});
+		expect(body).not.toHaveProperty('url');
+		expect(body).not.toHaveProperty('toolName');
+		expect(body).not.toHaveProperty('mcpServerManifest');
+		expect(body).not.toHaveProperty('systemMCPServerCatalogEntryID');
+	});
+
+	it('rejects sampling rates outside 1-100', async () => {
+		await render(GuardrailFilterForm, {});
+
+		await page.getByLabelText('Name').fill('Sampled');
+		await page.getByRole('checkbox', { name: /Secrets scanner/ }).click();
+		await page.getByLabelText('Sampling rate (%)').fill('0');
+		await save();
+
+		await expect.element(page.getByText('Sampling rate must be between 1 and 100')).toBeVisible();
+	});
+
+	it('validates the condition against the MCP target', async () => {
+		const requests: { target: string; condition: string }[] = [];
+		worker.use(
+			http.post('/api/llm-gateway/guardrails/validate-condition', async ({ request }) => {
+				const req = (await request.json()) as { target: string; condition: string };
+				requests.push(req);
+				return HttpResponse.json({ valid: false, error: 'undeclared reference to "foo"' });
+			})
+		);
+		await render(GuardrailFilterForm, {});
+
+		await page.getByRole('textbox', { name: 'Condition' }).fill('foo == 1');
+
+		await expect.element(page.getByText('undeclared reference to "foo"')).toBeVisible();
+		expect(requests.at(-1)).toEqual({ target: 'mcp', condition: 'foo == 1' });
+		await expect.element(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+	});
+
+	it('warns when redacting with a detector that cannot redact', async () => {
+		await render(GuardrailFilterForm, {});
+
+		await page.getByRole('checkbox', { name: /Moderation/ }).click();
+		await expect.element(page.getByText(/locate findings for redaction/)).not.toBeInTheDocument();
+
+		await page.getByLabelText('Action').selectOptions('redact');
+		await expect.element(page.getByText(/locate findings for redaction/)).toBeVisible();
+	});
+
+	it('loads an existing guardrail filter and updates it without calling server endpoints', async () => {
+		const reveal = vi.fn();
+		let body: MCPFilterManifest | undefined;
+		const filter = createGuardrailFilter();
+		worker.use(
+			http.post('/api/mcp-webhook-validations/:id/reveal', () => {
+				reveal();
+				return HttpResponse.json({});
+			}),
+			http.put('/api/mcp-webhook-validations/:id', async ({ request }) => {
+				body = (await request.json()) as MCPFilterManifest;
+				return HttpResponse.json(filter);
+			})
+		);
+		const onUpdate = vi.fn();
+		await render(GuardrailFilterForm, { filter, onUpdate });
+
+		await expect.element(page.getByLabelText('Name')).toHaveValue('Block secrets');
+		await expect.element(page.getByRole('checkbox', { name: /Secrets scanner/ })).toBeChecked();
+		await expect.element(page.getByRole('checkbox', { name: /Moderation/ })).not.toBeChecked();
+		await expect.element(page.getByLabelText('Action')).toHaveValue('redact');
+		await expect.element(page.getByLabelText('Direction')).toHaveValue('response');
+		await expect.element(page.getByLabelText('Sampling rate (%)')).toHaveValue(50);
+
+		await save();
+		await vi.waitFor(() => expect(onUpdate).toHaveBeenCalled());
+		expect(body?.guardrail).toEqual({
+			detectorIDs: ['gp1secrets'],
+			action: 'redact',
+			direction: 'response',
+			failClosed: true,
+			samplingRate: 50,
+			subjects: []
+		});
+		expect(reveal).not.toHaveBeenCalled();
+	});
+});
