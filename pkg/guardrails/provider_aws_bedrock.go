@@ -108,13 +108,13 @@ func init() {
 		Description: "Checks content with an Amazon Bedrock guardrail's denied topics, content filters, word filters, sensitive information filters and contextual grounding checks. Content the guardrail anonymizes is redacted with its masked text.",
 		Redacts:     true,
 		Fields: []Field{
-			{Name: "region", Label: "Region", Type: FieldText, Required: true, Description: "AWS region of the guardrail, such as us-east-1."},
+			{Name: "region", Label: "Region", Type: FieldText, Destination: true, Required: true, Description: "AWS region of the guardrail, such as us-east-1."},
 			{Name: "guardrailId", Label: "Guardrail ID", Type: FieldText, Required: true, Description: "The guardrail's ID or ARN."},
 			{Name: "guardrailVersion", Label: "Guardrail version", Type: FieldText, Default: "DRAFT", Description: "A version number, or DRAFT for the working draft."},
 			{Name: "accessKeyId", Label: "Access key ID", Type: FieldPassword, Sensitive: true, Description: "Leave empty to use the default AWS credential chain (environment, shared config, or IAM role)."},
 			{Name: "secretAccessKey", Label: "Secret access key", Type: FieldPassword, Sensitive: true},
 			{Name: "sessionToken", Label: "Session token", Type: FieldPassword, Sensitive: true, Description: "Only for temporary credentials."},
-			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Description: "Overrides the Bedrock runtime endpoint, such as a VPC endpoint. Defaults to https://bedrock-runtime.<region>.amazonaws.com."},
+			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Destination: true, Description: "Overrides the Bedrock runtime endpoint, such as a VPC endpoint. Defaults to https://bedrock-runtime.<region>.amazonaws.com."},
 		},
 	}, newBedrockChecker)
 }

@@ -52,6 +52,9 @@ type MessagePolicyViolation struct {
 	PolicyName       string
 	PolicyDefinition string
 	Explanation      string
+	// Failed reports that the policy could not be evaluated, rather than that the message
+	// was found to violate it. Message policies fail closed, so it still blocks.
+	Failed bool
 }
 
 // resolvedModel holds pre-resolved model provider information to avoid redundant lookups.
@@ -97,6 +100,8 @@ type openAIResponsesRequest struct {
 type reviewResult struct {
 	Compliant   bool
 	Explanation string
+	// Failed reports that the review could not run.
+	Failed bool
 }
 
 // EvaluateMessage runs all applicable policies against a message in parallel.
@@ -121,6 +126,7 @@ func (h *Helper) EvaluateMessage(ctx context.Context, policies []ApplicablePolic
 				PolicyName:       p.Manifest.DisplayName,
 				PolicyDefinition: p.Manifest.Definition,
 				Explanation:      fmt.Sprintf("An error occurred while validating the message against the policy %q. The message has been blocked as a precaution.", p.Manifest.DisplayName),
+				Failed:           true,
 			})
 		}
 		return violations
@@ -141,7 +147,19 @@ func (h *Helper) EvaluateMessage(ctx context.Context, policies []ApplicablePolic
 		go func(p ApplicablePolicy) {
 			defer wg.Done()
 
-			compliant := h.checkCompliance(ctx, resolved, p.Manifest, conversationContext, targetMessage)
+			compliant, err := h.checkCompliance(ctx, resolved, p.Manifest, conversationContext, targetMessage)
+			if err != nil {
+				mu.Lock()
+				violations = append(violations, MessagePolicyViolation{
+					PolicyID:         p.ID,
+					PolicyName:       p.Manifest.DisplayName,
+					PolicyDefinition: p.Manifest.Definition,
+					Explanation:      fmt.Sprintf("Your message was blocked by the \"%s\" message policy.", p.Manifest.DisplayName),
+					Failed:           true,
+				})
+				mu.Unlock()
+				return
+			}
 			if !compliant {
 				slog.Info("Policy violation detected by stage 1, running stage 2 review", "policy", p.Manifest.DisplayName)
 
@@ -161,6 +179,7 @@ func (h *Helper) EvaluateMessage(ctx context.Context, policies []ApplicablePolic
 					PolicyName:       p.Manifest.DisplayName,
 					PolicyDefinition: p.Manifest.Definition,
 					Explanation:      review.Explanation,
+					Failed:           review.Failed,
 				})
 				mu.Unlock()
 			} else {
@@ -477,8 +496,8 @@ func readStreamingResponse(r io.Reader, extractDelta func(data string) gjson.Res
 }
 
 // checkCompliance performs Stage 1: a yes/no compliance check. Returns true if compliant.
-// Fails closed: any error or ambiguous response is treated as a violation.
-func (h *Helper) checkCompliance(ctx context.Context, resolved *resolvedModel, policy types.MessagePolicyManifest, conversationContext, targetMessage string) bool {
+// An ambiguous response is treated as a violation; a failed call is returned as an error.
+func (h *Helper) checkCompliance(ctx context.Context, resolved *resolvedModel, policy types.MessagePolicyManifest, conversationContext, targetMessage string) (bool, error) {
 	slog.Debug("Checking compliance for", "policy", policy.DisplayName)
 	var userContent strings.Builder
 	fmt.Fprintf(&userContent, "Policy: %s\n\n---\n\n", policy.Definition)
@@ -506,8 +525,8 @@ func (h *Helper) checkCompliance(ctx context.Context, resolved *resolvedModel, p
 
 	result, err := h.callLLM(ctx, resolved, messages)
 	if err != nil {
-		slog.Warn("Compliance check LLM call failed, failing closed", "policy", policy.DisplayName, "error", err)
-		return false // fail closed
+		slog.Warn("Compliance check LLM call failed", "policy", policy.DisplayName, "error", err)
+		return false, err
 	}
 
 	answer := strings.TrimSpace(strings.ToLower(result))
@@ -515,7 +534,7 @@ func (h *Helper) checkCompliance(ctx context.Context, resolved *resolvedModel, p
 		slog.Warn("Unexpected compliance check response, treating as violation", "policy", policy.DisplayName, "response", result)
 	}
 
-	return answer == "yes"
+	return answer == "yes", nil
 }
 
 // reviewCompliance performs Stage 2: uses the full Chat model (llm alias) to review a stage 1 denial.
@@ -528,11 +547,14 @@ func (h *Helper) reviewCompliance(ctx context.Context, policy types.MessagePolic
 		Compliant:   false,
 		Explanation: fmt.Sprintf("Your message was blocked by the \"%s\" message policy.", policy.DisplayName),
 	}
+	// A review that couldn't run upholds the denial, but as a failure rather than a finding.
+	failedReview := genericDenial
+	failedReview.Failed = true
 
 	resolved, err := h.resolveModelByAlias(ctx, types.DefaultModelAliasTypeLLM)
 	if err != nil {
 		slog.Warn("Failed to resolve llm model for stage 2 review, upholding denial", "policy", policy.DisplayName, "error", err)
-		return genericDenial
+		return failedReview
 	}
 
 	var userContent strings.Builder
@@ -573,7 +595,7 @@ func (h *Helper) reviewCompliance(ctx context.Context, policy types.MessagePolic
 	result, err := h.callLLM(ctx, resolved, messages)
 	if err != nil {
 		slog.Warn("Stage 2 review LLM call failed, upholding denial", "policy", policy.DisplayName, "error", err)
-		return genericDenial
+		return failedReview
 	}
 
 	return parseReviewResponse(result, genericDenial)

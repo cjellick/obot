@@ -11,7 +11,7 @@ None yet.
 
 ## Related ODPs
 
-None. This is a prototype; an ODP should be written before it ships.
+- 2026-09-27: Unified LLM gateway, budgets and guardrails — the design this decision implements. It is to be proposed in obot-design-proposals; a draft is at [`design-proposals/2026-09-27-llm-gateway-budgets-guardrails.md`](../design-proposals/2026-09-27-llm-gateway-budgets-guardrails.md).
 
 ## Context
 
@@ -23,7 +23,7 @@ Obot implements guardrails itself (`pkg/guardrails`) and applies the same rules 
 
 - **Data model.** Rules and profiles live in Obot's database (`guardrail_rules`, `guardrail_profiles`). Profile credentials are kept in the encrypted credential store and are write-only through the API. Findings are recorded in `guardrail_events`, without the offending content, and follow the LLM audit log's retention.
 - **Checkers are pluggable.** Each profile type registers a checker that reports findings and, where it can, the spans to redact. There are three built-in checkers (secrets, regex and PII, and an LLM judge) and integrations with eight external services. A redact rule whose checker can't locate a finding blocks instead.
-- **LLM gateway: two Bifrost plugins.** An input plugin is registered before Bifrost's built-in plugins and an output plugin after them, so Bifrost's request logging only ever sees content after it has been checked.
+- **LLM gateway: two Bifrost plugins.** An input plugin is registered before Bifrost's built-in plugins and an output plugin after them, so Bifrost's request logging only ever sees content after it has been checked. They are registered as part of the engine's startup, so the gateway never serves a request without them, and the admin API can't disable them. When a guardrail applies, the plugins turn off Bifrost's raw passthrough (used for Claude Code), so the provider receives the checked request rather than the client's original body. Token counting requests are checked like any other input.
   - **Streams.** The output plugin holds a stream while any rule that can change it applies. It blanks the deltas as they pass through logging, checks the complete response, then rewrites the held chunks, either redacted or ended with an error.
   - **Identity.** Obot's proxy passes the caller's identity to the plugins through a per-request token that maps to an in-process registry. It is not sent in a header anyone can forge.
 - **MCP gateway: after hooks.** Guardrails run in the MCP proxy's hook processor after the configured hooks, on `tools/call` arguments and results. Their outcomes appear in the MCP audit log like hook results.

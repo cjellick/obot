@@ -119,30 +119,30 @@ func (e *Engine) checkMCP(ctx context.Context, call MCPCall, stage string, doc j
 		slog.Error("failed to load guardrail rules; blocking the tool call", "error", err)
 		return MCPDecision{Blocked: true, Message: "Tool call blocked: guardrails could not be evaluated."}
 	}
-	if plan.Empty() || len(doc) == 0 {
+	if plan.Empty() {
 		return MCPDecision{}
 	}
 
-	var parsed any
-	decoder := json.NewDecoder(bytes.NewReader(doc))
-	decoder.UseNumber()
-	if err := decoder.Decode(&parsed); err != nil {
-		// Not JSON; check it as one piece of text.
-		parsed = string(doc)
-	}
-	root := &parsed
-	var texts []jsonText
-	if stage == StageOutput {
-		texts = toolResultTexts(root)
-	} else {
-		texts = collectJSONText(root)
+	var (
+		parsed any
+		texts  []jsonText
+	)
+	if len(doc) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(doc))
+		decoder.UseNumber()
+		if err := decoder.Decode(&parsed); err != nil {
+			// Not JSON; check it as one piece of text.
+			parsed = string(doc)
+		}
+		if stage == StageOutput {
+			texts = toolResultTexts(&parsed)
+		} else {
+			texts = collectJSONText(&parsed)
+		}
 	}
 	segments := make([]Segment, len(texts))
 	for i, t := range texts {
 		segments[i] = Segment{Role: role, Name: call.Tool, Text: t.get()}
-	}
-	if len(segments) == 0 {
-		return MCPDecision{}
 	}
 
 	d := e.Evaluate(ctx, plan, Request{
@@ -171,9 +171,9 @@ func (e *Engine) checkMCP(ctx context.Context, call MCPCall, stage string, doc j
 }
 
 func (p Plan) ruleNames() []string {
-	names := make([]string, len(p.rules))
-	for i, r := range p.rules {
-		names[i] = r.rule.Name
+	names := make([]string, 0, len(p.broken)+len(p.rules))
+	for _, r := range slices.Concat(p.broken, p.rules) {
+		names = append(names, r.rule.Name)
 	}
 	return names
 }

@@ -64,7 +64,7 @@ func init() {
 		Description: "Detects personal data with a self-hosted Microsoft Presidio Analyzer, and locates it for redaction.",
 		Redacts:     true,
 		Fields: []Field{
-			{Name: "analyzerURL", Label: "Analyzer URL", Type: FieldText, Required: true, Description: "Base URL of the Presidio Analyzer service, e.g. http://presidio-analyzer:3000."},
+			{Name: "analyzerURL", Label: "Analyzer URL", Type: FieldText, Destination: true, Required: true, Description: "Base URL of the Presidio Analyzer service, e.g. http://presidio-analyzer:3000."},
 			{Name: "language", Label: "Language", Type: FieldText, Default: "en", Description: "Language code of the analyzed text."},
 			{Name: "entities", Label: "Entities", Type: FieldList, Description: "Entity types to detect, e.g. EMAIL_ADDRESS or US_SSN. Leave empty to detect every supported type."},
 			{Name: "scoreThreshold", Label: "Minimum score", Type: FieldNumber, Default: 0.5, Description: "Confidence from 0 to 1 an entity needs to count as a finding."},

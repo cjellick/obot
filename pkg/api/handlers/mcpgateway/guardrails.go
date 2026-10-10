@@ -60,7 +60,8 @@ func (g *mcpGuard) apply(ctx context.Context, message mcp.Message, method, name,
 	case "request":
 		var params map[string]json.RawMessage
 		if json.Unmarshal(message.Params, &params) != nil {
-			return message, nil, false
+			// The server might still accept what can't be checked here, so don't forward it.
+			return message, &hookStatus{typeName: direction, method: method, name: guardrailsHookName, tool: name, status: "rejected", message: "Tool call blocked: its parameters could not be checked by guardrails."}, false
 		}
 		call.Arguments = params["arguments"]
 		decision = g.engine.CheckMCPToolCall(ctx, call)

@@ -115,10 +115,10 @@ func init() {
 		Redacts:     true,
 		Fields: []Field{
 			{Name: "project", Label: "Project ID", Type: FieldText, Required: true, Description: "Google Cloud project that holds the template."},
-			{Name: "location", Label: "Location", Type: FieldText, Required: true, Description: "The template's location, such as us-central1."},
+			{Name: "location", Label: "Location", Type: FieldText, Destination: true, Required: true, Description: "The template's location, such as us-central1."},
 			{Name: "template", Label: "Template ID", Type: FieldText, Required: true},
 			{Name: "serviceAccountJSON", Label: "Service account key (JSON)", Type: FieldTextarea, Sensitive: true, Description: "Leave empty to use application default credentials. The account needs the Model Armor User role."},
-			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Description: "Overrides the Model Armor endpoint. Defaults to https://modelarmor.<location>.rep.googleapis.com."},
+			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Destination: true, Description: "Overrides the Model Armor endpoint. Defaults to https://modelarmor.<location>.rep.googleapis.com."},
 		},
 	}, newModelArmorChecker)
 }

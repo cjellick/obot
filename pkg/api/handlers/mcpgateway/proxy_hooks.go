@@ -140,6 +140,13 @@ func newGuardedHookProcessor(req *http.Request, guard *mcpGuard, runner mcp.Hook
 	}
 	setMCPRequestBody(req, body)
 
+	if processor.guard != nil && bytes.HasPrefix(bytes.TrimSpace(body), []byte("[")) {
+		// A batch would skip every check below, which inspects one message at a time.
+		processor.requestError = errors.New("JSON-RPC batches are not supported while guardrails apply")
+		processor.requestResponse = mcpHookErrorResponse(mcp.Message{}, "request", processor.requestError)
+		return processor, nil
+	}
+
 	var message mcp.Message
 	if decodeMCPHookMessage(body, &message) != nil {
 		return processor, nil

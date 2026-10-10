@@ -67,7 +67,7 @@ func init() {
 		Category:    "Integrations",
 		Description: "Detects hateful, sexual, violent and self-harm content with Azure AI Content Safety, and optionally prompt injection attacks with Prompt Shields.",
 		Fields: []Field{
-			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Required: true, Description: "The Content Safety resource endpoint, e.g. https://my-resource.cognitiveservices.azure.com."},
+			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Destination: true, Required: true, Description: "The Content Safety resource endpoint, e.g. https://my-resource.cognitiveservices.azure.com."},
 			{Name: "apiKey", Label: "API key", Type: FieldPassword, Required: true, Sensitive: true},
 			{Name: "categories", Label: "Categories", Type: FieldList, Options: azureContentSafetyCategories, Description: "Harm categories to check. Leave empty to check all of them."},
 			{Name: "severityThreshold", Label: "Severity threshold", Type: FieldNumber, Default: 4, Description: "Severity (0, 2, 4 or 6) at which content counts as a finding."},

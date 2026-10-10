@@ -7,7 +7,8 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 )
 
-// streamPart is one piece of streamed content: an assistant text or a tool call's arguments.
+// streamPart is one piece of streamed content: assistant text, reasoning, a refusal, or a
+// tool call's arguments.
 type streamPart struct {
 	role string
 	name string
@@ -19,12 +20,28 @@ type streamPart struct {
 // chunks are rewritten: the first chunk of each part carries the part's complete (possibly
 // redacted) text and later chunks carry none. Clients see the same content, delivered at
 // once after the check.
+//
+// Every text field a chunk can carry is tracked by a key, so that what is observed is also
+// what is blanked and rewritten. Complete-text fields (the "done" events, and whole output
+// items) also count as observations, so text that a provider sends without deltas is
+// checked as well.
 type streamState struct {
 	held  bool
 	order []string
 	parts map[string]*streamPart
-	// names maps Responses output item IDs to their function names.
+	// names maps Responses output item IDs to their tool names.
 	names map[string]string
+}
+
+// textField is one text field in a chunk, identified by its stream part key.
+type textField struct {
+	key  string
+	role string
+	name string
+	text *string
+	// delta is true for incremental text and false for a field that carries a part's
+	// complete text.
+	delta bool
 }
 
 func newStreamState() *streamState {
@@ -46,10 +63,20 @@ func (s *streamState) part(key, role, name string) *streamPart {
 
 func chatTextKey(choice int) string { return fmt.Sprintf("c%d", choice) }
 
+func chatFieldKey(choice int, field string) string { return fmt.Sprintf("c%d:%s", choice, field) }
+
 func chatToolKey(choice int, index uint16) string { return fmt.Sprintf("c%d:t%d", choice, index) }
 
 func respTextKey(itemID string, contentIndex int) string {
 	return fmt.Sprintf("i:%s:%d", itemID, contentIndex)
+}
+
+func respRefusalKey(itemID string, contentIndex int) string {
+	return fmt.Sprintf("f:%s:%d", itemID, contentIndex)
+}
+
+func respSummaryKey(itemID string, summaryIndex int) string {
+	return fmt.Sprintf("s:%s:%d", itemID, summaryIndex)
 }
 
 func respArgsKey(itemID string) string { return "a:" + itemID }
@@ -68,41 +95,189 @@ func derefString(p *string) string {
 	return *p
 }
 
+// chatDeltaFields returns the text fields of a Chat Completions delta.
+func chatDeltaFields(choice int, d *schemas.ChatStreamResponseChoiceDelta) []textField {
+	fields := []textField{
+		{key: chatTextKey(choice), role: RoleAssistant, text: d.Content, delta: true},
+		{key: chatFieldKey(choice, "refusal"), role: RoleAssistant, text: d.Refusal, delta: true},
+		{key: chatFieldKey(choice, "reasoning"), role: RoleAssistant, text: d.Reasoning, delta: true},
+	}
+	for i := range d.ReasoningDetails {
+		rd := &d.ReasoningDetails[i]
+		fields = append(fields,
+			textField{key: chatFieldKey(choice, fmt.Sprintf("rd%d:text", rd.Index)), role: RoleAssistant, text: rd.Text, delta: true},
+			textField{key: chatFieldKey(choice, fmt.Sprintf("rd%d:summary", rd.Index)), role: RoleAssistant, text: rd.Summary, delta: true},
+		)
+	}
+	for i := range d.ToolCalls {
+		tc := &d.ToolCalls[i]
+		fields = append(fields, textField{key: chatToolKey(choice, tc.Index), role: RoleToolCall, name: derefString(tc.Function.Name), text: &tc.Function.Arguments, delta: true})
+	}
+	return fields
+}
+
+// responsesEventFields returns the text fields of a Responses stream event, other than
+// those in its output items.
+func (s *streamState) responsesEventFields(ev *schemas.BifrostResponsesStreamResponse) []textField {
+	itemID := derefString(ev.ItemID)
+	ci := derefInt(ev.ContentIndex)
+	si := derefInt(ev.SummaryIndex)
+	switch ev.Type {
+	case schemas.ResponsesStreamResponseTypeOutputTextDelta:
+		return []textField{{key: respTextKey(itemID, ci), role: RoleAssistant, text: ev.Delta, delta: true}}
+	case schemas.ResponsesStreamResponseTypeOutputTextDone:
+		return []textField{{key: respTextKey(itemID, ci), role: RoleAssistant, text: ev.Text}}
+	case schemas.ResponsesStreamResponseTypeRefusalDelta:
+		return []textField{{key: respRefusalKey(itemID, ci), role: RoleAssistant, text: ev.Delta, delta: true}}
+	case schemas.ResponsesStreamResponseTypeRefusalDone:
+		return []textField{{key: respRefusalKey(itemID, ci), role: RoleAssistant, text: ev.Refusal}}
+	case schemas.ResponsesStreamResponseTypeReasoningSummaryTextDelta:
+		return []textField{{key: respSummaryKey(itemID, si), role: RoleAssistant, text: ev.Delta, delta: true}}
+	case schemas.ResponsesStreamResponseTypeReasoningSummaryTextDone:
+		return []textField{{key: respSummaryKey(itemID, si), role: RoleAssistant, text: ev.Text}}
+	case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta, schemas.ResponsesStreamResponseTypeCustomToolCallInputDelta:
+		return []textField{{key: respArgsKey(itemID), role: RoleToolCall, name: s.names[itemID], text: ev.Delta, delta: true}}
+	case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone:
+		return []textField{{key: respArgsKey(itemID), role: RoleToolCall, name: s.names[itemID], text: ev.Arguments}}
+	case schemas.ResponsesStreamResponseTypeCustomToolCallInputDone:
+		return []textField{{key: respArgsKey(itemID), role: RoleToolCall, name: s.names[itemID], text: ev.Input}}
+	case schemas.ResponsesStreamResponseTypeContentPartAdded, schemas.ResponsesStreamResponseTypeContentPartDone:
+		if ev.Part != nil {
+			return contentBlockFields(itemID, ci, ev.Part)
+		}
+	case schemas.ResponsesStreamResponseTypeReasoningSummaryPartAdded, schemas.ResponsesStreamResponseTypeReasoningSummaryPartDone:
+		if ev.Part != nil {
+			return []textField{{key: respSummaryKey(itemID, si), role: RoleAssistant, text: ev.Part.Text}}
+		}
+	}
+	return nil
+}
+
+func contentBlockFields(itemID string, index int, b *schemas.ResponsesMessageContentBlock) []textField {
+	fields := []textField{{key: respTextKey(itemID, index), role: RoleAssistant, text: b.Text}}
+	if b.ResponsesOutputMessageContentRefusal != nil {
+		fields = append(fields, textField{key: respRefusalKey(itemID, index), role: RoleAssistant, text: &b.Refusal})
+	}
+	return fields
+}
+
+// itemFields returns the complete-text fields of a Responses output item.
+func itemFields(item *schemas.ResponsesMessage) []textField {
+	id := derefString(item.ID)
+	var fields []textField
+	if item.ResponsesToolMessage != nil {
+		name := derefString(item.Name)
+		if item.Arguments != nil {
+			fields = append(fields, textField{key: respArgsKey(id), role: RoleToolCall, name: name, text: item.Arguments})
+		}
+		if item.ResponsesCustomToolCall != nil {
+			fields = append(fields, textField{key: respArgsKey(id), role: RoleToolCall, name: name, text: &item.ResponsesCustomToolCall.Input})
+		}
+	}
+	if item.Content != nil {
+		fields = append(fields, textField{key: respTextKey(id, 0), role: RoleAssistant, text: item.Content.ContentStr})
+		for i := range item.Content.ContentBlocks {
+			fields = append(fields, contentBlockFields(id, i, &item.Content.ContentBlocks[i])...)
+		}
+	}
+	if item.ResponsesReasoning != nil {
+		for i := range item.Summary {
+			fields = append(fields, textField{key: respSummaryKey(id, i), role: RoleAssistant, text: &item.Summary[i].Text})
+		}
+	}
+	return fields
+}
+
+// cloneItem copies an output item deeply enough that its text fields can be rewritten
+// without changing the original.
+func cloneItem(item schemas.ResponsesMessage) schemas.ResponsesMessage {
+	if item.ResponsesToolMessage != nil {
+		tm := *item.ResponsesToolMessage
+		if tm.Arguments != nil {
+			args := *tm.Arguments
+			tm.Arguments = &args
+		}
+		if tm.ResponsesCustomToolCall != nil {
+			ct := *tm.ResponsesCustomToolCall
+			tm.ResponsesCustomToolCall = &ct
+		}
+		item.ResponsesToolMessage = &tm
+	}
+	if item.Content != nil {
+		content := *item.Content
+		if content.ContentStr != nil {
+			str := *content.ContentStr
+			content.ContentStr = &str
+		}
+		if content.ContentBlocks != nil {
+			content.ContentBlocks = make([]schemas.ResponsesMessageContentBlock, len(item.Content.ContentBlocks))
+			for i, b := range item.Content.ContentBlocks {
+				if b.Text != nil {
+					text := *b.Text
+					b.Text = &text
+				}
+				if b.ResponsesOutputMessageContentRefusal != nil {
+					refusal := *b.ResponsesOutputMessageContentRefusal
+					b.ResponsesOutputMessageContentRefusal = &refusal
+				}
+				content.ContentBlocks[i] = b
+			}
+		}
+		item.Content = &content
+	}
+	if item.ResponsesReasoning != nil {
+		reasoning := *item.ResponsesReasoning
+		reasoning.Summary = append([]schemas.ResponsesReasoningSummary(nil), item.Summary...)
+		item.ResponsesReasoning = &reasoning
+	}
+	return item
+}
+
+// record adds observed text to its part. A complete-text field only counts when no deltas
+// were seen for the part, since it repeats them.
+func (s *streamState) record(f textField) {
+	if f.text == nil || *f.text == "" {
+		return
+	}
+	p := s.part(f.key, f.role, f.name)
+	if f.delta {
+		p.text.WriteString(*f.text)
+	} else if p.text.Len() == 0 {
+		p.text.WriteString(*f.text)
+	}
+}
+
 // observe records a chunk's original content.
 func (s *streamState) observe(resp *schemas.BifrostResponse) {
 	switch {
 	case resp.ChatResponse != nil:
-		for _, c := range resp.ChatResponse.Choices {
+		for i := range resp.ChatResponse.Choices {
+			c := &resp.ChatResponse.Choices[i]
 			if c.ChatStreamResponseChoice == nil || c.Delta == nil {
 				continue
 			}
-			if c.Delta.Content != nil {
-				s.part(chatTextKey(c.Index), RoleAssistant, "").text.WriteString(*c.Delta.Content)
-			}
-			for _, tc := range c.Delta.ToolCalls {
-				s.part(chatToolKey(c.Index, tc.Index), RoleToolCall, derefString(tc.Function.Name)).text.WriteString(tc.Function.Arguments)
+			for _, f := range chatDeltaFields(c.Index, c.Delta) {
+				s.record(f)
 			}
 		}
 	case resp.ResponsesStreamResponse != nil:
 		ev := resp.ResponsesStreamResponse
-		itemID := derefString(ev.ItemID)
-		switch ev.Type {
-		case schemas.ResponsesStreamResponseTypeOutputItemAdded:
-			if ev.Item != nil && ev.Item.ID != nil && ev.Item.ResponsesToolMessage != nil && ev.Item.Name != nil {
-				s.names[*ev.Item.ID] = *ev.Item.Name
+		if ev.Type == schemas.ResponsesStreamResponseTypeOutputItemAdded && ev.Item != nil && ev.Item.ID != nil && ev.Item.ResponsesToolMessage != nil && ev.Item.Name != nil {
+			s.names[*ev.Item.ID] = *ev.Item.Name
+		}
+		for _, f := range s.responsesEventFields(ev) {
+			s.record(f)
+		}
+		if ev.Item != nil {
+			for _, f := range itemFields(ev.Item) {
+				s.record(f)
 			}
-		case schemas.ResponsesStreamResponseTypeOutputTextDelta:
-			s.part(respTextKey(itemID, derefInt(ev.ContentIndex)), RoleAssistant, "").text.WriteString(derefString(ev.Delta))
-		case schemas.ResponsesStreamResponseTypeOutputTextDone:
-			// Some providers only send the complete text.
-			if p := s.part(respTextKey(itemID, derefInt(ev.ContentIndex)), RoleAssistant, ""); p.text.Len() == 0 {
-				p.text.WriteString(derefString(ev.Text))
-			}
-		case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta:
-			s.part(respArgsKey(itemID), RoleToolCall, s.names[itemID]).text.WriteString(derefString(ev.Delta))
-		case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone:
-			if p := s.part(respArgsKey(itemID), RoleToolCall, s.names[itemID]); p.text.Len() == 0 {
-				p.text.WriteString(derefString(ev.Arguments))
+		}
+		if ev.Response != nil {
+			for i := range ev.Response.Output {
+				for _, f := range itemFields(&ev.Response.Output[i]) {
+					s.record(f)
+				}
 			}
 		}
 	}
@@ -139,6 +314,33 @@ func (s *streamState) finalText(d Decision) map[string]string {
 	return out
 }
 
+// rewriteField sets a field to what clients receive: nothing while blanking (final == nil);
+// for a delta, the part's complete text on its first delta and nothing on later ones; for a
+// complete-text field, the part's complete text.
+func rewriteField(f textField, final map[string]string, emitted map[string]bool) {
+	if f.text == nil {
+		return
+	}
+	if final == nil {
+		*f.text = ""
+		return
+	}
+	text, ok := final[f.key]
+	if !ok {
+		return
+	}
+	if !f.delta {
+		*f.text = text
+		return
+	}
+	if emitted[f.key] {
+		*f.text = ""
+		return
+	}
+	emitted[f.key] = true
+	*f.text = text
+}
+
 // blank returns a copy of a chunk with its content removed.
 func (s *streamState) blank(resp *schemas.BifrostResponse) *schemas.BifrostResponse {
 	out := *resp
@@ -164,32 +366,12 @@ func (s *streamState) rewriteResponse(resp *schemas.BifrostResponse, final map[s
 	return &out
 }
 
-// deltaText returns what a delta for key carries: nothing while blanking (final == nil),
-// the complete text for the first delta of a part, and nothing for later deltas.
-func deltaText(key string, final map[string]string, emitted map[string]bool, original string) string {
-	if final == nil {
-		return ""
+func copyString(p *string) *string {
+	if p == nil {
+		return nil
 	}
-	text, ok := final[key]
-	if !ok {
-		return original
-	}
-	if emitted[key] {
-		return ""
-	}
-	emitted[key] = true
-	return text
-}
-
-// fullText returns what a complete-text field for key carries.
-func fullText(key string, final map[string]string, original string) string {
-	if final == nil {
-		return ""
-	}
-	if text, ok := final[key]; ok {
-		return text
-	}
-	return original
+	v := *p
+	return &v
 }
 
 func (s *streamState) rewriteChat(r *schemas.BifrostChatResponse, final map[string]string, emitted map[string]bool) *schemas.BifrostChatResponse {
@@ -204,18 +386,26 @@ func (s *streamState) rewriteChat(r *schemas.BifrostChatResponse, final map[stri
 			continue
 		}
 		delta := *c.Delta
-		if delta.Content != nil {
-			text := deltaText(chatTextKey(c.Index), final, emitted, *delta.Content)
-			delta.Content = &text
-		}
-		if len(delta.ToolCalls) > 0 {
-			delta.ToolCalls = make([]schemas.ChatAssistantMessageToolCall, len(c.Delta.ToolCalls))
-			for j, tc := range c.Delta.ToolCalls {
-				tc.Function.Arguments = deltaText(chatToolKey(c.Index, tc.Index), final, emitted, tc.Function.Arguments)
-				delta.ToolCalls[j] = tc
+		delta.Content = copyString(delta.Content)
+		delta.Refusal = copyString(delta.Refusal)
+		delta.Reasoning = copyString(delta.Reasoning)
+		if c.Delta.ReasoningDetails != nil {
+			delta.ReasoningDetails = make([]schemas.ChatReasoningDetails, len(c.Delta.ReasoningDetails))
+			for j, rd := range c.Delta.ReasoningDetails {
+				rd.Text = copyString(rd.Text)
+				rd.Summary = copyString(rd.Summary)
+				delta.ReasoningDetails[j] = rd
 			}
 		}
-		out.Choices[i].ChatStreamResponseChoice = &schemas.ChatStreamResponseChoice{Delta: &delta}
+		if c.Delta.ToolCalls != nil {
+			delta.ToolCalls = append([]schemas.ChatAssistantMessageToolCall(nil), c.Delta.ToolCalls...)
+		}
+		for _, f := range chatDeltaFields(c.Index, &delta) {
+			rewriteField(f, final, emitted)
+		}
+		choice := *c.ChatStreamResponseChoice
+		choice.Delta = &delta
+		out.Choices[i].ChatStreamResponseChoice = &choice
 	}
 	return &out
 }
@@ -225,73 +415,41 @@ func (s *streamState) rewriteResponsesEvent(ev *schemas.BifrostResponsesStreamRe
 		return nil
 	}
 	out := *ev
-	itemID := derefString(ev.ItemID)
-	switch ev.Type {
-	case schemas.ResponsesStreamResponseTypeOutputTextDelta:
-		text := deltaText(respTextKey(itemID, derefInt(ev.ContentIndex)), final, emitted, derefString(ev.Delta))
-		out.Delta = &text
-	case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta:
-		text := deltaText(respArgsKey(itemID), final, emitted, derefString(ev.Delta))
-		out.Delta = &text
-	case schemas.ResponsesStreamResponseTypeOutputTextDone:
-		if ev.Text != nil {
-			text := fullText(respTextKey(itemID, derefInt(ev.ContentIndex)), final, *ev.Text)
-			out.Text = &text
+	out.Delta = copyString(ev.Delta)
+	out.Text = copyString(ev.Text)
+	out.Refusal = copyString(ev.Refusal)
+	out.Arguments = copyString(ev.Arguments)
+	out.Input = copyString(ev.Input)
+	if ev.Part != nil {
+		part := *ev.Part
+		part.Text = copyString(part.Text)
+		if part.ResponsesOutputMessageContentRefusal != nil {
+			refusal := *part.ResponsesOutputMessageContentRefusal
+			part.ResponsesOutputMessageContentRefusal = &refusal
 		}
-	case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone:
-		if ev.Arguments != nil {
-			text := fullText(respArgsKey(itemID), final, *ev.Arguments)
-			out.Arguments = &text
-		}
-	case schemas.ResponsesStreamResponseTypeContentPartDone:
-		if ev.Part != nil && ev.Part.Text != nil {
-			part := *ev.Part
-			text := fullText(respTextKey(itemID, derefInt(ev.ContentIndex)), final, *ev.Part.Text)
-			part.Text = &text
-			out.Part = &part
-		}
+		out.Part = &part
+	}
+	for _, f := range s.responsesEventFields(&out) {
+		rewriteField(f, final, emitted)
 	}
 	if ev.Item != nil {
-		item := s.rewriteItem(*ev.Item, final)
+		item := cloneItem(*ev.Item)
+		for _, f := range itemFields(&item) {
+			rewriteField(f, final, emitted)
+		}
 		out.Item = &item
 	}
 	if ev.Response != nil {
 		resp := *ev.Response
 		resp.Output = make([]schemas.ResponsesMessage, len(ev.Response.Output))
 		for i, item := range ev.Response.Output {
-			resp.Output[i] = s.rewriteItem(item, final)
+			item = cloneItem(item)
+			for _, f := range itemFields(&item) {
+				rewriteField(f, final, emitted)
+			}
+			resp.Output[i] = item
 		}
 		out.Response = &resp
 	}
 	return &out
-}
-
-// rewriteItem replaces the complete text of a Responses output item.
-func (s *streamState) rewriteItem(item schemas.ResponsesMessage, final map[string]string) schemas.ResponsesMessage {
-	id := derefString(item.ID)
-	if item.ResponsesToolMessage != nil && item.Arguments != nil {
-		tm := *item.ResponsesToolMessage
-		text := fullText(respArgsKey(id), final, *item.Arguments)
-		tm.Arguments = &text
-		item.ResponsesToolMessage = &tm
-	}
-	if item.Content != nil {
-		content := *item.Content
-		if content.ContentStr != nil {
-			text := fullText(respTextKey(id, 0), final, *content.ContentStr)
-			content.ContentStr = &text
-		}
-		if len(content.ContentBlocks) > 0 {
-			content.ContentBlocks = make([]schemas.ResponsesMessageContentBlock, len(item.Content.ContentBlocks))
-			for i, b := range item.Content.ContentBlocks {
-				if b.Text != nil {
-					text := fullText(respTextKey(id, i), final, *b.Text)
-					b.Text = &text
-				}
-				content.ContentBlocks[i] = b
-			}
-		}
-		item.Content = &content
-	}
-	return item
 }

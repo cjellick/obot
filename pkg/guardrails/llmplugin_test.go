@@ -40,6 +40,18 @@ func newUpstream(t *testing.T) *upstream {
 		var req map[string]any
 		_ = json.Unmarshal(body, &req)
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/messages/count_tokens"):
+			_, _ = io.WriteString(w, `{"input_tokens":12}`)
+		case strings.HasSuffix(r.URL.Path, "/messages"):
+			_, _ = fmt.Fprintf(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"Your key is %s ok"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":3}}`, leakedKey)
+		case strings.HasSuffix(r.URL.Path, "/chat/completions") && req["stream"] == true && strings.Contains(string(body), "THINK"):
+			// The secret is split across reasoning deltas, before any content.
+			w.Header().Set("Content-Type", "text/event-stream")
+			for _, part := range []string{"I recall " + leakedKey[:10], leakedKey[10:] + " here"} {
+				_, _ = fmt.Fprintf(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":%q}}]}\n\n", part)
+			}
+			_, _ = io.WriteString(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n")
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
 		case strings.HasSuffix(r.URL.Path, "/models"):
 			_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model"}]}`)
 		case strings.HasSuffix(r.URL.Path, "/chat/completions") && req["stream"] == true:
@@ -77,8 +89,12 @@ func startGateway(t *testing.T, store *fakeStore) (*bifrost.Engine, *upstream) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	// Guardrails are registered as part of startup, as Obot does, so the gateway never
+	// serves a request without them.
+	engine := New(ctx, store, nil)
+	input, output := engine.Plugins()
 	gw := bifrost.New()
-	if err := gw.Start(ctx, bifrost.Options{DataDir: t.TempDir()}); err != nil {
+	if err := gw.Start(ctx, bifrost.Options{DataDir: t.TempDir(), FirstPlugin: input, LastPlugin: output}); err != nil {
 		t.Fatal(err)
 	}
 	if err := gw.Do(ctx, http.MethodPost, "/api/providers", map[string]any{
@@ -91,11 +107,16 @@ func startGateway(t *testing.T, store *fakeStore) (*bifrost.Engine, *upstream) {
 		t.Fatal(err)
 	}
 
-	engine := New(ctx, store, nil)
-	input, output := engine.Plugins()
-	if err := gw.RegisterLLMPlugins(input, output); err != nil {
+	if err := gw.Do(ctx, http.MethodPost, "/api/providers", map[string]any{
+		"provider":       "anthropic",
+		"network_config": map[string]any{"base_url": up.URL, "allow_private_network": true, "default_request_timeout_in_seconds": 30},
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := gw.Do(ctx, http.MethodPost, "/api/providers/anthropic/keys", map[string]any{"name": "ka", "value": "sk-ant-test", "models": []string{"*"}, "weight": 1}, nil); err != nil {
+		t.Fatal(err)
+	}
+
 	// Request logging must only ever see checked content: the input plugin runs before it,
 	// and the output plugin after it (so its response hook runs before logging's).
 	order := gw.LLMPluginOrder()
@@ -111,8 +132,16 @@ func startGateway(t *testing.T, store *fakeStore) (*bifrost.Engine, *upstream) {
 
 func call(t *testing.T, gw *bifrost.Engine, body string, bind bool) (int, string) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	return callPath(t, gw, "/v1/chat/completions", body, bind, nil)
+}
+
+func callPath(t *testing.T, gw *bifrost.Engine, path, body string, bind bool, headers map[string]string) (int, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	if bind {
 		token, release := BindRequest(Identity{UserID: "alice"})
 		defer release()
@@ -168,6 +197,32 @@ func TestGatewayPluginsRedact(t *testing.T) {
 	}
 	if streamed.String() != "Your key is [REDACTED:AWS_ACCESS_KEY_ID] ok" {
 		t.Fatalf("unexpected streamed text %q in %s", streamed.String(), body)
+	}
+
+	// A secret split across streamed reasoning is found, and never reaches the client.
+	code, body = call(t, gw, `{"model":"openai/gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"THINK"}]}`, true)
+	if code != http.StatusOK || strings.Contains(body, leakedKey[:10]) || strings.Contains(body, leakedKey[10:]) || !strings.Contains(body, "[REDACTED:AWS_ACCESS_KEY_ID]") {
+		t.Fatalf("streamed reasoning not redacted: %d %s", code, body)
+	}
+
+	// Claude Code requests are forwarded raw by default; guarded ones must not be.
+	claudeCode := map[string]string{"User-Agent": "claude-cli/2.0.0 (external, cli)", "anthropic-version": "2023-06-01"}
+	anthropicPrompt := `{"model":"anthropic/claude-sonnet-4-5","max_tokens":100,"messages":[{"role":"user","content":"my key is ` + leakedKey + `"}]}`
+	code, body = callPath(t, gw, "/anthropic/v1/messages", anthropicPrompt, true, claudeCode)
+	if code != http.StatusOK || strings.Contains(body, leakedKey) || !strings.Contains(body, "[REDACTED:AWS_ACCESS_KEY_ID]") {
+		t.Fatalf("Claude Code output not redacted: %d %s", code, body)
+	}
+	if p := up.lastPrompt(); strings.Contains(p, leakedKey) || !strings.Contains(p, "[REDACTED:AWS_ACCESS_KEY_ID]") {
+		t.Fatalf("Claude Code input reached the provider unredacted: %s", p)
+	}
+
+	// Token counting sends the prompt to the provider too.
+	code, body = callPath(t, gw, "/anthropic/v1/messages/count_tokens", `{"model":"anthropic/claude-sonnet-4-5","messages":[{"role":"user","content":"my key is `+leakedKey+`"}]}`, true, claudeCode)
+	if code != http.StatusOK {
+		t.Fatalf("count_tokens failed: %d %s", code, body)
+	}
+	if p := up.lastPrompt(); strings.Contains(p, leakedKey) {
+		t.Fatalf("count_tokens input reached the provider unredacted: %s", p)
 	}
 
 	// Requests Obot didn't bind (e.g. the LLM judge's own calls) are not guarded.

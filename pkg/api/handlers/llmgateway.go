@@ -5,26 +5,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/bifrost"
+	"github.com/obot-platform/obot/pkg/controller/handlers/providerconfigurationchange"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
 	"gorm.io/gorm"
+	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// allowedBifrostAPIPrefixes are the Bifrost management routes exposed through Obot. Bifrost
-// also has MCP, skills, prompt repository, and session APIs; Obot has its own versions of
-// those features, so they stay hidden.
 var (
+	// configurablePlugins are the gateway plugins administrators may create, change or remove.
+	configurablePlugins = []string{"semantic_cache"}
+
+	// allowedBifrostAPIPrefixes are the Bifrost management routes exposed through Obot. Bifrost
+	// also has MCP, skills, prompt repository, and session APIs; Obot has its own versions of
+	// those features, so they stay hidden.
 	allowedBifrostAPIPrefixes = []string{
 		"providers",
 		"keys",
@@ -44,9 +51,9 @@ var (
 )
 
 // LLMGatewayHandler serves Obot's management API for the embedded Bifrost gateway. Most
-// of it is a guarded pass-through to Bifrost's own management API; Obot adds budget
-// bindings (which tie Obot users and groups to Bifrost virtual keys), model sync, and
-// import of legacy model provider credentials.
+// of it is a guarded pass-through to Bifrost's own management API; Obot adds its own
+// budgets (enforced by Obot, not Bifrost), model sync, and import of legacy model provider
+// credentials.
 type LLMGatewayHandler struct {
 	engine *bifrost.Engine
 }
@@ -119,8 +126,17 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 			return err
 		}
 	}
+	if err := checkPluginChange(req.Method, path, body); err != nil {
+		return err
+	}
 
-	out, err := http.NewRequestWithContext(req.Context(), req.Method, (&url.URL{Path: "/api/" + path, RawQuery: req.URL.RawQuery}).String(), bytes.NewReader(body))
+	ctx := req.Context()
+	if req.Method != http.MethodGet {
+		// Once a change reaches the gateway it must finish and be announced to the other
+		// replicas even if the client goes away, so the client can't cancel it midway.
+		ctx = context.WithoutCancel(ctx)
+	}
+	out, err := http.NewRequestWithContext(ctx, req.Method, (&url.URL{Path: "/api/" + path, RawQuery: req.URL.RawQuery}).String(), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -130,10 +146,24 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	out.Header.Set("Accept", "application/json")
 
 	rec := httptest.NewRecorder()
-	h.engine.ServeHTTP(rec, out)
-
-	if req.Method != http.MethodGet && rec.Code < 300 {
-		h.afterMutation(req.Context(), req, path)
+	if req.Method == http.MethodGet {
+		h.engine.ServeHTTP(rec, out)
+	} else if err := h.engine.Change(ctx, func() (bool, bool) {
+		h.engine.ServeHTTP(rec, out)
+		switch {
+		case rec.Code < 300:
+			h.afterMutation(ctx, req, path)
+			return true, true
+		case rec.Code < 500:
+			// Rejected; nothing changed.
+			return false, false
+		default:
+			// The change may have been saved before the failure, in the stores, in memory or
+			// both, so every replica, this one included, reloads to be safe.
+			return true, false
+		}
+	}, announceLLMGatewayChange(req.Storage)); err != nil {
+		return types.NewErrHTTP(http.StatusInternalServerError, err.Error())
 	}
 
 	for k, vs := range rec.Header() {
@@ -147,6 +177,28 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	req.WriteHeader(rec.Code)
 	_, err = req.ResponseWriter.Write(rec.Body.Bytes())
 	return err
+}
+
+// checkPluginChange limits plugin changes to the plugins Obot lets administrators configure.
+// Other plugins, notably Obot's guardrail plugins, can't be disabled, deleted or replaced
+// through the pass-through; otherwise guardrails would stop while the Guardrails pages still
+// showed the rules as enabled.
+func checkPluginChange(method, path string, body []byte) error {
+	if method == http.MethodGet || (path != "plugins" && !strings.HasPrefix(path, "plugins/")) {
+		return nil
+	}
+	name := strings.TrimPrefix(strings.TrimPrefix(path, "plugins"), "/")
+	if name == "" {
+		var plugin struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(body, &plugin)
+		name = plugin.Name
+	}
+	if !slices.Contains(configurablePlugins, name) {
+		return types.NewErrHTTP(http.StatusForbidden, fmt.Sprintf("the %q plugin can't be changed through the LLM gateway API", name))
+	}
+	return nil
 }
 
 // allowedBifrostAPIPath validates the requested Bifrost API path against the allowlist. The
@@ -230,6 +282,14 @@ func (h *LLMGatewayHandler) afterMutation(ctx context.Context, req api.Context, 
 		if err := bifrost.TriggerModelSync(ctx, req.Storage); err != nil {
 			slog.Warn("failed to trigger LLM gateway model sync", "error", err)
 		}
+	}
+}
+
+// announceLLMGatewayChange advances the gateway's configuration revision, so the other
+// replicas reload their gateways from the shared stores.
+func announceLLMGatewayChange(storage kclient.Client) func(context.Context) (int64, error) {
+	return func(ctx context.Context) (int64, error) {
+		return providerconfigurationchange.AdvanceLLMGatewayRevision(ctx, storage)
 	}
 }
 
@@ -353,11 +413,24 @@ func (h *LLMGatewayHandler) ImportLegacyProviders(req api.Context) error {
 	if err := h.requireEngine(); err != nil {
 		return err
 	}
-	results, err := h.engine.ImportLegacyModelProviders(req.Context(), req.Storage, req.GatewayClient)
-	if err != nil {
-		return err
+	var (
+		results   []bifrost.LegacyImportResult
+		importErr error
+	)
+	if err := h.engine.Change(req.Context(), func() (bool, bool) {
+		results, importErr = h.engine.ImportLegacyModelProviders(req.Context(), req.Storage, req.GatewayClient)
+		if importErr != nil {
+			// Some providers may have been imported before the error; reload everywhere.
+			return true, false
+		}
+		h.engine.ApplyEgressProxy(req.Context())
+		return true, true
+	}, announceLLMGatewayChange(req.Storage)); err != nil {
+		return types.NewErrHTTP(http.StatusInternalServerError, err.Error())
 	}
-	h.engine.ApplyEgressProxy(req.Context())
+	if importErr != nil {
+		return importErr
+	}
 	if err := bifrost.TriggerModelSync(req.Context(), req.Storage); err != nil {
 		slog.Warn("failed to trigger LLM gateway model sync", "error", err)
 	}

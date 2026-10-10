@@ -79,6 +79,9 @@ type Finding struct {
 	Spans []Span `json:"-"`
 	// Count is how many matches the finding covers.
 	Count int `json:"count,omitempty"`
+	// Explanation is shown to the caller when the finding blocks, but is never stored: it
+	// is free text, such as an LLM judge's explanation, that may quote the content.
+	Explanation string `json:"-"`
 }
 
 // Result is a checker's verdict. Any finding is a violation.
@@ -108,6 +111,10 @@ type Field struct {
 	Required    bool      `json:"required,omitempty"`
 	// Sensitive fields are stored encrypted and never returned by the API.
 	Sensitive bool `json:"sensitive,omitempty"`
+	// Destination fields decide where the profile's credentials are sent, such as an
+	// endpoint URL or a region that is part of a host name. Changing one requires
+	// re-entering the credentials, so stored credentials can't be redirected to another host.
+	Destination bool `json:"destination,omitempty"`
 }
 
 // ProviderInfo describes a checker type.

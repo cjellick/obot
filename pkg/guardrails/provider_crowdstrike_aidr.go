@@ -97,7 +97,7 @@ func init() {
 		Redacts:     true,
 		Fields: []Field{
 			{Name: "apiToken", Label: "Collector API token", Type: FieldPassword, Required: true, Sensitive: true, Description: "Token of an AIDR collector; the collector's policy decides what is detected."},
-			{Name: "baseURL", Label: "Base URL", Type: FieldText, Default: "https://api.crowdstrike.com/aidr/aiguard", Description: "Use https://api.eu-1.crowdstrike.com/aidr/aiguard for the EU cloud."},
+			{Name: "baseURL", Label: "Base URL", Type: FieldText, Destination: true, Default: "https://api.crowdstrike.com/aidr/aiguard", Description: "Use https://api.eu-1.crowdstrike.com/aidr/aiguard for the EU cloud."},
 			{Name: "appID", Label: "App ID", Type: FieldText, Description: "Optional application identifier recorded with each event."},
 			{Name: "collectorInstanceID", Label: "Collector instance ID", Type: FieldText, Description: "Optional identifier of this Obot deployment, recorded with each event."},
 		},

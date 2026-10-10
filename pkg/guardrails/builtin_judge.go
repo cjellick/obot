@@ -97,7 +97,11 @@ func (c *judgeChecker) Check(ctx context.Context, in CheckInput) (Result, error)
 
 	var result Result
 	for _, v := range violations {
-		result.Findings = append(result.Findings, Finding{Category: "policy", Message: v.Explanation})
+		if v.Failed {
+			// Let the rule's fail-closed setting decide, as for any other checker error.
+			return Result{}, errors.New("the policy could not be evaluated: the judge model is unavailable or failed")
+		}
+		result.Findings = append(result.Findings, Finding{Category: "policy", Message: "Violates the policy", Explanation: v.Explanation})
 	}
 	return result, nil
 }

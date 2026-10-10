@@ -526,11 +526,25 @@ func (h *Handler) advanceDaemonSync(ctx context.Context, client kclient.Client, 
 // AdvanceDaemonRevision bumps a provider's revision so every replica drops its daemon and restarts
 // it with the current configuration on the next request.
 func AdvanceDaemonRevision(ctx context.Context, client kclient.Client, providerType v1.ProviderType, namespace, providerName string) error {
+	_, err := advanceRevision(ctx, client, providerType, namespace, providerName)
+	return err
+}
+
+// AdvanceLLMGatewayRevision bumps the LLM gateway's configuration revision so every other
+// replica reloads its gateway, and returns the new revision.
+func AdvanceLLMGatewayRevision(ctx context.Context, client kclient.Client) (int64, error) {
+	return advanceRevision(ctx, client, v1.ProviderTypeLLMGateway, system.DefaultNamespace, system.LLMGatewayModelProvider)
+}
+
+func advanceRevision(ctx context.Context, client kclient.Client, providerType v1.ProviderType, namespace, providerName string) (int64, error) {
 	if err := EnsureDaemonSync(ctx, client); err != nil {
-		return err
+		return 0, err
 	}
 	revisionKey := providerDaemonRevisionKey(providerType, namespace, providerName)
-	var daemonSync v1.ProviderSync
+	var (
+		daemonSync v1.ProviderSync
+		advanced   int64
+	)
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		if err := client.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: system.ProviderSyncName}, &daemonSync); err != nil {
 			// EnsureDaemonSync above created the singleton if it was missing, so
@@ -546,12 +560,13 @@ func AdvanceDaemonRevision(ctx context.Context, client kclient.Client, providerT
 		revision.ProviderName = providerName
 		revision.Revision++
 		daemonSync.Spec.Revisions[revisionKey] = revision
+		advanced = revision.Revision
 		return client.Update(ctx, &daemonSync)
 	})
 	if err != nil {
-		return fmt.Errorf("advance provider daemon sync: %w", err)
+		return 0, fmt.Errorf("advance provider daemon sync: %w", err)
 	}
-	return nil
+	return advanced, nil
 }
 
 func providerDaemonRevisionKey(providerType v1.ProviderType, namespace, providerName string) string {

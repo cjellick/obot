@@ -788,7 +788,7 @@ func logViolation(ctx context.Context, c *client.Client, v messagepolicy.Message
 	}
 	// Message policies are guardrails now; record the violation with their events too.
 	if err := c.InsertGuardrailEvents(ctx, []types.GuardrailEvent{
-		guardrails.LegacyViolationEvent(v.PolicyID, v.PolicyName, userID, direction, v.Explanation),
+		guardrails.LegacyViolationEvent(v.PolicyID, v.PolicyName, userID, direction),
 	}); err != nil {
 		slog.Warn("failed to record guardrail event", "policyID", v.PolicyID, "error", err)
 	}

@@ -25,10 +25,10 @@ import (
 	kuser "k8s.io/apiserver/pkg/authentication/user"
 )
 
-// clientGatewayHeaders are the request headers callers may use to tune the gateway for
-// their own requests, and the engine headers they map to. Everything else the engine reads
-// from headers (virtual keys, log metadata, direct keys) is controlled by Obot.
 var (
+	// clientGatewayHeaders are the request headers callers may use to tune the gateway for
+	// their own requests, and the engine headers they map to. Everything else the engine reads
+	// from headers (log metadata, direct keys, cache keys) is controlled by Obot.
 	clientGatewayHeaders = map[string]string{
 		"X-Obot-Cache-TTL":       "x-bf-cache-ttl",
 		"X-Obot-Cache-Threshold": "x-bf-cache-threshold",
@@ -296,8 +296,8 @@ func (b *bifrostProviderBackend) authorizeExtraModels(l *llmProviderProxy, req a
 	return sjson.SetBytes(body, "fallbacks", resolved)
 }
 
-// decorateRequest removes the caller's Obot credential and adds the identity and
-// virtual-key headers Bifrost uses for logging, analytics, and governance.
+// decorateRequest removes the caller's Obot credential and adds the identity headers
+// Bifrost uses for request logs and caching, and the guardrails token.
 func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (func(), error) {
 	for _, h := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie", guardrails.HeaderRequestToken} {
 		req.Header.Del(h)

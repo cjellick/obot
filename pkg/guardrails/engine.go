@@ -1,6 +1,7 @@
 package guardrails
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,6 +45,10 @@ type Request struct {
 	// Model and Resource are recorded on events: the model, or the MCP server and tool.
 	Model    string
 	Resource string
+	// Delivered reports that the content has already reached the client, as with a stream
+	// that couldn't be held. Findings that would block or redact then end the response and
+	// are recorded as errors, since the content can no longer be withheld.
+	Delivered bool
 }
 
 // Decision is the combined outcome of every applicable rule.
@@ -61,6 +66,8 @@ type Decision struct {
 // use to decide how much of a streamed response to hold back.
 type Plan struct {
 	rules []*compiledRule
+	// broken holds fail-closed rules whose condition could not be evaluated. They block.
+	broken []*compiledRule
 }
 
 type compiledProfile struct {
@@ -96,21 +103,26 @@ type Engine struct {
 	rules    []*compiledRule
 
 	events chan types.GuardrailEvent
+
+	// conditionErrors throttles events for rules whose condition fails at runtime, which
+	// would otherwise record one per request.
+	conditionErrorsLock sync.Mutex
+	conditionErrors     map[string]time.Time
 }
 
 // Empty reports whether no rule applies.
-func (p Plan) Empty() bool { return len(p.rules) == 0 }
+func (p Plan) Empty() bool { return len(p.rules) == 0 && len(p.broken) == 0 }
 
 // CanBlock reports whether any rule may block, which requires holding the whole response.
 func (p Plan) CanBlock() bool {
-	return slices.ContainsFunc(p.rules, func(r *compiledRule) bool {
+	return len(p.broken) > 0 || slices.ContainsFunc(p.rules, func(r *compiledRule) bool {
 		return r.rule.Action == types.GuardrailActionBlock || (r.rule.Action == types.GuardrailActionRedact && !r.allRedact) || r.rule.FailClosed
 	})
 }
 
 // Modifies reports whether any rule may change or stop the response.
 func (p Plan) Modifies() bool {
-	return slices.ContainsFunc(p.rules, func(r *compiledRule) bool { return r.rule.Action != types.GuardrailActionLog || r.rule.FailClosed })
+	return len(p.broken) > 0 || slices.ContainsFunc(p.rules, func(r *compiledRule) bool { return r.rule.Action != types.GuardrailActionLog || r.rule.FailClosed })
 }
 
 // New creates an engine. judge may be nil, in which case LLM-judge profiles fail.
@@ -221,14 +233,19 @@ func (e *Engine) Plan(ctx context.Context, target, stage string, identity Identi
 	if err != nil {
 		return Plan{}, err
 	}
-	var applicable []*compiledRule
+	var plan Plan
 	for _, r := range rules {
 		if r.rule.Target != target || !stageMatches(r.rule.ApplyTo, stage) || !subjectsMatch(r.rule.Subjects, identity) {
 			continue
 		}
 		ok, err := evalCondition(target, r.rule.Condition, identity, vars)
 		if err != nil {
-			slog.Warn("guardrail rule condition failed to evaluate; skipping the rule", "rule", r.rule.Name, "error", err)
+			// A condition can fail at runtime, e.g. headers["x"] when the header is absent.
+			// Fail-closed rules block; others are skipped. Either way the failure is recorded.
+			e.conditionFailed(r, target, stage, identity, err)
+			if r.rule.FailClosed {
+				plan.broken = append(plan.broken, r)
+			}
 			continue
 		}
 		if !ok {
@@ -237,15 +254,20 @@ func (e *Engine) Plan(ctx context.Context, target, stage string, identity Identi
 		if rate := r.rule.SamplingRate; rate > 0 && rate < 100 && rand.IntN(100) >= rate {
 			continue
 		}
-		applicable = append(applicable, r)
+		plan.rules = append(plan.rules, r)
 	}
-	return Plan{rules: applicable}, nil
+	return plan, nil
 }
 
 // Evaluate checks a request against a plan's rules. Rules run in order; a block stops
 // evaluation, and each redaction is applied before the next rule sees the content.
 func (e *Engine) Evaluate(ctx context.Context, plan Plan, req Request) Decision {
 	d := Decision{Segments: req.Segments}
+	if len(plan.broken) > 0 {
+		d.Blocked = true
+		d.Message = fmt.Sprintf("Request blocked: the condition of the %q guardrail could not be evaluated.", plan.broken[0].rule.Name)
+		return d
+	}
 	for _, r := range plan.rules {
 		segments := d.Segments
 		offset := 0
@@ -292,10 +314,21 @@ func (e *Engine) Evaluate(ctx context.Context, plan Plan, req Request) Decision 
 					outcome = "blocked"
 					break
 				}
+				if req.Delivered {
+					outcome = "blocked"
+					break
+				}
 				outcome = "redacted"
 				d.Segments = append(slices.Clip(d.Segments[:offset]), redacted...)
 				segments = redacted
 				d.Redacted = true
+			}
+			if outcome == "blocked" && req.Delivered {
+				// Too late to withhold anything: end the response and say so.
+				e.record(r, p, req, "error", result.Findings, "the content was already delivered because the response could not be held")
+				d.Blocked = true
+				d.Message = blockMessage(r, result.Findings)
+				return d
 			}
 			e.record(r, p, req, outcome, result.Findings, "")
 			if outcome == "blocked" {
@@ -306,6 +339,33 @@ func (e *Engine) Evaluate(ctx context.Context, plan Plan, req Request) Decision 
 		}
 	}
 	return d
+}
+
+// conditionFailed records a rule whose condition failed to evaluate, at most once a minute
+// per rule.
+func (e *Engine) conditionFailed(r *compiledRule, target, stage string, identity Identity, err error) {
+	e.conditionErrorsLock.Lock()
+	last, seen := e.conditionErrors[r.rule.ID]
+	if seen && time.Since(last) < time.Minute {
+		e.conditionErrorsLock.Unlock()
+		return
+	}
+	if e.conditionErrors == nil {
+		e.conditionErrors = map[string]time.Time{}
+	}
+	e.conditionErrors[r.rule.ID] = time.Now()
+	e.conditionErrorsLock.Unlock()
+
+	slog.Warn("guardrail rule condition failed to evaluate", "rule", r.rule.Name, "failClosed", r.rule.FailClosed, "error", err)
+	e.enqueue(types.GuardrailEvent{
+		RuleID:   r.rule.ID,
+		RuleName: r.rule.Name,
+		Target:   target,
+		Stage:    stage,
+		Outcome:  "error",
+		UserID:   identity.UserID,
+		Error:    "condition failed to evaluate: " + err.Error(),
+	})
 }
 
 // fail handles a profile that couldn't be evaluated. It reports whether the request is
@@ -331,6 +391,11 @@ func redactResult(segments []Segment, result Result) ([]Segment, bool) {
 			out[i].Text = text
 		}
 	}
+	for i := range result.Replacements {
+		if i < 0 || i >= len(out) {
+			return nil, false
+		}
+	}
 	var spans []Span
 	for _, f := range result.Findings {
 		if len(f.Spans) == 0 {
@@ -338,6 +403,12 @@ func redactResult(segments []Segment, result Result) ([]Segment, bool) {
 				continue
 			}
 			return nil, false
+		}
+		for _, s := range f.Spans {
+			// A span that doesn't fit the text would redact nothing; block instead.
+			if s.Segment < 0 || s.Segment >= len(out) || s.Start < 0 || s.End <= s.Start || s.End > len(out[s.Segment].Text) {
+				return nil, false
+			}
 		}
 		spans = append(spans, f.Spans...)
 	}
@@ -361,10 +432,7 @@ func blockMessage(r *compiledRule, findings []Finding) string {
 	}
 	var reasons []string
 	for _, f := range findings {
-		reason := f.Category
-		if f.Message != "" {
-			reason = f.Message
-		}
+		reason := cmp.Or(f.Explanation, f.Message, f.Category)
 		if reason != "" && !slices.Contains(reasons, reason) {
 			reasons = append(reasons, reason)
 		}

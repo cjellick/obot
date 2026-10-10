@@ -11,7 +11,7 @@ None yet.
 
 ## Related ODPs
 
-None. This is a prototype; an ODP should be written before it ships.
+- 2026-09-27: Unified LLM gateway, budgets and guardrails — the design this decision implements. It is to be proposed in obot-design-proposals; a draft is at [`design-proposals/2026-09-27-llm-gateway-budgets-guardrails.md`](../design-proposals/2026-09-27-llm-gateway-budgets-guardrails.md).
 
 ## Context
 
@@ -44,7 +44,9 @@ Obot imports Bifrost's HTTP transport (`github.com/maximhq/bifrost/transports`) 
 ## Consequences
 
 - Obot's `go.mod` now carries Bifrost's dependency tree. Bifrost's `transports` module is consumed by pseudo-version because its v2 tags don't use a `/v2` module path. Upgrading Bifrost is a dependency bump, but its internal APIs (`BifrostHTTPServer`, `lib.Config`) are not a stable contract.
-- Each Obot replica runs its own Bifrost; the replicas share configuration and logs through the Postgres stores. Bifrost's own virtual-key budgets are not used, because they don't aggregate across replicas. With SQLite, which is single-replica only, each replica would have separate state. The generated encryption key lives in the data dir. Multi-replica deployments must set `--llm-gateway-encryption-key` so every replica can decrypt provider keys.
+- Each Obot replica runs its own Bifrost, and the replicas share configuration and logs through the Postgres stores. Open-source Bifrost loads its configuration into memory at startup and only updates that copy for changes made through it. So, following the pattern used for auth and model provider daemons ([2026-09-01 ADR](2026-09-01-provider-daemon-sync.md)), every gateway configuration change advances an `llm-gateway` revision in the `ProviderSync` singleton. A controller on every replica then rebuilds that replica's gateway from the stores. New requests go to the rebuilt gateway; requests already in flight finish on the old one, which stops after up to 15 minutes. The replica that made the change does not reload unless it had missed an earlier one.
+- Bifrost's own virtual-key budgets are not used, because they don't aggregate across replicas. With SQLite, which is single-replica only, each replica would have separate state.
+- When no encryption key is configured, the generated key is stored in Obot's database for Postgres deployments, so every replica uses the same one. For SQLite deployments it is stored in the data dir.
 - Routing rules can send a request to a model other than the one the user was authorized for; that is an administrator decision. Obot authorizes the requested model and fallbacks, not the routing target.
 - Only endpoints Obot can meter and guard are exposed: Chat Completions, Responses, Messages, embeddings and model listing. Images, audio, rerank and batch APIs need metering before they can be exposed.
 - Legacy per-provider routes and model providers still exist. Removing them is follow-up work once agents and clients have moved to the gateway.

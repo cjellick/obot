@@ -3,6 +3,7 @@ package bifrost
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,10 +11,10 @@ import (
 	"golang.org/x/net/http/httpproxy"
 )
 
-// defaultProviderURLs are the endpoints used when a provider has no base URL, for deciding
-// whether its traffic goes through the egress proxy. Providers not listed are assumed to be
-// public services.
 var (
+	// defaultProviderURLs are the endpoints used when a provider has no base URL, for deciding
+	// whether its traffic goes through the egress proxy. Providers not listed are assumed to be
+	// public services.
 	defaultProviderURLs = map[string]string{
 		"openai":    "https://api.openai.com",
 		"anthropic": "https://api.anthropic.com",
@@ -28,13 +29,13 @@ var (
 // this an Obot deployed behind an egress proxy could not reach any provider. Providers that
 // already have a proxy configured, and those whose endpoint NO_PROXY excludes (such as
 // in-cluster vLLM or Ollama servers), are left alone.
-func (e *Engine) ApplyEgressProxy(ctx context.Context) {
+func (e *Engine) ApplyEgressProxy(ctx context.Context) (changed bool) {
 	if !e.Ready() {
-		return
+		return false
 	}
 	cfg := httpproxy.FromEnvironment()
 	if cfg.HTTPSProxy == "" && cfg.HTTPProxy == "" {
-		return
+		return false
 	}
 	proxyFor := cfg.ProxyFunc()
 
@@ -43,7 +44,7 @@ func (e *Engine) ApplyEgressProxy(ctx context.Context) {
 	}
 	if err := e.Do(ctx, http.MethodGet, "/api/providers", nil, &resp); err != nil {
 		slog.Warn("failed to list LLM gateway providers to apply the egress proxy", "error", err)
-		return
+		return false
 	}
 	for _, p := range resp.Providers {
 		name, _ := p["name"].(string)
@@ -66,20 +67,23 @@ func (e *Engine) ApplyEgressProxy(ctx context.Context) {
 		if err != nil || proxyURL == nil {
 			continue
 		}
-		body := map[string]any{
-			"network_config":              network,
-			"concurrency_and_buffer_size": p["concurrency_and_buffer_size"],
-			"proxy_config": map[string]any{
-				"type": proxyType(proxyURL),
-				"url":  map[string]any{"value": proxyURL.String(), "type": "plain_text"},
-			},
+		// Send the provider's whole configuration back: the update treats some omitted
+		// fields as removed (custom_provider_config can't be removed, so custom providers
+		// would be rejected). Redacted values are kept as they are. Keys have their own API.
+		body := maps.Clone(p)
+		delete(body, "keys")
+		body["proxy_config"] = map[string]any{
+			"type": proxyType(proxyURL),
+			"url":  map[string]any{"value": proxyURL.String(), "type": "plain_text"},
 		}
 		if err := e.Do(ctx, http.MethodPut, "/api/providers/"+url.PathEscape(name), body, nil); err != nil {
 			slog.Warn("failed to apply the egress proxy to an LLM gateway provider", "provider", name, "error", err)
 			continue
 		}
 		slog.Info("LLM gateway provider uses the egress proxy", "provider", name, "proxy", proxyURL.Redacted())
+		changed = true
 	}
+	return changed
 }
 
 func proxyType(u *url.URL) string {

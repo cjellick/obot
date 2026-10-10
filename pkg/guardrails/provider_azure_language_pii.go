@@ -84,7 +84,7 @@ func init() {
 		Description: "Detects personal and health data with Azure AI Language PII detection, and locates it for redaction.",
 		Redacts:     true,
 		Fields: []Field{
-			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Required: true, Description: "The Language resource endpoint, e.g. https://my-resource.cognitiveservices.azure.com."},
+			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Destination: true, Required: true, Description: "The Language resource endpoint, e.g. https://my-resource.cognitiveservices.azure.com."},
 			{Name: "apiKey", Label: "API key", Type: FieldPassword, Required: true, Sensitive: true},
 			{Name: "language", Label: "Language", Type: FieldText, Default: "en", Description: "Language code of the analyzed text."},
 			{Name: "domain", Label: "Domain", Type: FieldSelect, Options: []string{"none", "phi"}, Default: "none", Description: "Use phi to also detect protected health information."},

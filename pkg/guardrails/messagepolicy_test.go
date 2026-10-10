@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	apitypes "github.com/obot-platform/obot/apiclient/types"
@@ -34,11 +35,11 @@ func TestMigrateMessagePolicies(t *testing.T) {
 			Manifest: apitypes.MessagePolicyManifest{DisplayName: "Unassigned", Definition: "x", Direction: apitypes.PolicyDirectionBoth},
 		},
 	}
-	if err := MigrateMessagePolicies(context.Background(), store, policies); err != nil {
+	if err := MigrateMessagePolicies(context.Background(), store, policies, true); err != nil {
 		t.Fatal(err)
 	}
 	// Running again (after an interrupted run) creates nothing new.
-	if err := MigrateMessagePolicies(context.Background(), store, policies); err != nil {
+	if err := MigrateMessagePolicies(context.Background(), store, policies, true); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.rules) != 3 || len(store.profiles) != 3 {
@@ -58,6 +59,17 @@ func TestMigrateMessagePolicies(t *testing.T) {
 		t.Fatalf("a policy without subjects applied to no one and must stay inactive: %+v", r)
 	}
 
+	// Policies that weren't being enforced (the feature was off) convert to disabled rules.
+	off := &fakeStore{}
+	if err := MigrateMessagePolicies(context.Background(), off, policies, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range off.rules {
+		if r.Enabled {
+			t.Fatalf("rules converted from unenforced policies must be disabled: %+v", r)
+		}
+	}
+
 	// The legacy LLM proxy reads the converted policies.
 	e := New(context.Background(), store, nil)
 	sales := Identity{UserID: "u1", Groups: []string{"sales"}}
@@ -74,5 +86,12 @@ func TestMigrateMessagePolicies(t *testing.T) {
 	}
 	if got, _ := e.JudgePolicies(context.Background(), Identity{UserID: "u2"}, apitypes.PolicyDirectionUserMessage); len(got) != 0 {
 		t.Fatalf("policies must follow their subjects, got %+v", got)
+	}
+}
+
+func TestLegacyViolationEventOmitsTheExplanation(t *testing.T) {
+	ev := LegacyViolationEvent("mp-1/mp-1", "No travel", "u1", string(apitypes.PolicyDirectionUserMessage))
+	if strings.Contains(string(ev.Findings), "book") || ev.RuleID != "mp-1" || ev.ProfileID != "mp-1" || ev.Stage != StageInput {
+		t.Fatalf("unexpected event %+v (%s)", ev, ev.Findings)
 	}
 }

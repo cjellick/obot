@@ -32,8 +32,13 @@ type LLMGatewayBudget struct {
 	// shared by everyone assigned.
 	PerUser bool `gorm:"not null" json:"perUser"`
 	// ExemptAdmins leaves administrators unlimited by this budget.
-	ExemptAdmins bool                    `gorm:"not null" json:"exemptAdmins"`
-	Limits       []LLMGatewayBudgetLimit `gorm:"serializer:json" json:"limits"`
+	ExemptAdmins bool `gorm:"not null" json:"exemptAdmins"`
+	// UserTokenLimits lets a user's personal daily token limits (set on the user) replace
+	// this per-user budget's input and output token limits: a positive personal limit
+	// replaces the amount, and a negative one removes the limit. This is how the daily
+	// token quota treated personal limits, and the budget migrated from it keeps that.
+	UserTokenLimits bool                    `gorm:"not null;default:false" json:"userTokenLimits"`
+	Limits          []LLMGatewayBudgetLimit `gorm:"serializer:json" json:"limits"`
 	// Models restricts the budget to these Model IDs. Empty means every model.
 	Models   []string                  `gorm:"serializer:json" json:"models,omitempty"`
 	Subjects []LLMGatewayBudgetSubject `gorm:"foreignKey:BudgetID;constraint:OnDelete:CASCADE" json:"subjects"`

@@ -56,11 +56,12 @@ Models from gateway providers are listed on the **Models** page under the *LLM G
 | --- | --- |
 | `--disable-llm-gateway` / `OBOT_SERVER_DISABLE_LLM_GATEWAY` | Turn the embedded gateway off. |
 | `--llm-gateway-data-dir` / `OBOT_SERVER_LLM_GATEWAY_DATA_DIR` | Where the gateway keeps its configuration (default `$XDG_DATA_HOME/obot/llm-gateway`). |
-| `--llm-gateway-postgres-dsn` / `OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN` | Postgres database for gateway configuration and request logs. Must be a different database from Obot's. When Obot itself uses Postgres and this is unset, Obot creates a `<database>_llm_gateway` database on the same server (falling back to SQLite in the data dir if it can't), so every replica shares the gateway's state. |
-| `--llm-gateway-encryption-key` / `OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY` | Key that encrypts provider credentials at rest. Generated and stored in the data dir if unset; set it explicitly when the data dir is not persistent. |
-| `--llm-gateway-log-retention-days` | Days of request logs to keep (default 30). |
+| `--llm-gateway-postgres-dsn` / `OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN` | Postgres database for gateway configuration and request logs. Must be a different database from Obot's. When Obot itself uses Postgres and this is unset, Obot creates a `<database>_llm_gateway` database on the same server (falling back to SQLite in the data dir if it can't), so every replica shares the gateway's state. When the configuration changes, every replica reloads it within seconds; requests already in flight finish first. |
+| `--llm-gateway-encryption-key` / `OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY` | Key that encrypts provider credentials at rest. When unset, a key is generated: with Postgres it is stored in Obot's database (encrypted with Obot's own encryption configuration, if any) and shared by every replica; with SQLite it is stored in the data dir. |
+| `--llm-gateway-log-retention-days` / `OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS` | Days of request logs to keep (default 30). |
+| `--llm-gateway-log-level` / `OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL` | Log level for the embedded gateway (default `warn`). |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Obot routes gateway providers through the environment's egress proxy, except endpoints `NO_PROXY` excludes or that are on localhost. A proxy set on a provider explicitly takes precedence. |
-| `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` | Redis or Valkey server used for response caching. Cached responses are kept per user; clients can send `X-Obot-Cache-TTL` or `X-Obot-Cache-No-Store` to tune a request. |
+| `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` / `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_ADDR`, `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_PASSWORD` | Redis or Valkey server used for response caching. Cached responses are kept per user; clients can send `X-Obot-Cache-TTL` or `X-Obot-Cache-No-Store` to tune a request. |
 
 ## Per-provider routes
 
@@ -547,7 +548,7 @@ See the Codex documentation for details:
 - **Azure model discovery is OpenAI-only.** The Azure `/v1/models` and `/openai/v1/models` routes return accessible `OpenAIResponses` deployments. Microsoft Foundry does not expose an Anthropic Models API, so pass `AnthropicMessages` deployment names explicitly.
 - **Claude Code model discovery caveats.** Gateway model discovery is off by default and requires Claude Code v2.1.129 or later for the standard Anthropic gateway path. Claude Code's Bedrock Mantle mode may not populate the `/model` picker from Obot, so pass `--model` or select an enabled Mantle model manually.
 - **OpenAI-compatible routes use the Responses API.** The OpenAI, Generic Responses Compatible, Bedrock, and Azure OpenAI-compatible routes support the Responses API (`/v1/responses`); the Chat Completions endpoint is not currently supported. Codex uses the Responses API by default.
-- **Usage and policies still apply.** Requests count toward Obot [token usage](./audit-logs-and-usage.md) and, where configured, are subject to [Guardrails](./guardrails.md).
+- **Usage and policies still apply.** Requests count toward Obot [token usage](./audit-logs-and-usage.md). Of the [Guardrails](./guardrails.md), only blocking LLM Judge rules (former message policies) apply to these routes, to user messages and to the model's tool calls. Secrets and PII detection, external guardrail services, and redact or log rules apply only to the unified gateway.
 - **Audit logs can be exported.** Administrators can create one-time or scheduled exports for LLM gateway audit logs. See [Audit Log Export](../configuration/audit-log-export.md).
 
 ## Related topics

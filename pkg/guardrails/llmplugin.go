@@ -148,6 +148,7 @@ func (p *InputPlugin) PreLLMHook(ctx *schemas.BifrostContext, req *schemas.Bifro
 	if plan.Empty() {
 		return req, nil, nil
 	}
+	disableRawPassthrough(ctx)
 	refs := requestText(req)
 	d := p.engine.Evaluate(ctx, plan, Request{
 		Target: types.GuardrailTargetLLM, Stage: StageInput, Identity: identity, Vars: vars,
@@ -188,6 +189,7 @@ func (p *OutputPlugin) PreLLMHook(ctx *schemas.BifrostContext, req *schemas.Bifr
 	if plan.Empty() {
 		return req, nil, nil
 	}
+	disableRawPassthrough(ctx)
 	state := &outputState{
 		plan: plan,
 		request: Request{
@@ -212,6 +214,23 @@ func (p *OutputPlugin) PreLLMHook(ctx *schemas.BifrostContext, req *schemas.Bifr
 	return req, nil, nil
 }
 
+// disableRawPassthrough makes the gateway send the request it parsed, and return the response
+// it parsed, instead of forwarding the client's raw request body and the provider's raw
+// response. Guardrails check and rewrite the parsed forms, so raw passthrough would bypass
+// them: the Anthropic integration forwards raw bodies for Claude Code, for example. This is
+// the same switch the gateway makes when it falls back to a provider that can't take the raw
+// body.
+func disableRawPassthrough(ctx *schemas.BifrostContext) {
+	ctx.SetValue(schemas.BifrostContextKeyUseRawRequestBody, false)
+	ctx.ClearValue(schemas.BifrostContextKeyRawRequestBodyTextRewriter)
+	ctx.ClearValue(schemas.BifrostContextKeyRawRequestBodyTextTransformer)
+	ctx.ClearValue(schemas.BifrostContextKeyRawStreamTextCodec)
+	ctx.ClearValue(schemas.BifrostContextKeyRawResponseTextTransformer)
+	ctx.SetValue(schemas.BifrostContextKeySendBackRawResponse, false)
+	ctx.SetValue(schemas.BifrostContextKeyPassthroughOverridesPresent, false)
+	ctx.ClearValue(schemas.BifrostContextKeyURLPath)
+}
+
 func streamPaused(ctx *schemas.BifrostContext) bool {
 	tracer, traceID, err := bifrostcore.GetTracerFromContext(ctx)
 	if err != nil || tracer == nil || traceID == "" {
@@ -233,9 +252,6 @@ func (p *OutputPlugin) PostLLMHook(ctx *schemas.BifrostContext, resp *schemas.Bi
 	}
 
 	refs := responseText(resp)
-	if len(refs) == 0 {
-		return resp, bifrostErr, nil
-	}
 	req := state.request
 	req.Segments = refs.segments()
 	d := p.engine.Evaluate(ctx, state.plan, req)
@@ -263,10 +279,8 @@ func (p *OutputPlugin) postStream(ctx *schemas.BifrostContext, state *outputStat
 
 	req := state.request
 	req.Segments = st.segments()
-	var d Decision
-	if len(req.Segments) > 0 {
-		d = p.engine.Evaluate(ctx, state.plan, req)
-	}
+	req.Delivered = !st.held
+	d := p.engine.Evaluate(ctx, state.plan, req)
 	switch {
 	case d.Blocked:
 		if st.held {

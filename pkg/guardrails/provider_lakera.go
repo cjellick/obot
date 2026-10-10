@@ -56,7 +56,7 @@ func init() {
 		Fields: []Field{
 			{Name: "apiKey", Label: "API key", Type: FieldPassword, Required: true, Sensitive: true},
 			{Name: "projectID", Label: "Project ID", Type: FieldText, Description: "Project whose policy screens the content. Leave empty for the default policy."},
-			{Name: "baseURL", Label: "Base URL", Type: FieldText, Default: "https://api.lakera.ai", Description: "Change for a regional or self-hosted deployment."},
+			{Name: "baseURL", Label: "Base URL", Type: FieldText, Destination: true, Default: "https://api.lakera.ai", Description: "Change for a regional or self-hosted deployment."},
 		},
 	}, func(config map[string]any, secrets map[string]string, deps Deps) (Checker, error) {
 		return &lakeraChecker{

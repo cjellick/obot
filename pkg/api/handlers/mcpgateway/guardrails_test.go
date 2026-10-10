@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -113,5 +115,57 @@ func TestMCPGuardrailsBlock(t *testing.T) {
 	}
 	if _, blocked, _ := processor.blockedRequest(); blocked {
 		t.Fatal("only tool calls are checked")
+	}
+}
+
+func TestMCPGuardrailsRejectBatchesAndUncheckableCalls(t *testing.T) {
+	guard := testGuard(t, types.GuardrailActionBlock)
+
+	request := mustMCPHookRequest(t, `[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"write","arguments":{"text":"key `+testSecret+`"}}}]`)
+	processor, err := newGuardedHookProcessor(request, guard, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, blocked, _ := processor.blockedRequest(); !blocked || !strings.Contains(string(body), "batches") {
+		t.Fatalf("a batch must be rejected while guardrails apply, got %v %s", blocked, body)
+	}
+
+	request = mustMCPHookRequest(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":["write"]}`)
+	processor, err = newGuardedHookProcessor(request, guard, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, blocked, _ := processor.blockedRequest(); !blocked {
+		t.Fatal("a tool call whose params can't be checked must be blocked")
+	}
+}
+
+func TestMCPGuardrailsCheckResultsOnGETStreams(t *testing.T) {
+	guard := testGuard(t, types.GuardrailActionRedact)
+	store := newHookCorrelationStore(newMCPProxyTestStorage(), map[string]string{"mcpID": "mcp-1", "userID": "user-1"})
+
+	// The call is made with POST, and its result arrives on a separate GET stream.
+	post := mustMCPHookRequest(t, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"read","arguments":{}}}`)
+	post.Header.Set(mcpSessionHeader, "s1")
+	if _, err := newGuardedHookProcessor(post, guard, nil, nil, nil, nil, store); err != nil {
+		t.Fatal(err)
+	}
+	get := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	get.Header.Set(mcpSessionHeader, "s1")
+	processor, err := newGuardedHookProcessor(get, guard, nil, nil, nil, nil, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + testSecret + "\"}]}}\n\n")),
+	}
+	if err := processor.filterResponse(response); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	if strings.Contains(string(body), testSecret) {
+		t.Fatalf("a result on the GET stream must be checked: %s", body)
 	}
 }

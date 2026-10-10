@@ -58,6 +58,12 @@ func (t *textRefs) addChatMessage(m *schemas.ChatMessage) {
 		}
 	}
 	if m.ChatAssistantMessage != nil {
+		t.add(role, "", m.Refusal)
+		t.add(role, "", m.Reasoning)
+		for i := range m.ReasoningDetails {
+			t.add(role, "", m.ReasoningDetails[i].Text)
+			t.add(role, "", m.ReasoningDetails[i].Summary)
+		}
 		for i := range m.ToolCalls {
 			tc := &m.ToolCalls[i]
 			name := ""
@@ -93,7 +99,16 @@ func (t *textRefs) addResponsesMessage(m *schemas.ResponsesMessage) {
 			}
 			t.add(RoleToolCall, name, m.Arguments)
 			return
-		case schemas.ResponsesMessageTypeFunctionCallOutput:
+		case schemas.ResponsesMessageTypeCustomToolCall:
+			if m.ResponsesCustomToolCall != nil {
+				name := ""
+				if m.Name != nil {
+					name = *m.Name
+				}
+				t.add(RoleToolCall, name, &m.ResponsesCustomToolCall.Input)
+			}
+			return
+		case schemas.ResponsesMessageTypeFunctionCallOutput, schemas.ResponsesMessageTypeCustomToolCallOutput:
 			if m.Output != nil {
 				t.add(RoleToolResult, "", m.Output.ResponsesToolCallOutputStr)
 				for i := range m.Output.ResponsesFunctionToolCallOutputBlocks {
@@ -107,8 +122,26 @@ func (t *textRefs) addResponsesMessage(m *schemas.ResponsesMessage) {
 	if m.Content != nil {
 		t.add(role, "", m.Content.ContentStr)
 		for i := range m.Content.ContentBlocks {
-			t.add(role, "", m.Content.ContentBlocks[i].Text)
+			b := &m.Content.ContentBlocks[i]
+			t.add(role, "", b.Text)
+			if b.ResponsesOutputMessageContentRefusal != nil {
+				t.add(role, "", &b.Refusal)
+			}
 		}
+	}
+	if m.ResponsesReasoning != nil {
+		for i := range m.Summary {
+			t.add(RoleAssistant, "", &m.Summary[i].Text)
+		}
+	}
+}
+
+func (t *textRefs) addResponsesRequest(r *schemas.BifrostResponsesRequest) {
+	if r.Params != nil {
+		t.add(RoleSystem, "", r.Params.Instructions)
+	}
+	for i := range r.Input {
+		t.addResponsesMessage(&r.Input[i])
 	}
 }
 
@@ -121,12 +154,10 @@ func requestText(req *schemas.BifrostRequest) textRefs {
 			refs.addChatMessage(&req.ChatRequest.Input[i])
 		}
 	case req.ResponsesRequest != nil:
-		if req.ResponsesRequest.Params != nil {
-			refs.add(RoleSystem, "", req.ResponsesRequest.Params.Instructions)
-		}
-		for i := range req.ResponsesRequest.Input {
-			refs.addResponsesMessage(&req.ResponsesRequest.Input[i])
-		}
+		refs.addResponsesRequest(req.ResponsesRequest)
+	case req.CountTokensRequest != nil:
+		// Token counting sends the whole prompt to the provider, so it is checked too.
+		refs.addResponsesRequest(req.CountTokensRequest)
 	case req.EmbeddingRequest != nil && req.EmbeddingRequest.Input != nil:
 		in := req.EmbeddingRequest.Input
 		refs.add(RoleUser, "", in.Text)

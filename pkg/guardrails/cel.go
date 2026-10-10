@@ -81,7 +81,8 @@ func CompileCondition(target, expr string) (cel.Program, error) {
 }
 
 // conditionVars fills in every variable the target's environment declares, so conditions
-// never fail on a missing variable.
+// never fail on a missing top-level variable. A missing map key (headers["x"] when the header
+// is absent) still fails at runtime; write has(headers.x) or "x" in headers to test for one.
 func conditionVars(target string, identity Identity, vars map[string]any) map[string]any {
 	groups := make([]any, 0, len(identity.Groups))
 	for _, g := range identity.Groups {

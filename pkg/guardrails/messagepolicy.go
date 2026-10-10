@@ -35,7 +35,11 @@ type MigrationStore interface {
 // MigrateMessagePolicies converts message policies into guardrails: each becomes an LLM
 // judge profile with its definition and a blocking rule with its subjects. Policies on user
 // messages check model input, and policies on tool calls check model output.
-func MigrateMessagePolicies(ctx context.Context, store MigrationStore, policies []LegacyPolicy) error {
+//
+// enforced reports whether message policies were being enforced (the message policy feature
+// was enabled). If not, the rules are created disabled, so policies that never applied don't
+// start blocking on upgrade.
+func MigrateMessagePolicies(ctx context.Context, store MigrationStore, policies []LegacyPolicy, enforced bool) error {
 	for _, p := range policies {
 		// Skip policies converted by an earlier, interrupted run.
 		if existing, err := store.GetGuardrailRule(ctx, "mp-"+p.ID); err == nil && existing != nil {
@@ -86,7 +90,7 @@ func MigrateMessagePolicies(ctx context.Context, store MigrationStore, policies 
 			ID:           "mp-" + p.ID,
 			Name:         m.DisplayName,
 			Description:  "Converted from a message policy.",
-			Enabled:      len(m.Subjects) > 0,
+			Enabled:      enforced && len(m.Subjects) > 0,
 			Target:       gatewaytypes.GuardrailTargetLLM,
 			ApplyTo:      applyTo,
 			Action:       gatewaytypes.GuardrailActionBlock,
@@ -146,13 +150,14 @@ func (e *Engine) JudgePolicies(ctx context.Context, identity Identity, direction
 }
 
 // LegacyViolationEvent is the guardrail event for a violation found by the legacy LLM proxy.
-func LegacyViolationEvent(policyID, ruleName, userID, direction, explanation string) gatewaytypes.GuardrailEvent {
+func LegacyViolationEvent(policyID, ruleName, userID, direction string) gatewaytypes.GuardrailEvent {
 	ruleID, profileID, _ := strings.Cut(policyID, legacyPolicySeparator)
 	stage := StageInput
 	if direction == string(types.PolicyDirectionToolCalls) {
 		stage = StageOutput
 	}
-	findings, _ := json.Marshal([]Finding{{Category: "policy", Message: explanation}})
+	// The judge's explanation is free text that may quote the content, so it isn't stored.
+	findings, _ := json.Marshal([]Finding{{Category: "policy", Message: "Violates the policy"}})
 	return gatewaytypes.GuardrailEvent{
 		CreatedAt:   time.Now(),
 		RuleID:      ruleID,

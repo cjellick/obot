@@ -24,9 +24,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	bifrostcore "github.com/maximhq/bifrost/core"
+	providerutils "github.com/maximhq/bifrost/core/providers/utils"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/transports/bifrost-http/handlers"
 	"github.com/maximhq/bifrost/transports/bifrost-http/lib"
@@ -35,6 +37,10 @@ import (
 )
 
 const (
+	// retireGracePeriod is how long a gateway replaced by a reload keeps serving the
+	// requests it already had, such as long streams, before it stops.
+	retireGracePeriod = 15 * time.Minute
+
 	// Version is reported to Bifrost as its runtime version.
 	Version = "obot-embedded"
 
@@ -62,9 +68,12 @@ type Options struct {
 	// It must point to a database (or schema via search_path) that is not shared with Obot,
 	// because Bifrost's table names overlap with Obot's.
 	PostgresDSN string
-	// EncryptionKey encrypts provider keys at rest. When empty a key is generated and
-	// persisted in DataDir.
+	// EncryptionKey encrypts provider keys at rest. When empty, the key comes from
+	// SharedKeys if set, and is otherwise generated and persisted in DataDir.
 	EncryptionKey string
+	// SharedKeys stores the encryption key where every replica can read it. Set it whenever
+	// the stores are shared (Postgres), so all replicas encrypt with the same key.
+	SharedKeys SharedKeyStore
 	// LogRetentionDays controls how long Bifrost keeps request logs.
 	LogRetentionDays int
 	// LogLevel is the Bifrost logger level (debug, info, warn, error).
@@ -74,19 +83,45 @@ type Options struct {
 	CacheRedisAddr string
 	// CacheRedisPassword authenticates to CacheRedisAddr.
 	CacheRedisPassword string
+	// FirstPlugin and LastPlugin, when set, are registered before the gateway serves any
+	// request (see registerLLMPlugins). The gateway fails to start if they can't be, so it
+	// never serves traffic without them.
+	FirstPlugin, LastPlugin schemas.LLMPlugin
+}
+
+// SharedKeyStore stores the gateway's encryption key for every replica.
+type SharedKeyStore interface {
+	// EnsureEncryptionKey stores key unless a key is already stored, and returns the
+	// stored key.
+	EnsureEncryptionKey(key string) (string, error)
 }
 
 // Engine is a running, embedded Bifrost gateway.
 type Engine struct {
-	server   *bifrostserver.BifrostHTTPServer
-	listener *fasthttputil.InmemoryListener
-	client   *http.Client
-	proxy    *httputil.ReverseProxy
-	baseURL  *url.URL
+	// inst is the running gateway. A reload replaces it with a new one built from the shared
+	// stores; the old one finishes its in-flight requests and then stops.
+	inst      atomic.Pointer[instance]
+	transport *http.Transport
+	client    *http.Client
+	proxy     *httputil.ReverseProxy
+	baseURL   *url.URL
 
 	ready     chan struct{}
 	startErr  error
 	startOnce sync.Once
+
+	// runCtx and opts are what the engine was started with, for reloads.
+	runCtx context.Context
+	opts   Options
+	// reloadLock serializes reloads; appliedRevision is the latest configuration revision
+	// this engine has loaded, and pendingRevision one that arrived while it was starting.
+	// configLock serializes reloads with configuration changes made through this engine,
+	// so a reload never boots from the stores while a change is half-written.
+	configLock      sync.Mutex
+	appliedRevision atomic.Int64
+	// pendingLock guards the hand-off of a revision that arrives while the engine starts.
+	pendingLock     sync.Mutex
+	pendingRevision int64
 
 	// Last successful model listing per upstream provider, and the last provider check.
 	modelsLock       sync.Mutex
@@ -100,14 +135,20 @@ type APIError struct {
 	Message    string
 }
 
+// instance is one running Bifrost server and the in-memory listener it serves.
+type instance struct {
+	server   *bifrostserver.BifrostHTTPServer
+	listener *fasthttputil.InmemoryListener
+	// cancel ends the context the server was bootstrapped with, which stops the background
+	// work tied to it (model refresh, sweeps).
+	cancel    context.CancelFunc
+	closeOnce sync.Once
+}
+
 // New creates an engine. Call Start to boot it.
 func New() *Engine {
-	ln := fasthttputil.NewInmemoryListener()
-	ln.SetLocalAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80})
-
 	e := &Engine{
-		listener: ln,
-		ready:    make(chan struct{}),
+		ready: make(chan struct{}),
 	}
 
 	transport := &http.Transport{
@@ -124,6 +165,7 @@ func New() *Engine {
 				conn net.Conn
 				err  error
 			}
+			ln := e.inst.Load().listener
 			done := make(chan result, 1)
 			go func() {
 				conn, err := ln.DialWithLocalAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1})
@@ -150,6 +192,7 @@ func New() *Engine {
 	}
 
 	baseURL := &url.URL{Scheme: "http", Host: internalHost}
+	e.transport = transport
 	e.client = &http.Client{Transport: transport}
 	e.baseURL = baseURL
 	e.proxy = &httputil.ReverseProxy{
@@ -171,36 +214,239 @@ func New() *Engine {
 // Start boots Bifrost in the background. It returns once bootstrap completes or fails.
 func (e *Engine) Start(ctx context.Context, opts Options) error {
 	e.startOnce.Do(func() {
-		defer close(e.ready)
-		e.startErr = e.start(ctx, opts)
-		if e.startErr != nil {
-			slog.Error("failed to start embedded bifrost LLM gateway", "error", e.startErr)
-			// Nothing will ever serve the listener; close it so no dial can wait on it.
-			_ = e.listener.Close()
+		e.runCtx, e.opts = ctx, opts
+		inst, err := e.boot(ctx, opts)
+		if err != nil {
+			e.startErr = err
+			slog.Error("failed to start embedded bifrost LLM gateway", "error", err)
+			close(e.ready)
+			return
+		}
+		e.pendingLock.Lock()
+		e.inst.Store(inst)
+		close(e.ready)
+		rev := e.pendingRevision
+		e.pendingLock.Unlock()
+		go func() {
+			<-ctx.Done()
+			e.Shutdown()
+		}()
+		// A configuration change made elsewhere while this engine was starting may not be
+		// in what it loaded.
+		if rev > 0 {
+			if _, err := e.Reload(rev); err != nil {
+				slog.Error("failed to reload the LLM gateway configuration", "revision", rev, "error", err)
+			}
 		}
 	})
 	return e.startErr
 }
 
-func (e *Engine) start(ctx context.Context, opts Options) error {
+// Change makes a configuration change through this engine and tells the other replicas.
+// change applies it and reports whether anything changed, and whether this engine is sure to
+// have the change in memory (false when, say, it failed partway); announce then advances the shared
+// configuration revision, and returns it. Reloads wait while a change is made, so this
+// engine has exactly the configuration up to the new revision when it had the one before;
+// otherwise it reloads to pick up what it missed. An error from announce is returned: the
+// change is saved, but other replicas only see it after a restart or a later change.
+func (e *Engine) Change(ctx context.Context, change func() (changed, applied bool), announce func(context.Context) (int64, error)) error {
+	e.configLock.Lock()
+	defer e.configLock.Unlock()
+	changed, applied := change()
+	if !changed || announce == nil {
+		return nil
+	}
+	// The change is saved; announce it even if the caller has gone away, so other replicas
+	// don't keep serving the old configuration.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	var (
+		revision int64
+		err      error
+	)
+	for attempt := range 3 {
+		if revision, err = announce(ctx); err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(time.Duration(attempt+1) * 200 * time.Millisecond):
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("the change was saved, but other Obot replicas could not be told to reload it: %w", err)
+	}
+	if applied {
+		e.appliedRevision.CompareAndSwap(revision-1, revision)
+	}
+	return nil
+}
+
+// Reload rebuilds the gateway from its stores when revision is newer than what it has
+// loaded. Bifrost loads its configuration into memory at startup and only updates that
+// copy for changes made through it, so with several replicas each must reload when another
+// changes the configuration. New requests go to the rebuilt gateway at once; requests
+// already in flight finish on the old one. It reports whether it reloaded.
+func (e *Engine) Reload(revision int64) (bool, error) {
+	if revision <= e.appliedRevision.Load() {
+		return false, nil
+	}
+	e.pendingLock.Lock()
+	if !e.Ready() {
+		if e.Err() == nil {
+			// Still starting: reload once started.
+			e.pendingRevision = max(e.pendingRevision, revision)
+		}
+		e.pendingLock.Unlock()
+		return false, nil
+	}
+	e.pendingLock.Unlock()
+
+	e.configLock.Lock()
+	defer e.configLock.Unlock()
+	if revision <= e.appliedRevision.Load() {
+		return false, nil
+	}
+	start := time.Now()
+	next, err := e.boot(e.runCtx, e.opts)
+	if err != nil {
+		// A failed boot clears Bifrost's process-wide capability lookup while releasing
+		// what it started; the running gateway still needs it.
+		e.restoreCapabilityResolver()
+		return false, err
+	}
+	old := e.inst.Swap(next)
+	// Pooled connections lead to the old gateway; new requests must open new ones.
+	e.transport.CloseIdleConnections()
+	// The rebuilt gateway has everything in the stores, so everything up to revision.
+	e.raiseApplied(revision)
+	go func() {
+		retire(old)
+		e.restoreCapabilityResolver()
+	}()
+	slog.Info("reloaded the LLM gateway configuration", "revision", revision, "duration", time.Since(start))
+	return true, nil
+}
+
+func (e *Engine) raiseApplied(revision int64) {
+	for {
+		cur := e.appliedRevision.Load()
+		if cur >= revision || e.appliedRevision.CompareAndSwap(cur, revision) {
+			return
+		}
+	}
+}
+
+// retire stops a replaced gateway once its in-flight requests finish, or after a grace
+// period for long-running streams, and then releases everything it holds.
+func retire(old *instance) {
+	if old == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), retireGracePeriod)
+	defer cancel()
+	if old.server.Server != nil {
+		_ = old.server.Server.ShutdownWithContext(ctx)
+	}
+	_ = old.listener.Close()
+	old.close()
+}
+
+// restoreCapabilityResolver re-installs the current gateway's model capability lookup.
+// Bifrost keeps it in a process-wide variable that each gateway sets when it starts and
+// clears when it stops, so stopping a replaced gateway would otherwise clear the lookup the
+// running one installed.
+func (e *Engine) restoreCapabilityResolver() {
+	if cur := e.inst.Load(); cur != nil && cur.server.Config != nil && cur.server.Config.ModelCatalog != nil {
+		providerutils.SetCapabilityResolver(cur.server.Config.ModelCatalog.GetModelCapabilities)
+	}
+}
+
+// close releases a server's background work and stores, following the shutdown sequence
+// Bifrost's own Start runs on a termination signal. Bifrost has no exported way to run it
+// without a signal, so it is repeated here; the server context's cancellation stops the
+// workers whose stop functions aren't exported.
+func (i *instance) close() {
+	i.closeOnce.Do(i.release)
+}
+
+func (i *instance) release() {
+	s := i.server
+	if s.IntegrationHandler != nil {
+		s.IntegrationHandler.Close()
+	}
+	i.cancel()
+	if s.Client != nil {
+		s.Client.Shutdown()
+	}
+	if s.LogsCleaner != nil {
+		s.LogsCleaner.StopCleanupRoutine()
+	}
+	if s.AsyncJobCleaner != nil {
+		s.AsyncJobCleaner.StopCleanupRoutine()
+	}
+	if s.WebhookDispatcher != nil {
+		s.WebhookDispatcher.Stop()
+	}
+	if s.WSTicketStore != nil {
+		s.WSTicketStore.Stop()
+	}
+	if s.TempTokenSweepWorker != nil {
+		s.TempTokenSweepWorker.Stop()
+	}
+	if s.SidekiqDispatcherStop != nil {
+		s.SidekiqDispatcherStop()
+	}
+	if s.SidekiqRunner != nil {
+		s.SidekiqRunner.Shutdown()
+	}
+	if s.Config != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		s.Config.Close(ctx)
+	}
+}
+
+// boot starts a Bifrost server from the stores and the generated configuration file.
+func (e *Engine) boot(ctx context.Context, opts Options) (*instance, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	inst, err := e.bootServer(ctx, opts)
+	if err != nil {
+		if inst != nil {
+			inst.cancel = cancel
+			_ = inst.listener.Close()
+			inst.close()
+		} else {
+			cancel()
+		}
+		return nil, err
+	}
+	inst.cancel = cancel
+	return inst, nil
+}
+
+func (e *Engine) bootServer(ctx context.Context, opts Options) (*instance, error) {
 	if opts.DataDir == "" {
-		return errors.New("bifrost data dir is required")
+		return nil, errors.New("bifrost data dir is required")
 	}
 	if err := os.MkdirAll(opts.DataDir, 0o700); err != nil {
-		return fmt.Errorf("failed to create bifrost data dir: %w", err)
+		return nil, fmt.Errorf("failed to create bifrost data dir: %w", err)
 	}
 
 	encryptionKey, err := resolveEncryptionKey(opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	// The file is the same every time for the same options, so Bifrost's hash-based
+	// reconciliation keeps settings saved through its API rather than reapplying the file.
 	cfg, err := buildConfigFile(opts, encryptionKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(opts.DataDir, "config.json"), cfg, 0o600); err != nil {
-		return fmt.Errorf("failed to write bifrost config: %w", err)
+		return nil, fmt.Errorf("failed to write bifrost config: %w", err)
 	}
 
 	level := schemas.LogLevel(strings.ToLower(opts.LogLevel))
@@ -221,37 +467,41 @@ func (e *Engine) start(ctx context.Context, opts Options) error {
 	server.LogOutputStyle = string(schemas.LoggerOutputTypeJSON)
 
 	start := time.Now()
+	ln := fasthttputil.NewInmemoryListener()
+	ln.SetLocalAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80})
 	if err := server.Bootstrap(ctx); err != nil {
-		return fmt.Errorf("failed to bootstrap bifrost: %w", err)
+		// Bootstrap may have started work before failing; release it.
+		return &instance{server: server, listener: ln}, fmt.Errorf("failed to bootstrap bifrost: %w", err)
 	}
-	e.server = server
+	inst := &instance{server: server, listener: ln}
+
+	if opts.FirstPlugin != nil && opts.LastPlugin != nil {
+		if err := registerLLMPlugins(server, opts.FirstPlugin, opts.LastPlugin); err != nil {
+			return inst, err
+		}
+	}
 
 	go func() {
-		if err := server.Server.Serve(e.listener); err != nil && !errors.Is(err, fasthttputil.ErrInmemoryListenerClosed) {
+		if err := server.Server.Serve(ln); err != nil && !errors.Is(err, fasthttputil.ErrInmemoryListenerClosed) {
 			slog.Error("embedded bifrost server stopped", "error", err)
 		}
 	}()
-	go func() {
-		<-ctx.Done()
-		e.Shutdown()
-	}()
 
 	slog.Info("embedded bifrost LLM gateway started", "dataDir", opts.DataDir, "duration", time.Since(start))
-	return nil
+	return inst, nil
 }
 
 // Shutdown stops the embedded server.
 func (e *Engine) Shutdown() {
-	if e.server == nil {
+	inst := e.inst.Load()
+	if inst == nil {
 		return
 	}
-	if e.server.Server != nil {
-		_ = e.server.Server.Shutdown()
+	if inst.server.Server != nil {
+		_ = inst.server.Server.Shutdown()
 	}
-	_ = e.listener.Close()
-	if e.server.Client != nil {
-		e.server.Client.Shutdown()
-	}
+	_ = inst.listener.Close()
+	inst.close()
 }
 
 // Wait blocks until the engine has finished starting (successfully or not).
@@ -314,7 +564,7 @@ func (e *Engine) Client() *bifrostcore.Bifrost {
 	if !e.Ready() {
 		return nil
 	}
-	return e.server.Client
+	return e.inst.Load().server.Client
 }
 
 // Do sends a request to the embedded server's API and decodes a JSON response into out.
@@ -384,22 +634,63 @@ func resolveEncryptionKey(opts Options) (string, error) {
 	if opts.EncryptionKey != "" {
 		return opts.EncryptionKey, nil
 	}
-	keyFile := filepath.Join(opts.DataDir, "encryption.key")
-	if data, err := os.ReadFile(keyFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-		return strings.TrimSpace(string(data)), nil
-	} else if err != nil && !os.IsNotExist(err) {
+	if opts.SharedKeys != nil {
+		return sharedEncryptionKey(opts)
+	}
+	key, err := dataDirEncryptionKey(opts.DataDir)
+	if err != nil {
+		return "", err
+	}
+	if key == "" {
+		if key, err = newEncryptionKey(); err != nil {
+			return "", err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(opts.DataDir, "encryption.key"), []byte(key), 0o600); err != nil {
+		return "", fmt.Errorf("failed to persist bifrost encryption key: %w", err)
+	}
+	return key, nil
+}
+
+// sharedEncryptionKey returns the key every replica shares, stored in Obot's database. The
+// first replica to start stores its key: one already in its data dir, so provider keys
+// encrypted before the key was shared stay readable, or else a new one.
+func sharedEncryptionKey(opts Options) (string, error) {
+	candidate, err := dataDirEncryptionKey(opts.DataDir)
+	if err != nil {
+		return "", err
+	}
+	if candidate == "" {
+		if candidate, err = newEncryptionKey(); err != nil {
+			return "", err
+		}
+	}
+	key, err := opts.SharedKeys.EnsureEncryptionKey(candidate)
+	if err != nil {
+		return "", fmt.Errorf("failed to get the shared LLM gateway encryption key: %w", err)
+	}
+	if local, _ := dataDirEncryptionKey(opts.DataDir); local != "" && local != key {
+		slog.Warn("this replica's LLM gateway encryption key differs from the shared one; provider keys it encrypted can't be read and must be re-entered")
+	}
+	return key, nil
+}
+
+func dataDirEncryptionKey(dataDir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dataDir, "encryption.key"))
+	if os.IsNotExist(err) {
+		return "", nil
+	} else if err != nil {
 		return "", fmt.Errorf("failed to read bifrost encryption key: %w", err)
 	}
+	return strings.TrimSpace(string(data)), nil
+}
 
+func newEncryptionKey() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	key := hex.EncodeToString(buf)
-	if err := os.WriteFile(keyFile, []byte(key), 0o600); err != nil {
-		return "", fmt.Errorf("failed to persist bifrost encryption key: %w", err)
-	}
-	return key, nil
+	return hex.EncodeToString(buf), nil
 }
 
 func buildConfigFile(opts Options, encryptionKey string) ([]byte, error) {
@@ -450,9 +741,8 @@ func buildConfigFile(opts Options, encryptionKey string) ([]byte, error) {
 		"client": map[string]any{
 			"enable_logging":     true,
 			"log_retention_days": retention,
-			// Obot authenticates every request before it reaches Bifrost, so Bifrost's own
-			// inference auth and virtual-key enforcement stay off. Obot attaches a virtual
-			// key when one of its budget bindings applies to the caller.
+			// Obot authenticates every request before it reaches Bifrost, and enforces budgets
+			// itself, so Bifrost's own inference auth and virtual keys are not used.
 			"enforce_auth_on_inference": false,
 			"allowed_origins":           []string{"*"},
 			"max_request_body_size_mb":  100,
@@ -500,14 +790,11 @@ func postgresConfigFromDSN(dsn string) (map[string]any, error) {
 	}, nil
 }
 
-// RegisterLLMPlugins adds Obot's own plugins to the gateway. first runs before every other
+// registerLLMPlugins adds Obot's own plugins to the gateway. first runs before every other
 // plugin, so its request hook sees requests before anything (including request logging)
 // records them; last runs after every other plugin, so its response hook runs first.
-func (e *Engine) RegisterLLMPlugins(first, last schemas.LLMPlugin) error {
-	if !e.Ready() {
-		return errors.New("LLM gateway is not ready")
-	}
-	cfg := e.server.Config
+func registerLLMPlugins(server *bifrostserver.BifrostHTTPServer, first, last schemas.LLMPlugin) error {
+	cfg := server.Config
 	pre, post := schemas.PluginPlacementPreBuiltin, schemas.PluginPlacementPostBuiltin
 	firstOrder, lastOrder := -1_000_000, 1_000_000
 	for _, reg := range []struct {
@@ -519,12 +806,12 @@ func (e *Engine) RegisterLLMPlugins(first, last schemas.LLMPlugin) error {
 		if err := cfg.ReloadPlugin(reg.plugin); err != nil {
 			return fmt.Errorf("failed to register plugin %s: %w", reg.plugin.GetName(), err)
 		}
-		if err := e.server.Client.ReloadPlugin(reg.plugin, []schemas.PluginType{schemas.PluginTypeLLM}); err != nil {
+		if err := server.Client.ReloadPlugin(reg.plugin, []schemas.PluginType{schemas.PluginTypeLLM}); err != nil {
 			return fmt.Errorf("failed to register plugin %s: %w", reg.plugin.GetName(), err)
 		}
 	}
 	cfg.SortAndRebuildPlugins()
-	e.server.Client.ReorderPlugins(cfg.GetPluginOrder())
+	server.Client.ReorderPlugins(cfg.GetPluginOrder())
 	return nil
 }
 
@@ -533,5 +820,5 @@ func (e *Engine) LLMPluginOrder() []string {
 	if !e.Ready() {
 		return nil
 	}
-	return e.server.Config.GetPluginOrder()
+	return e.inst.Load().server.Config.GetPluginOrder()
 }

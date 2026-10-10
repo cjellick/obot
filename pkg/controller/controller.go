@@ -844,7 +844,9 @@ func (c *Controller) ensureAuthProvidersAndModelProviders(ctx context.Context) e
 	}
 
 	if c.services.BifrostEngine != nil {
-		go c.services.BifrostEngine.RunStartupTasks(ctx, c.services.StorageClient, c.services.GatewayClient)
+		go c.services.BifrostEngine.RunStartupTasks(ctx, c.services.StorageClient, c.services.GatewayClient, func(ctx context.Context) (int64, error) {
+			return providerconfigurationchange.AdvanceLLMGatewayRevision(ctx, c.services.StorageClient)
+		})
 	}
 	return nil
 }

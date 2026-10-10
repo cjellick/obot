@@ -10,7 +10,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	gatewayclient "github.com/obot-platform/obot/pkg/gateway/client"
+	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 )
+
+type credentialKeyStore struct {
+	ctx    context.Context
+	client *gatewayclient.Client
+}
 
 // DerivePostgresDSN returns a DSN for a database named after Obot's own, on the same Postgres
 // server, creating the database if it doesn't exist. Bifrost's tables can't share Obot's
@@ -52,4 +59,25 @@ func DerivePostgresDSN(ctx context.Context, obotDSN string) (string, error) {
 
 	u.Path = "/" + gatewayDB
 	return u.String(), nil
+}
+
+// CredentialKeyStore keeps the shared encryption key in Obot's credential store, which is
+// encrypted with Obot's own encryption configuration when one is set.
+func CredentialKeyStore(ctx context.Context, c *gatewayclient.Client) SharedKeyStore {
+	return credentialKeyStore{ctx: ctx, client: c}
+}
+
+func (s credentialKeyStore) EnsureEncryptionKey(key string) (string, error) {
+	cred, err := s.client.EnsureCredential(s.ctx, gatewaytypes.Credential{
+		Context: "llm-gateway",
+		Name:    "encryption-key",
+		Secrets: map[string]string{"key": key},
+	})
+	if err != nil {
+		return "", err
+	}
+	if cred.Secrets["key"] == "" {
+		return "", errors.New("the stored LLM gateway encryption key is empty")
+	}
+	return cred.Secrets["key"], nil
 }

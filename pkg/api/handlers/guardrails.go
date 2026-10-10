@@ -225,6 +225,9 @@ func (h *GuardrailsHandler) UpdateProfile(req api.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := checkDestinationChange(existing, &profile, current); err != nil {
+		return err
+	}
 	secrets, err := splitProfileSecrets(&profile, current)
 	if err != nil {
 		return err
@@ -414,6 +417,40 @@ func validateGuardrailRule(req api.Context, rule *gatewaytypes.GuardrailRule) er
 		}
 	}
 	return nil
+}
+
+// checkDestinationChange refuses an update that changes where a profile's credentials are
+// sent (an endpoint, or a region in a host name) while keeping the stored credentials.
+// Otherwise an admin could point the profile at their own server, run a test, and receive
+// credentials the API never returns.
+func checkDestinationChange(existing *gatewaytypes.GuardrailProfile, updated *gatewaytypes.GuardrailProfile, current map[string]string) error {
+	info, ok := guardrails.Provider(existing.Type)
+	if !ok || len(current) == 0 {
+		return nil
+	}
+	oldConfig, newConfig := map[string]any{}, map[string]any{}
+	_ = json.Unmarshal(existing.Config, &oldConfig)
+	_ = json.Unmarshal(updated.Config, &newConfig)
+	var changed, kept []string
+	for _, f := range info.Fields {
+		switch {
+		case f.Destination && configString(oldConfig[f.Name]) != configString(newConfig[f.Name]):
+			changed = append(changed, f.Label)
+		case f.Sensitive && current[f.Name] != "" && configString(newConfig[f.Name]) == "":
+			kept = append(kept, f.Label)
+		}
+	}
+	if len(changed) == 0 || len(kept) == 0 {
+		return nil
+	}
+	return types.NewErrBadRequest("changing %s requires re-entering %s", strings.Join(changed, " and "), strings.Join(kept, " and "))
+}
+
+func configString(v any) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(v))
 }
 
 // splitProfileSecrets validates a profile and moves its sensitive settings out of its

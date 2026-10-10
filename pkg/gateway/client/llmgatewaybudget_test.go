@@ -2,6 +2,7 @@ package client
 
 import (
 	"errors"
+	"maps"
 	"testing"
 	"time"
 
@@ -210,7 +211,68 @@ func TestEnsureDefaultLLMGatewayBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(budgets) != 1 || len(budgets[0].Limits) != 1 || budgets[0].Limits[0].Metric != types.LLMGatewayBudgetMetricInputTokens ||
-		!budgets[0].PerUser || !budgets[0].ExemptAdmins || !budgets[0].Enabled {
+		!budgets[0].PerUser || !budgets[0].ExemptAdmins || !budgets[0].Enabled || !budgets[0].UserTokenLimits {
 		t.Fatalf("unexpected default budget %+v", budgets)
+	}
+}
+
+func TestWithUserTokenLimits(t *testing.T) {
+	limits := []types.LLMGatewayBudgetLimit{
+		{Metric: types.LLMGatewayBudgetMetricInputTokens, Amount: 1000, Window: "1d"},
+		{Metric: types.LLMGatewayBudgetMetricOutputTokens, Amount: 500, Window: "1d"},
+		{Metric: types.LLMGatewayBudgetMetricSpend, Amount: 5, Window: "1d"},
+	}
+	tests := []struct {
+		name string
+		user types.User
+		want map[string]float64
+	}{
+		{
+			name: "no personal limits keeps the budget's",
+			want: map[string]float64{"input_tokens": 1000, "output_tokens": 500, "spend": 5},
+		},
+		{
+			name: "a personal limit replaces the amount",
+			user: types.User{DailyInputTokensLimit: 5000},
+			want: map[string]float64{"input_tokens": 5000, "output_tokens": 500, "spend": 5},
+		},
+		{
+			name: "a negative personal limit removes the limit",
+			user: types.User{DailyOutputTokensLimit: -1},
+			want: map[string]float64{"input_tokens": 1000, "spend": 5},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := map[string]float64{}
+			for _, l := range withUserTokenLimits(limits, &tt.user) {
+				got[l.Metric] = l.Amount
+			}
+			if !maps.Equal(got, tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultLLMGatewayBudgetMigrationIsIdempotent(t *testing.T) {
+	c := newTestClient(t)
+	// Two replicas starting together both run the migration.
+	for range 2 {
+		if err := c.EnsureDefaultLLMGatewayBudget(t.Context(), 1000, 500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if err := c.MigrateKinmIfNotRun(t.Context(), "test-migration", func() error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	budgets, err := c.ListLLMGatewayBudgets(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(budgets) != 1 {
+		t.Fatalf("expected one default budget, got %d", len(budgets))
 	}
 }

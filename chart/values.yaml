@@ -311,8 +311,10 @@ persistence:
   # persistence.enabled -- Enables persistence using a PVC mounted at /data.
   # This also persists local published workflow artifacts when OBOT_ARTIFACT_STORAGE_PROVIDER is unset,
   # because those files are stored under /data/.local/share/obot/published-artifacts.
-  # It also persists the embedded LLM gateway's configuration, SQLite stores and encryption key
-  # (/data/.local/share/obot/llm-gateway) unless OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN is set.
+  # With SQLite, it also persists the embedded LLM gateway's stores and encryption key
+  # (/data/.local/share/obot/llm-gateway). When Obot uses Postgres, the gateway keeps its stores
+  # in a separate Postgres database and its encryption key in Obot's database, so they don't
+  # depend on this volume.
   enabled: true
   # persistence.path -- The path the volume will be mounted
   path: /data

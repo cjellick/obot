@@ -288,7 +288,9 @@ func (h *Handler) Proxy(req api.Context) error {
 		}
 
 		var guard *mcpGuard
-		if h.guardrails != nil && req.Method == http.MethodPost {
+		// Guard every method: tool results can also arrive on a GET stream (stream
+		// resumption, or the legacy SSE transport).
+		if h.guardrails != nil {
 			identity, _, err := guardrails.ResolveIdentity(req.Context(), req.GatewayClient, req.User)
 			if err != nil {
 				return err

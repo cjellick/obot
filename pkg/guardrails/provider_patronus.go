@@ -58,7 +58,7 @@ func init() {
 		Fields: []Field{
 			{Name: "apiKey", Label: "API key", Type: FieldPassword, Required: true, Sensitive: true},
 			{Name: "evaluators", Label: "Evaluators", Type: FieldList, Required: true, Description: "One evaluator per entry, as evaluator or evaluator:criteria, e.g. judge:patronus:is-harmful-advice, pii or toxicity."},
-			{Name: "baseURL", Label: "Base URL", Type: FieldText, Default: patronusDefaultBaseURL},
+			{Name: "baseURL", Label: "Base URL", Type: FieldText, Destination: true, Default: patronusDefaultBaseURL},
 		},
 	}, func(config map[string]any, secrets map[string]string, deps Deps) (Checker, error) {
 		var evaluators []patronusEvaluator

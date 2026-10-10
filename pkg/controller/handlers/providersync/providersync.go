@@ -20,6 +20,10 @@ type licenseRefresher interface {
 	Validate(context.Context) error
 }
 
+// GatewayReloader reloads this replica's LLM gateway when its configuration revision
+// advances. It reports whether it reloaded.
+type GatewayReloader func(ctx context.Context, revision int64) (bool, error)
+
 // Handler owns replica-local state and is registered on a router without
 // leader election, so each replica independently refreshes its cached provider state.
 type Handler struct {
@@ -27,13 +31,16 @@ type Handler struct {
 	lastRevisions   map[string]int64
 	dispatcher      daemonStopper
 	licenseProvider licenseRefresher
+	reloadGateway   GatewayReloader
 }
 
-func New(dispatcher daemonStopper, licenseProvider licenseRefresher) *Handler {
+// New creates the handler. reloadGateway may be nil when the LLM gateway is disabled.
+func New(dispatcher daemonStopper, licenseProvider licenseRefresher, reloadGateway GatewayReloader) *Handler {
 	return &Handler{
 		lastRevisions:   make(map[string]int64),
 		dispatcher:      dispatcher,
 		licenseProvider: licenseProvider,
+		reloadGateway:   reloadGateway,
 	}
 }
 
@@ -74,6 +81,16 @@ func (h *Handler) Reconcile(req router.Request, _ router.Response) error {
 			)
 			if err := h.licenseProvider.Validate(req.Ctx); err != nil {
 				return fmt.Errorf("refresh license at revision %d: %w", revision.Revision, err)
+			}
+		case v1.ProviderTypeLLMGateway:
+			if h.reloadGateway != nil {
+				reloaded, err := h.reloadGateway(req.Ctx, revision.Revision)
+				if err != nil {
+					return fmt.Errorf("reload LLM gateway at revision %d: %w", revision.Revision, err)
+				}
+				if reloaded {
+					slog.Info("Reloaded LLM gateway after synchronized configuration change", "revision", revision.Revision)
+				}
 			}
 		default:
 			return fmt.Errorf("provider daemon revision %q has invalid provider type %q", key, revision.ProviderType)

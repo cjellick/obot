@@ -1110,35 +1110,8 @@ func New(ctx context.Context, config Config) (*Services, error) {
 
 	var bifrostEngine *bifrost.Engine
 	if !config.DisableLLMGateway {
-		dataDir := config.LLMGatewayDataDir
-		if dataDir == "" {
-			dataDir = filepath.Join(xdg.DataHome, "obot", "llm-gateway")
-		}
 		bifrostEngine = bifrost.New()
 		providerDispatcher.RegisterBuiltinModelProvider(system.DefaultNamespace, system.LLMGatewayModelProvider, bifrostEngine)
-		// Bootstrapping contacts configured providers to list their models, so it runs in
-		// the background; requests made before it finishes get a 503.
-		go func() {
-			gatewayDSN := config.LLMGatewayPostgresDSN
-			if gatewayDSN == "" && postgresDSN != "" {
-				// Keep the gateway's state in Postgres alongside Obot's so every replica shares
-				// it; fall back to SQLite in the data dir if the database can't be created.
-				if derived, err := bifrost.DerivePostgresDSN(ctx, postgresDSN); err != nil {
-					slog.Warn("LLM gateway will use SQLite: failed to set up its Postgres database; set --llm-gateway-postgres-dsn to choose one", "error", err)
-				} else {
-					gatewayDSN = derived
-				}
-			}
-			_ = bifrostEngine.Start(ctx, bifrost.Options{
-				DataDir:            dataDir,
-				PostgresDSN:        gatewayDSN,
-				EncryptionKey:      config.LLMGatewayEncryptionKey,
-				LogRetentionDays:   config.LLMGatewayLogRetentionDays,
-				LogLevel:           config.LLMGatewayLogLevel,
-				CacheRedisAddr:     config.LLMGatewayCacheRedisAddr,
-				CacheRedisPassword: config.LLMGatewayCacheRedisPassword,
-			})
-		}()
 	}
 
 	// Message policies are now guardrails: LLM-judge guardrails are evaluated with the message
@@ -1154,16 +1127,44 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	judge.SetPolicySource(func(user kuser.Info, direction apiclienttypes.PolicyDirection) ([]messagepolicy.ApplicablePolicy, error) {
 		return guardrailEngine.JudgePolicies(ctx, guardrails.Identity{UserID: user.GetUID(), Groups: user.GetExtra()["auth_provider_groups"]}, direction)
 	})
-	go migrateMessagePolicies(ctx, storageClient, gatewayClient, guardrailEngine)
+	go migrateMessagePolicies(ctx, storageClient, gatewayClient, guardrailEngine, config.EnableMessagePolicies)
 	if bifrostEngine != nil {
+		guardrailInput, guardrailOutput := guardrailEngine.Plugins()
+		dataDir := config.LLMGatewayDataDir
+		if dataDir == "" {
+			dataDir = filepath.Join(xdg.DataHome, "obot", "llm-gateway")
+		}
+		// Bootstrapping contacts configured providers to list their models, so it runs in
+		// the background; requests made before it finishes get a 503.
 		go func() {
-			if err := bifrostEngine.Wait(ctx); err != nil {
-				return
+			gatewayDSN := config.LLMGatewayPostgresDSN
+			if gatewayDSN == "" && postgresDSN != "" {
+				// Keep the gateway's state in Postgres alongside Obot's so every replica shares
+				// it; fall back to SQLite in the data dir if the database can't be created.
+				if derived, err := bifrost.DerivePostgresDSN(ctx, postgresDSN); err != nil {
+					slog.Warn("LLM gateway will use SQLite: failed to set up its Postgres database; set --llm-gateway-postgres-dsn to choose one", "error", err)
+				} else {
+					gatewayDSN = derived
+				}
 			}
-			input, output := guardrailEngine.Plugins()
-			if err := bifrostEngine.RegisterLLMPlugins(input, output); err != nil {
-				slog.Error("failed to enable guardrails on the LLM gateway", "error", err)
+			var sharedKeys bifrost.SharedKeyStore
+			if gatewayDSN != "" {
+				// Every replica shares the stores, so they must share the encryption key.
+				sharedKeys = bifrost.CredentialKeyStore(ctx, gatewayClient)
 			}
+			_ = bifrostEngine.Start(ctx, bifrost.Options{
+				DataDir:            dataDir,
+				PostgresDSN:        gatewayDSN,
+				EncryptionKey:      config.LLMGatewayEncryptionKey,
+				SharedKeys:         sharedKeys,
+				LogRetentionDays:   config.LLMGatewayLogRetentionDays,
+				LogLevel:           config.LLMGatewayLogLevel,
+				CacheRedisAddr:     config.LLMGatewayCacheRedisAddr,
+				CacheRedisPassword: config.LLMGatewayCacheRedisPassword,
+				// Guardrails are part of the gateway: it doesn't serve until they're in place.
+				FirstPlugin: guardrailInput,
+				LastPlugin:  guardrailOutput,
+			})
 		}()
 	}
 
@@ -1773,7 +1774,7 @@ func localK8sCacheByObject(mcpServerNamespace, runtimeNamespace string) map[kcli
 
 // migrateMessagePolicies converts message policies into guardrails, once. MessagePolicy
 // resources are left in place, unenforced, so the conversion can be reviewed.
-func migrateMessagePolicies(ctx context.Context, storageClient kclient.Client, gatewayClient *client.Client, engine *guardrails.Engine) {
+func migrateMessagePolicies(ctx context.Context, storageClient kclient.Client, gatewayClient *client.Client, engine *guardrails.Engine, enforced bool) {
 	for {
 		err := gatewayClient.MigrateKinmIfNotRun(ctx, "guardrails_message_policies", func() error {
 			var list v1.MessagePolicyList
@@ -1786,7 +1787,7 @@ func migrateMessagePolicies(ctx context.Context, storageClient kclient.Client, g
 					policies = append(policies, guardrails.LegacyPolicy{ID: p.Name, Manifest: p.Spec.Manifest})
 				}
 			}
-			if err := guardrails.MigrateMessagePolicies(ctx, gatewayClient, policies); err != nil {
+			if err := guardrails.MigrateMessagePolicies(ctx, gatewayClient, policies, enforced); err != nil {
 				return err
 			}
 			if len(policies) > 0 {

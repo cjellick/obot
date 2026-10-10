@@ -14,6 +14,10 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	defaultLLMGatewayBudgetID = "daily-token-limit"
+)
+
 // LLMGatewayBudgetExceeded describes the first limit a request would exceed.
 type LLMGatewayBudgetExceeded struct {
 	Budget  types.LLMGatewayBudget
@@ -179,6 +183,10 @@ func (c *Client) CreateLLMGatewayBudget(ctx context.Context, b *types.LLMGateway
 		return err
 	}
 	b.ID = uuid.NewString()
+	return c.createLLMGatewayBudget(ctx, b)
+}
+
+func (c *Client) createLLMGatewayBudget(ctx context.Context, b *types.LLMGatewayBudget) error {
 	for i := range b.Subjects {
 		normalizeSubject(&b.Subjects[i])
 	}
@@ -191,7 +199,7 @@ func (c *Client) UpdateLLMGatewayBudget(ctx context.Context, b *types.LLMGateway
 	}
 	return c.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		subjects := b.Subjects
-		if err := tx.Model(b).Select("name", "description", "enabled", "per_user", "exempt_admins", "limits", "models").Updates(b).Error; err != nil {
+		if err := tx.Model(b).Select("name", "description", "enabled", "per_user", "exempt_admins", "user_token_limits", "limits", "models").Updates(b).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("budget_id = ?", b.ID).Delete(&types.LLMGatewayBudgetSubject{}).Error; err != nil {
@@ -295,12 +303,22 @@ func (c *Client) budgetUsageSince(ctx context.Context, budgetID, userID string, 
 // shared ones.
 func (c *Client) CheckLLMGatewayBudgets(ctx context.Context, budgets []types.LLMGatewayBudget, userID string) error {
 	now := time.Now()
+	var user *types.User
 	for _, b := range budgets {
 		scopeUser := ""
 		if b.PerUser {
 			scopeUser = userID
 		}
-		for _, l := range b.Limits {
+		limits := b.Limits
+		if b.PerUser && b.UserTokenLimits {
+			if user == nil {
+				if user, _ = c.UserByID(ctx, userID); user == nil {
+					user = &types.User{}
+				}
+			}
+			limits = withUserTokenLimits(limits, user)
+		}
+		for _, l := range limits {
 			start, reset, err := ParseLLMGatewayBudgetWindow(l, now)
 			if err != nil {
 				return fmt.Errorf("budget %q has an invalid limit: %w", b.Name, err)
@@ -321,6 +339,29 @@ func (c *Client) CheckLLMGatewayBudgets(ctx context.Context, budgets []types.LLM
 		}
 	}
 	return nil
+}
+
+// withUserTokenLimits applies a user's personal daily token limits to a budget's input and
+// output token limits, as the daily token quota did.
+func withUserTokenLimits(limits []types.LLMGatewayBudgetLimit, user *types.User) []types.LLMGatewayBudgetLimit {
+	out := make([]types.LLMGatewayBudgetLimit, 0, len(limits))
+	for _, l := range limits {
+		personal := 0
+		switch l.Metric {
+		case types.LLMGatewayBudgetMetricInputTokens:
+			personal = user.DailyInputTokensLimit
+		case types.LLMGatewayBudgetMetricOutputTokens:
+			personal = user.DailyOutputTokensLimit
+		}
+		switch {
+		case personal < 0:
+			continue
+		case personal > 0:
+			l.Amount = float64(personal)
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // rollingWindowReset estimates when a rolling window frees up: when the oldest usage in it
@@ -430,13 +471,27 @@ func (c *Client) EnsureDefaultLLMGatewayBudget(ctx context.Context, dailyInputTo
 	if len(limits) == 0 {
 		return nil
 	}
-	return c.CreateLLMGatewayBudget(ctx, &types.LLMGatewayBudget{
-		Name:         "Daily token limit",
-		Description:  "Carried over from the server's daily user token limits.",
-		Enabled:      true,
-		PerUser:      true,
-		ExemptAdmins: true,
-		Limits:       limits,
-		Subjects:     []types.LLMGatewayBudgetSubject{{SubjectType: types.LLMGatewayBudgetSubjectEveryone}},
+	// A fixed ID makes this safe to run on several replicas at once: only one budget can be
+	// created, and the others find it.
+	if _, err := c.GetLLMGatewayBudget(ctx, defaultLLMGatewayBudgetID); err == nil {
+		return nil
+	}
+	err := c.createLLMGatewayBudget(ctx, &types.LLMGatewayBudget{
+		ID:              defaultLLMGatewayBudgetID,
+		Name:            "Daily token limit",
+		Description:     "Carried over from the server's daily user token limits. Users' personal daily token limits still apply in its place.",
+		Enabled:         true,
+		PerUser:         true,
+		ExemptAdmins:    true,
+		UserTokenLimits: true,
+		Limits:          limits,
+		Subjects:        []types.LLMGatewayBudgetSubject{{SubjectType: types.LLMGatewayBudgetSubjectEveryone}},
 	})
+	if err != nil {
+		if _, getErr := c.GetLLMGatewayBudget(ctx, defaultLLMGatewayBudgetID); getErr == nil {
+			// Another replica created it first.
+			return nil
+		}
+	}
+	return err
 }

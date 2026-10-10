@@ -32,7 +32,7 @@ Guardrails are made of two things:
 | **Patronus AI** | Results of Patronus evaluators, such as toxicity and PII detectors or LLM judges with your criteria. | No |
 | **CrowdStrike Falcon AIDR** | Malicious prompts, PII, secrets, malicious entities, topics and more, per the collector's policy. | Content AI Guard redacts |
 
-Credentials such as API keys are stored encrypted and are never shown again after they are saved. Leave a credential blank when editing a profile to keep the current value.
+Credentials such as API keys are stored encrypted and are never shown again after they are saved. Leave a credential blank when editing a profile to keep the current value. Changing where a profile's credentials are sent (its endpoint, base URL or region) requires entering them again, so stored credentials can't be redirected to another server.
 
 Use **Test** on a saved profile to run it against sample text and see what it finds and how the text would be redacted.
 
@@ -53,9 +53,10 @@ Each rule has:
   - For MCP tool calls it can use `mcp_server`, `mcp_tool` and `mcp_arguments`, as well as `headers`.
   - Both can use `user.id` and `user.groups`.
   - For example: `mcp_server == "GitHub" && mcp_tool.startsWith("create_")`.
+  - Reading a header or argument that isn't there is an error, so test for it first: `"x-team" in headers && headers["x-team"] == "sales"`. A condition that fails to evaluate records an error event (at most once a minute per rule); the rule is then skipped, or blocks the request if it fails closed.
 - **Sampling rate**: the percentage of matching traffic to check, for expensive profiles.
 - **Input scope**: whether input checks look at the whole conversation or only what was added since the model last replied. Redacting rules always check the whole conversation, so nothing unredacted is sent.
-- **Fail closed**: whether to block when a profile can't be evaluated, for example because an external service is down. By default the rule is skipped and an error event is recorded.
+- **Fail closed**: whether to block when a profile or the rule's condition can't be evaluated, for example because an external service or the LLM judge's model is down. By default the rule is skipped and an error event is recorded.
 
 Rules run in the order they were created. A block stops evaluation. Each redaction is applied before the next rule runs.
 
@@ -63,9 +64,13 @@ Rules run in the order they were created. A block stops evaluation. Each redacti
 
 ### LLM gateway
 
-Input rules run before anything else sees the request, so neither the provider nor the gateway's request log sees content before it is redacted. Output rules run after the response arrives and before it is logged or returned.
+Input rules run before anything else sees the request, so neither the provider nor the gateway's request log sees content before it is redacted. Output rules run after the response arrives and before it is logged or returned. Token counting requests (`/v1/messages/count_tokens`, `/v1/responses/input_tokens`) carry the whole prompt to the provider and are checked as input. Obot's own [LLM audit log](./audit-logs-and-usage.md) records requests as clients sent them, before redaction.
 
-For **streamed responses**, Obot holds the stream while a rule that can block or redact applies. It checks the complete response, then delivers it at once: redacted if needed, or replaced by an error if blocked. A secret split across stream chunks is still found. Log-only rules don't hold the stream.
+Checks cover message text, tool calls and tool results, and also reasoning (thinking) and refusal text. Redacting signed reasoning, such as Anthropic extended thinking, invalidates its signature, so the provider may reject a later request that sends that reasoning back.
+
+Some clients, notably Claude Code, normally have their requests forwarded to Anthropic as sent. When any guardrail applies to a request, Obot instead sends the request it checked, and returns the response it checked, so nothing bypasses the rules.
+
+For **streamed responses**, Obot holds the stream while a rule that can block or redact applies. It checks the complete response, then delivers it at once: redacted if needed, or replaced by an error if blocked. A secret split across stream chunks is still found. Log-only rules don't hold the stream. If a stream can't be held, a finding that would block or redact ends the stream and is recorded as an error, since the content has already been delivered.
 
 A blocked request gets HTTP 400 with an error of type `guardrail_intervention`.
 
@@ -73,7 +78,7 @@ A blocked request gets HTTP 400 with an error of type `guardrail_intervention`.
 
 Guardrails run after any MCP hooks configured for the server. For input, every string in the tool call's arguments is checked. For output, the tool result's text content, embedded text resources and structured content are checked. Images and other binary content are not checked.
 
-A blocked tool call or result is returned to the client as a JSON-RPC error, and the MCP server is never called for a blocked tool call. Guardrail outcomes appear with hook results in the MCP audit log.
+A blocked tool call or result is returned to the client as a JSON-RPC error, and the MCP server is never called for a blocked tool call. Results are checked whichever stream they arrive on, including a GET stream when a client resumes a stream or uses the legacy SSE transport. While any MCP guardrail rule exists, JSON-RPC batches are refused, and so are tool calls whose parameters can't be parsed. Guardrail outcomes appear with hook results in the MCP audit log, which records both the original and the redacted message.
 
 For composite MCP servers, `mcp_server` is the composite server's name and `mcp_tool` is the tool name as the composite server exposes it.
 

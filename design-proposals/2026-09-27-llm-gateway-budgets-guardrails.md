@@ -191,7 +191,19 @@ flowchart LR
     database on the same server. Obot creates it if it can, and falls back to
     SQLite otherwise. `--llm-gateway-postgres-dsn` overrides this.
   - Provider keys are encrypted with `--llm-gateway-encryption-key`. If the key
-    isn't set, one is generated and stored in the data dir.
+    isn't set, one is generated. With Postgres it is stored in Obot's database
+    (an existing data-dir key is kept, so earlier encrypted keys stay readable)
+    and shared by every replica; with SQLite it is stored in the data dir.
+- **Configuration across replicas.** Open-source Bifrost loads its
+  configuration into memory at startup and only updates that copy for changes
+  made through it. Following the auth and model provider daemon pattern
+  (`ProviderSync`, ADR 2026-09-01), every successful gateway configuration
+  change advances an `llm-gateway` revision. A controller on every replica
+  then rebuilds that replica's engine from the shared stores. New requests go
+  to the rebuilt engine at once; requests in flight finish on the old one,
+  which stops after at most 15 minutes. The replica that made the change
+  doesn't reload unless it had missed an earlier revision. After a reload,
+  models are re-synced.
 - **Egress proxy.** At startup and on every provider change, Obot copies the
   environment's `HTTPS_PROXY`/`HTTP_PROXY` onto each provider's proxy setting,
   honoring `NO_PROXY` and localhost. A proxy set explicitly on a provider takes
@@ -265,7 +277,7 @@ Budgets live in three tables in Obot's database:
 
 | Table | Contents |
 | --- | --- |
-| `llm_gateway_budgets` | `id, name, description, enabled, per_user, exempt_admins, limits (json), models (json)` |
+| `llm_gateway_budgets` | `id, name, description, enabled, per_user, exempt_admins, user_token_limits, limits (json), models (json)` |
 | `llm_gateway_budget_subjects` | `budget_id, subject_type (user\|group\|everyone), subject_id` |
 | `llm_gateway_budget_usage` | `budget_id, user_id, created_at, model, input_tokens, output_tokens, total_tokens, spend` (indexed on budget and time, and on budget, user and time) |
 
@@ -286,8 +298,11 @@ Budgets live in three tables in Obot's database:
 - **Replaces the daily token quota.** Gateway traffic is governed by budgets,
   not the daily token quota. On first start, the configured daily input and
   output limits become a "Daily token limit" budget for everyone, with admins
-  exempt. This happens once, recorded by the migration marker
-  `llm_gateway_default_budget`. Legacy routes keep the daily token quota.
+  exempt. Like the quota, it lets each user's personal daily token limits
+  replace its token limits (a budget option, `userTokenLimits`). This happens
+  once, recorded by the migration marker `llm_gateway_default_budget`; the
+  budget has a fixed ID, so replicas starting together create only one.
+  Legacy routes keep the daily token quota.
 
 ### Guardrails data model
 
@@ -363,6 +378,14 @@ The guardrail engine runs as two engine plugins:
   - A secret split across chunks is found because the check runs on the
     assembled text.
   - Log-only rules don't hold the stream.
+- **Registration.** The plugins are registered as part of the engine's
+  startup, before it serves anything; if registration fails, the engine fails
+  to start and the gateway returns `503`. The admin pass-through can't change,
+  disable or delete them.
+- **Raw passthrough.** Bifrost forwards some requests to the provider as the
+  client sent them (Claude Code's, to Anthropic) and returns the provider's
+  raw response. When any guardrail applies, the plugins turn that off, so the
+  provider gets the checked request and the client the checked response.
 - **Identity binding.** Obot's proxy registers the caller's identity in an
   in-process map under a random token, and sends the token in
   `x-obot-guardrails-token`.
@@ -372,7 +395,11 @@ The guardrail engine runs as two engine plugins:
     registered for an in-flight request in the same process.
 
 Content extraction covers Chat Completions, Responses and Anthropic Messages,
-including tool calls and tool results. Embedding inputs are checked on input.
+including tool calls, tool results, reasoning and refusals, in both complete
+and streamed responses. Embedding inputs and token-counting requests are
+checked on input. If a stream can't be held, a finding that would block or
+redact ends the stream and is recorded as an error, since the content was
+already delivered.
 
 ### Guardrails on MCP tool calls
 
@@ -389,6 +416,10 @@ hooks, and only for `tools/call`.
 - **Redact.** Redaction mutates the message and adds
   `_meta["ai.obot.hooks/mutations"]` like a hook mutation.
 - **Audit.** Outcomes appear in the MCP audit log with hook results.
+- **Every stream.** Results are checked whichever stream they arrive on,
+  including a GET stream (stream resumption, legacy SSE).
+- **Fail closed on what can't be checked.** While any MCP rule exists,
+  JSON-RPC batches and tool calls whose parameters can't be parsed are refused.
 - **Cost when unused.** If no rule targets MCP traffic, no guard is created
   and the request is proxied exactly as before.
 - **Composite servers and vMCPs** are guarded at their outer endpoint:
@@ -484,11 +515,14 @@ The Helm chart's persistence note now also covers the gateway data dir.
 
 | Situation | Behavior |
 | --- | --- |
-| Engine still starting, or failed to start | Gateway requests get `503` (no hang). Gateway models are kept, not pruned. The status banner shows the error. |
+| Engine still starting, or failed to start (including failing to register the guardrail plugins) | Gateway requests get `503` (no hang). Gateway models are kept, not pruned. The status banner shows the error. |
+| Reload after another replica's change fails | The replica keeps serving its current configuration, and the ProviderSync controller retries. |
 | Gateway disabled | The built-in model provider is removed, so its models don't look usable. The legacy routes are unaffected. |
 | Budget storage error | The request fails, closed. |
 | Guardrail rules can't be loaded | LLM requests and MCP tool calls are blocked, closed. |
-| A detector errors or times out | The rule is skipped and an error event is recorded, unless the rule fails closed. |
+| A detector errors or times out, or the LLM judge's model is unavailable | The rule is skipped and an error event is recorded, unless the rule fails closed. |
+| A rule's condition fails at runtime (e.g. a missing header) | Same as a detector error. Error events are recorded at most once a minute per rule. |
+| A redaction can't be applied (a span outside the text) | The rule blocks instead. |
 | A held stream can't be rewritten | The stream ends with a guardrail error rather than delivering blanked content. |
 | Guardrail event buffer full | Events are dropped with a warning; traffic is unaffected. |
 | Message policy conversion fails | Retried every 10 seconds. Until it succeeds, the legacy routes see no judge policies. |
@@ -502,10 +536,13 @@ The Helm chart's persistence note now also covers the gateway data dir.
   references that would read the host's environment or vault.
 - **Credentials at rest.** Provider keys are encrypted in the gateway store.
   Guardrail profile secrets are in Obot's encrypted credential store and never
-  returned.
+  returned. Changing a profile's destination (endpoint, base URL or region)
+  requires re-entering its credentials, so a stored credential can't be
+  redirected to another host and read back through a test.
 - **Guardrail identity can't be spoofed** (see identity binding above).
 - **Cached responses are keyed per user.**
-- **Guardrail events never store the content** that triggered them.
+- **Guardrail events never store the content** that triggered them. The LLM
+  judge's free-text explanation is shown to the caller but not stored.
 
 ### What this affects
 
@@ -646,8 +683,10 @@ available for custom logic.
    (sliding window), or documenting it as is.
 8. **The daily token quota replacement changes behavior** for existing
    deployments: gateway usage is no longer limited by the daily quota, except
-   through the migrated default budget. Confirm this is acceptable, and
-   whether the migrated budget should exempt admins (it currently does).
+   through the migrated default budget (which honors personal limits). Confirm
+   this is acceptable, and whether the migrated budget should exempt admins
+   (it currently does). A personal limit on a metric the server left unlimited
+   is not carried over.
 9. **Message policy removal.** When can the MessagePolicy CRD, the violations
    table and the legacy API be deleted? This depends on removing the legacy
    routes.
@@ -655,10 +694,14 @@ available for custom logic.
     stored and applied to MCP traffic even when the gateway is disabled, but
     the UI lives under LLM Gateway. Should Guardrails move to its own
     navigation section?
-11. **The encryption key in multi-replica deployments.** A generated key lives
-    in one replica's data dir, so multi-replica deployments must set
-    `--llm-gateway-encryption-key`. Should Obot derive it from its own
-    encryption configuration instead?
+11. **Redacting signed reasoning.** Redacting thinking that a provider signs
+    (Anthropic extended thinking) invalidates the signature, so a later turn
+    that replays it may be rejected. Blocking instead would be equally
+    disruptive. Revisit if this shows up in practice.
+12. **Reload cost.** A reload re-bootstraps the engine (seconds, including
+    provider model listing). Changes made in quick succession reload once per
+    revision a replica sees. Each replica also reloads once at startup if the
+    revision already exists. Batch or debounce if this matters.
 
 ## Rollout and migration
 

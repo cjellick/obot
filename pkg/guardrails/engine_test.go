@@ -19,6 +19,10 @@ type fakeStore struct {
 	events   []types.GuardrailEvent
 }
 
+// misplacedChecker reports a finding whose span doesn't fit the text, like a service whose
+// offsets were misread.
+type misplacedChecker struct{}
+
 // failingChecker always errors, to exercise fail-open and fail-closed behavior.
 type failingChecker struct{}
 
@@ -28,6 +32,9 @@ type flaggingChecker struct{}
 func init() {
 	Register(ProviderInfo{Type: "test-failing"}, func(map[string]any, map[string]string, Deps) (Checker, error) {
 		return failingChecker{}, nil
+	})
+	Register(ProviderInfo{Type: "test-misplaced", Redacts: true}, func(map[string]any, map[string]string, Deps) (Checker, error) {
+		return misplacedChecker{}, nil
 	})
 	Register(ProviderInfo{Type: "test-flagging"}, func(map[string]any, map[string]string, Deps) (Checker, error) {
 		return flaggingChecker{}, nil
@@ -77,6 +84,11 @@ func rule(name, action string, profiles ...string) types.GuardrailRule {
 
 func (failingChecker) Check(context.Context, CheckInput) (Result, error) {
 	return Result{}, errors.New("service unavailable")
+}
+
+func (misplacedChecker) Check(_ context.Context, in CheckInput) (Result, error) {
+	end := len(in.Segments[0].Text) + 10
+	return Result{Findings: []Finding{{Category: "pii", Spans: []Span{{Segment: 0, Start: 2, End: end, Label: "PII"}}}}}, nil
 }
 
 func (flaggingChecker) Check(context.Context, CheckInput) (Result, error) {
@@ -226,4 +238,78 @@ func (f *fakeStore) CreateGuardrailProfile(_ context.Context, p *types.Guardrail
 func (f *fakeStore) CreateGuardrailRule(_ context.Context, r *types.GuardrailRule) error {
 	f.rules = append(f.rules, *r)
 	return nil
+}
+
+func TestRedactionThatCannotBeAppliedBlocks(t *testing.T) {
+	store := &fakeStore{
+		profiles: []types.GuardrailProfile{profile("p", "test-misplaced", nil)},
+		rules:    []types.GuardrailRule{rule("redact", types.GuardrailActionRedact, "p")},
+	}
+	d := evaluate(t, store, Identity{UserID: "u1"}, nil, Segment{Role: RoleUser, Text: "hello"})
+	if !d.Blocked || d.Redacted {
+		t.Fatalf("a span outside the text must block, not claim a redaction: %+v", d)
+	}
+	if got := store.outcomes(); len(got) != 1 || got[0] != "blocked" {
+		t.Fatalf("unexpected events %v", got)
+	}
+}
+
+func TestConditionRuntimeErrors(t *testing.T) {
+	broken := rule("needs-header", types.GuardrailActionBlock, "secrets")
+	broken.Condition = `headers["x-team"] == "a"`
+	store := &fakeStore{
+		profiles: []types.GuardrailProfile{profile("secrets", "secrets", nil)},
+		rules:    []types.GuardrailRule{broken},
+	}
+	vars := map[string]any{"headers": map[string]string{}}
+
+	// Fail-open: the rule is skipped, but the failure is recorded.
+	d := evaluate(t, store, Identity{UserID: "u1"}, vars, Segment{Role: RoleUser, Text: "hello"})
+	if d.Blocked {
+		t.Fatalf("a fail-open rule must not block: %+v", d)
+	}
+	if got := store.outcomes(); len(got) != 1 || got[0] != "error" {
+		t.Fatalf("expected an error event, got %v", got)
+	}
+
+	// Fail-closed: the request is blocked.
+	store.rules[0].FailClosed = true
+	if d := evaluate(t, store, Identity{UserID: "u1"}, vars, Segment{Role: RoleUser, Text: "hello"}); !d.Blocked || !strings.Contains(d.Message, "needs-header") {
+		t.Fatalf("a fail-closed rule whose condition fails must block: %+v", d)
+	}
+}
+
+func TestFindingsOnDeliveredContentAreErrors(t *testing.T) {
+	store := &fakeStore{
+		profiles: []types.GuardrailProfile{profile("secrets", "secrets", nil)},
+		rules:    []types.GuardrailRule{rule("redact", types.GuardrailActionRedact, "secrets")},
+	}
+	e := New(t.Context(), store, nil)
+	plan, err := e.Plan(t.Context(), types.GuardrailTargetLLM, StageOutput, Identity{UserID: "u1"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := e.Evaluate(t.Context(), plan, Request{
+		Target: types.GuardrailTargetLLM, Stage: StageOutput, Identity: Identity{UserID: "u1"}, Delivered: true,
+		Segments: []Segment{{Role: RoleAssistant, Text: "key AKIAIOSFODNN7EXAMPLE"}},
+	})
+	e.Flush()
+	if !d.Blocked || d.Redacted {
+		t.Fatalf("content already delivered can't be redacted; the response must end: %+v", d)
+	}
+	if got := store.outcomes(); len(got) != 1 || got[0] != "error" {
+		t.Fatalf("expected an error event rather than a redaction, got %v", got)
+	}
+}
+
+func TestJudgeExplanationIsShownButNotStored(t *testing.T) {
+	findings := []Finding{{Category: "policy", Message: "Violates the policy", Explanation: "Your message mentions AKIA..."}}
+	r := &compiledRule{rule: types.GuardrailRule{Name: "judge"}}
+	if msg := blockMessage(r, findings); !strings.Contains(msg, "Your message mentions") {
+		t.Fatalf("the caller should see the explanation: %s", msg)
+	}
+	raw, _ := json.Marshal(findings)
+	if strings.Contains(string(raw), "AKIA") {
+		t.Fatalf("the explanation must not be stored: %s", raw)
+	}
 }
