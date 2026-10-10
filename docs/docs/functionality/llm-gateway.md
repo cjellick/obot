@@ -28,23 +28,24 @@ https://<your-obot-host>/api/llm-proxy
 - **Fallbacks.** Add `"fallbacks": ["anthropic/claude-sonnet-4-5"]` to a request to fail over to other models when the primary one errors. Each fallback must also be a model you have access to.
 - **Endpoints.** `/v1/chat/completions`, `/v1/responses`, `/v1/responses/input_tokens`, `/v1/messages`, `/v1/messages/count_tokens`, `/v1/embeddings` and `/v1/models`.
 - **Authentication and access** work exactly as for the rest of the gateway: use an Obot API key (`obot login --scope llm --print-token`), and you can call only the models granted to you by [Model Access Policies](./model-access-policies.md). [Guardrails](./guardrails.md), the LLM audit log and usage reporting all apply.
-- **Budgets.** Gateway usage is limited by the budgets on the **Budgets & Limits** page instead of the server's daily token limits. When the gateway first starts, the configured daily limits become a *Daily token limit* budget for everyone (administrators exempt), which you can edit or remove. A request that would exceed a budget gets `429` with the budget's name and when more becomes available.
+- **Budgets.** Gateway usage is limited by the budgets on the **Budgets & Limits** tab of the **Models** page instead of the server's daily token limits. When the gateway first starts, the configured daily limits become a *Daily token limit* budget for everyone (administrators exempt), which you can edit or remove. A request that would exceed a budget gets `429` with the budget's name and when more becomes available.
 
-The **Models** page shows ready-to-copy configuration for Claude Code, Codex, the OpenAI and Anthropic SDKs and `curl`.
+The **Models** tab of the **Models** page shows ready-to-copy configuration for Claude Code, Codex, the OpenAI and Anthropic SDKs and `curl`.
 
 ### Administering the gateway
 
-Administrators manage the gateway under **LLM Gateway** in the sidebar:
+Administrators manage the gateway from these pages:
 
-| Page | What it does |
+| Where | What it does |
 | --- | --- |
-| **Overview** | Requests, success rate, latency, tokens and cost over time, top models, and client setup. |
-| **Providers** | Add upstream providers and their keys. Several keys on one provider are load-balanced by weight, and a key can be limited to specific models. Set base URLs (for self-hosted or proxied endpoints), timeouts, retries with backoff, concurrency and extra headers. Custom providers point at any OpenAI-, Anthropic-, Gemini- or Cohere-compatible endpoint. **Import legacy providers** copies the credentials of Obot's previously configured model providers; this also happens automatically the first time the gateway starts without providers. |
-| **Budgets & Limits** | Caps on spend (USD), total/input/output tokens or requests over a rolling window (e.g. the last 6 hours) or a calendar window (this hour, day, week or month, UTC). A budget either gives each assigned user their own allowance or is one pool shared by everyone assigned, can be limited to specific models, and can exempt administrators. Assign budgets to users, groups or everyone; every budget that applies to a request must have room. Obot enforces budgets from the usage it records in its own database, so they are exact across Obot replicas. |
-| **Guardrails** | Block, redact or log sensitive or unwanted content in model requests and responses (including streams) and, through [guardrail filters](./filters.md#guardrail-filters), in MCP traffic, with built-in secrets, PII and LLM-judge checks and integrations with Presidio, Azure AI Language and Content Safety, AWS Bedrock Guardrails, Google Model Armor, Check Point (Lakera), Patronus and CrowdStrike AIDR. See [Guardrails](./guardrails.md). |
-| **Routing** | Rules that match requests with a [CEL](https://github.com/google/cel-spec) expression (over `model`, `provider`, `headers`, ...) and send them to other providers or models, split traffic by weight, or define fallback chains. |
-| **Request Logs** | Every routed request with its user, provider, key, retries, fallbacks, tokens, cost, latency and content. |
-| **Settings** | Request logging and retention, content logging, queueing behavior, and response caching. |
+| **Usage** → **Gateway** | Requests, success rate, latency, tokens and cost over time, cost by provider and top models. |
+| **Models** → **Providers** | Add upstream providers and their keys. Several keys on one provider are load-balanced by weight, and a key can be limited to specific models. Set base URLs (for self-hosted or proxied endpoints), timeouts, retries with backoff, concurrency and extra headers. Custom providers point at any OpenAI-, Anthropic-, Gemini- or Cohere-compatible endpoint. **Import legacy providers** copies the credentials of Obot's previously configured model providers; this also happens automatically the first time the gateway starts without providers. The per-provider integrations Obot used before the gateway are listed under **Legacy providers** on the same tab. |
+| **Models** → **Budgets & Limits** | Caps on spend (USD), total/input/output tokens or requests over a rolling window (e.g. the last 6 hours) or a calendar window (this hour, day, week or month, UTC). A budget either gives each assigned user their own allowance or is one pool shared by everyone assigned, can be limited to specific models, and can exempt administrators. Assign budgets to users, groups or everyone; every budget that applies to a request must have room. Obot enforces budgets from the usage it records in its own database, so they are exact across Obot replicas. |
+| **Models** → **Guardrails** | Rules that block, redact or log sensitive or unwanted content in model requests and responses (including streams), using the detectors configured under **Guardrails**. |
+| **Guardrails** | **Detectors** configure the checks that guardrails run, for model rules and for [guardrail filters](./filters.md#guardrail-filters) on MCP traffic, with built-in secrets, PII and LLM-judge checks and integrations with Presidio, Azure AI Language and Content Safety, AWS Bedrock Guardrails, Google Model Armor, Check Point (Lakera), Patronus and CrowdStrike AIDR; **Events** lists what guardrails blocked, redacted or logged in model and MCP traffic. See [Guardrails](./guardrails.md). |
+| **Models** → **Routing** | Rules that match requests with a [CEL](https://github.com/google/cel-spec) expression (over `model`, `provider`, `headers`, ...) and send them to other providers or models, split traffic by weight, or define fallback chains. |
+| **Audit Logs** → **Gateway Requests** | Every routed request with its user, provider, key, retries, fallbacks, tokens, cost, latency and content. |
+| **Models** → **Settings** | Request logging and retention, content logging, queueing behavior, and response caching. |
 
 Prometheus metrics for the gateway (requests, latency, tokens and cost by provider, model, key and budget) are served at `GET /api/llm-gateway/metrics` (metric names start with `obot_llm_gateway_`) to administrators, auditors and credentials allowed to read `/debug/metrics`.
 
@@ -69,7 +70,7 @@ The routes below proxy to a single legacy model provider each. They remain avail
 
 ## The Models page
 
-The **Models** page lists the OpenAI, Anthropic, Generic Responses Compatible, Amazon Bedrock, Azure, and Azure Entra models you currently have access to through the gateway. Find it under **Models** in the sidebar (route `/llm-gateway/models`).
+The **Models** page lists the OpenAI, Anthropic, Generic Responses Compatible, Amazon Bedrock, Azure, and Azure Entra models you currently have access to through the gateway. Find it under **AI Resources** → **Models** in the sidebar (route `/models`).
 
 For each provider you have access to, the page shows:
 
@@ -94,12 +95,12 @@ If you don't have access to any gateway models, the page shows a **"No gateway m
 The model name shown on the Models page is the value to put in your request's `model` field (and to select in your client). For OpenAI, Anthropic, and Generic Responses Compatible providers this is the provider's native model ID, including any `/` characters. For Amazon Bedrock, use the Mantle model ID returned by the Bedrock provider, such as `anthropic.claude-sonnet-5`, `openai.gpt-5.4`, or `google.gemma-4-31b`. For Azure and Azure Entra, use the Azure deployment name exactly as configured in Obot; it does not need to resemble the underlying model name.
 :::
 
-The **LLM Gateway** sidebar section also groups the administrator pages that power this feature:
+Administrators also use these pages for this feature:
 
-- **Token Usage** — usage and cost analytics across users and models (admin only).
+- **Usage** — usage and cost analytics across users and models (admin only).
 - **Audit Logs** — request history, token usage, outcomes, and exports for LLM gateway traffic (admin only). See [Audit Logs and Usage](./audit-logs-and-usage.md).
-- **Model Providers** — configure providers and their available models (admin only). See [Model Providers](../configuration/model-providers.md).
-- **Model Access Policies** — control which users can use which models (admin only). See [Model Access Policies](./model-access-policies.md).
+- **Models** → **Providers** — configure providers and their available models (admin only). See [Model Providers](../configuration/model-providers.md).
+- **Models** → **Access Policies** — control which users can use which models (admin only). See [Model Access Policies](./model-access-policies.md).
 
 ## Before you begin
 
@@ -298,7 +299,7 @@ The Azure models endpoint uses Azure's OpenAI-compatible Models API and returns 
 
 #### Provider setup
 
-An administrator configures one of these providers under **Model Providers**:
+An administrator configures one of these providers under **Models** → **Providers**:
 
 - **Azure** requires the Azure resource endpoint (for example, `https://my-resource.services.ai.azure.com`) and an API key.
 - **Azure Entra** requires the Azure resource endpoint plus tenant ID, client ID, and client secret for a service principal. Obot requests tokens for the `https://ai.azure.com/.default` scope. Assign the service principal **Cognitive Services User** or **Foundry User** (formerly Azure AI User) on the specific Foundry resource. **Cognitive Services OpenAI User** may allow OpenAI requests but does not provide all permissions needed for Anthropic requests. See [Azure provider configuration](../configuration/model-providers.md#azure) for portal instructions and official references.
