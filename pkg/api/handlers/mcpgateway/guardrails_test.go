@@ -288,6 +288,23 @@ func TestGuardrailFilterRejectsBatchesAndUncheckableCalls(t *testing.T) {
 	if _, blocked, _ := processor.blockedRequest(); !blocked {
 		t.Fatal("a tool call whose params can't be checked must be blocked")
 	}
+
+	// Two JSON values in one body can't be decoded as one message; a lenient server could
+	// still act on the first.
+	processor = chain.process(t, mustMCPHookRequest(t, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"write","arguments":{"text":"key `+testSecret+`"}}} {"jsonrpc":"2.0","method":"notifications/cancelled"}`), nil, nil)
+	if body, blocked, _ := processor.blockedRequest(); !blocked || strings.Contains(string(body), testSecret) {
+		t.Fatalf("an unparseable message must be rejected while filters apply, got %v %s", blocked, body)
+	}
+}
+
+func TestUnparseableMessagesPassWithoutFilters(t *testing.T) {
+	processor, err := newHookProcessor(mustMCPHookRequest(t, `{"jsonrpc":"2.0","id":1} {}`), nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, blocked, _ := processor.blockedRequest(); blocked {
+		t.Fatal("without filters, the gateway must leave unparseable messages to the server")
+	}
 }
 
 func TestGuardrailFilterChecksResultsOnGETStreams(t *testing.T) {

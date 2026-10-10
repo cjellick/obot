@@ -146,7 +146,13 @@ func newHookProcessor(req *http.Request, runner mcp.HookRunner, hooks mcp.Hooks,
 	}
 
 	var message mcp.Message
-	if decodeMCPHookMessage(body, &message) != nil {
+	if err := decodeMCPHookMessage(body, &message); err != nil {
+		if !processor.disabled {
+			// A message the filters can't read, such as two JSON values in one body, would
+			// reach the server without being checked.
+			processor.requestError = fmt.Errorf("MCP messages that can't be parsed are not supported while filters apply: %w", err)
+			processor.requestResponse = mcpHookErrorResponse(mcp.Message{}, "request", processor.requestError)
+		}
 		return processor, nil
 	}
 
