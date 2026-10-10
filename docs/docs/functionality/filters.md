@@ -6,28 +6,35 @@ title: Filters
 
 Filters are a powerful mechanism for inspecting and controlling tool calls and their results in the MCP Gateway. They provide administrators with the ability to implement custom validation, logging, security checks, or other business logic by intercepting tool requests and responses before they are processed.
 
-Filters can be implemented in two ways:
+Filters can be implemented in three ways:
 
-- **MCP filter servers**: Hosted or remote MCP servers that expose a filter tool. Hosted filters run as separate Docker containers or Kubernetes workloads. Remote filters run at an external MCP endpoint. Obot calls the configured tool when matching MCP traffic is processed.
+- **Guardrail filters**: Checks that Obot runs itself, with [guardrail](./guardrails.md) detectors such as secrets detection, PII detection, an LLM judge or an external content safety service. They block, redact or log what the detectors find. No server, container or deployment is involved.
+- **MCP filter servers**: Hosted or remote MCP servers that expose a filter tool. Hosted filters run as separate Docker containers or Kubernetes workloads. Remote filters run at an external MCP endpoint. Obot calls the configured tool when matching MCP traffic is processed. Obot's [built-in filters](#built-in-filters) are MCP filter servers.
 - **HTTP webhook filters**: HTTP endpoints that receive MCP messages and return a decision to allow or reject them.
 
 When you configure a filter, you can narrow when it runs using selectors that target particular tool calls or MCP (Model Context Protocol) tool functions.
 
-Filter implementations run outside the Obot process. Obot handles proxying, calls the filter, and enforces its response; the target MCP server does not host or enforce the filter. See the [gateway architecture](../concepts/mcp-gateway.md#gateway-architecture).
+Guardrail filters run inside the Obot process. Other filter implementations run outside it: Obot handles proxying, calls the filter, and enforces its response. In both cases the target MCP server does not host or enforce the filter. See the [gateway architecture](../concepts/mcp-gateway.md#gateway-architecture).
 
 ## How Filters Work
 
 1. **MCP Request Interception**: When a request is made to an MCP server, the gateway intercepts it and sends the details to your configured filter
-2. **Payload Inspection**: The separate filter server or webhook receives the payload and performs its validation
+2. **Payload Inspection**: The filter server or webhook receives the payload and performs its validation. A guardrail filter is checked by Obot itself.
 3. **Response Decision**: Your filter returns one of the following decisions:
    - Accept: Allow the tool call to proceed
    - Reject: Block execution and return an error to the user
    - Mutate: Return a modified MCP message, if mutation is allowed for the filter
 4. **Enforcement**: Obot applies the filter response before forwarding the request or returning the response to the client.
 
+When several filters apply to a server, they run as a chain, ordered by the filter's ID. Each filter sees the message as the filters before it left it, so a mutation by one filter is what the next one checks. A rejection by any filter blocks the message. Responses pass through the chain in the same order.
+
+Filters don't apply to Obot's own system MCP servers, such as filter servers themselves, or to the component servers of a composite server, whose traffic is filtered on the composite server.
+
+Each filter that runs on a message is recorded with the message in the MCP audit log, under the filter's name, with its outcome (`ok`, `mutated` or `rejected`) and reason. For a filter server, the audit log also names the filter tool that was called. For a guardrail filter, it says `guardrail`.
+
 ## Gateway Configuration
 
-Filters can be configured in Obot as HTTP webhooks, MCP servers, or by selecting one of the built-in filters. See below for the configuration setup for each type.
+Filters are configured under **MCP Servers > Filters**. Use **Add New Filter** to create a guardrail filter, a custom filter (an HTTP webhook or an MCP server), or one of the built-in filters. See below for the configuration setup for each type. The list of filters shows each filter's type.
 
 ### Selectors
 
@@ -35,6 +42,41 @@ All filter types support selectors to control when your filter is triggered:
 
 - **Specific MCP Tool Call Methods**: Target particular tools or functions
 - **MCP Tool Names, URIS**: Choose which MCP servers the filter applies to
+
+## Guardrail Filters
+
+A guardrail filter checks MCP traffic with [guardrail detectors](./guardrails.md#detectors), the same detectors that check LLM gateway traffic. Obot runs it in-process, in the filter chain with any other filters, so there is no filter server to deploy, configure, launch or restart, and no server details, logs or usage to show. Its detail page has its configuration and its audit logs.
+
+To create one, select **Add New Filter > Create Guardrail** under **MCP Servers > Filters**, then configure:
+
+- **Name**: A descriptive name. It names the filter in block messages, the MCP audit log and guardrail events.
+- **MCP servers and selectors**: Which servers and which methods, tools, prompts or resources the filter applies to, as for any filter.
+- **Detectors**: One or more guardrail detectors. Use **Manage detectors** to create or test them.
+- **Action**:
+  - **Block** rejects the message with an error naming the filter and what was found. You can replace that message with your own.
+  - **Redact** replaces what was found with a label such as `[REDACTED:EMAIL]` and lets the rest through. Some detectors can only tell that content is a problem, not where it is. A redacting filter blocks when one of those finds something.
+  - **Log** only records an event.
+- **Direction**: Whether to check requests to the MCP server, its responses, or both.
+- **Fail closed**: Whether to block when a detector or the condition can't be evaluated, for example because an external service is down or a detector was deleted. By default, the filter is skipped and an error event is recorded.
+- **Sampling rate**: The percentage of matching messages to check, for expensive detectors.
+- **Assigned to**: Users, groups or everyone. A filter with no assignment applies to everyone.
+- **Condition** (optional): A [CEL](https://github.com/google/cel-spec) expression that must be true for the filter to apply. It can use `mcp_method`, `mcp_tool` (the tool or prompt name, or the resource URI), `mcp_arguments` (the tool call's or prompt's arguments), `mcp_server` (the server's display name), `headers` (the request's headers, without credentials), and `user.id` and `user.groups`. For example: `mcp_tool.startsWith("create_") && !("admins" in user.groups)`. Reading a header or argument that isn't there is an error, so test for it first: `"path" in mcp_arguments`.
+
+### What a guardrail filter checks
+
+| Method | Request | Response |
+| --- | --- | --- |
+| `tools/call` | Every string in the tool's arguments | The result's text content, embedded text resources and structured content |
+| `resources/read` | Nothing | The text contents of the resource |
+| `prompts/get` | Every string in the prompt's arguments | The text of the prompt's messages, including embedded text resources |
+
+Images and other binary content are not checked. Other methods carry no content to check and pass through a guardrail filter unchanged.
+
+A blocked request never reaches the MCP server, and a blocked response is replaced by a JSON-RPC error. Responses are checked whichever stream they arrive on, including a GET stream when a client resumes a stream or uses the legacy SSE transport. While any filter applies to a server, JSON-RPC batches sent to it are refused, since filters check one message at a time. A guardrail filter blocks a request whose parameters it can't read.
+
+Every finding and every evaluation error is recorded as a guardrail event, under the filter's name, with the MCP server and tool, prompt or resource. MCP and LLM events are listed together in the guardrail events. The MCP audit log records both the original and the redacted message.
+
+A guardrail filter is shown as not configured while one of its detectors is missing or can't be used, for example because it lacks a required credential. It still runs, and fails as described under **Fail closed**.
 
 ## MCP Filter Servers
 

@@ -6,17 +6,18 @@ title: Guardrails
 
 Guardrails check content flowing through Obot and act on what they find. They apply to:
 
-- **LLM gateway traffic**: requests to models (input) and model responses (output), including streamed responses and tool calls the model makes.
-- **MCP tool calls**: the arguments sent to an MCP server's tool (input) and the result the tool returns (output), for servers reached through Obot's MCP gateway.
+- **LLM gateway traffic**: requests to models (input) and model responses (output), including streamed responses and tool calls the model makes. Guardrail **rules** check this traffic.
+- **MCP traffic**: tool calls and their results, resource contents and prompts, for servers reached through Obot's MCP gateway. [Guardrail filters](./filters.md#guardrail-filters), configured under **MCP Servers > Filters**, check this traffic.
 
-A guardrail can **block** the request or response, **redact** the offending text and let the rest through, or only **log** what it found. Guardrails are managed under **LLM Gateway > Guardrails**.
+A guardrail can **block** the request or response, **redact** the offending text and let the rest through, or only **log** what it found.
 
-Guardrails are made of two things:
+Guardrails are made of:
 
-- **Profiles** configure one detector, such as secrets detection, a PII service or an LLM judge policy, with its settings and credentials.
-- **Rules** decide which traffic is checked, by which profiles, for whom, and what happens when a profile finds something.
+- **Detectors** (also called profiles) configure one check, such as secrets detection, a PII service or an LLM judge policy, with its settings and credentials. LLM rules and MCP guardrail filters share them.
+- **Rules** decide which LLM gateway traffic is checked, by which detectors, for whom, and what happens when a detector finds something.
+- **Guardrail filters** do the same for MCP traffic. They are MCP filters, so they use the same server targeting and selectors as other filters and run in the same filter chain. See [Guardrail filters](./filters.md#guardrail-filters).
 
-## Profiles
+## Detectors
 
 | Type | What it detects | Can redact |
 | --- | --- | --- |
@@ -34,13 +35,14 @@ Guardrails are made of two things:
 
 Credentials such as API keys are stored encrypted and are never shown again after they are saved. Leave a credential blank when editing a profile to keep the current value. Changing where a profile's credentials are sent (its endpoint, base URL or region) requires entering them again, so stored credentials can't be redirected to another server.
 
-Use **Test** on a saved profile to run it against sample text and see what it finds and how the text would be redacted.
+Use **Test** on a saved detector to run it against sample text and see what it finds and how the text would be redacted.
+
+A detector can't be deleted while a rule or a guardrail filter uses it.
 
 ## Rules
 
-Each rule has:
+Rules apply to LLM gateway traffic only. To check MCP traffic, create a [guardrail filter](./filters.md#guardrail-filters). Each rule has:
 
-- **Target**: LLM gateway traffic or MCP tool calls.
 - **Apply to**: input, output or both.
 - **Profiles**: one or more profiles to run.
 - **Action**:
@@ -49,11 +51,9 @@ Each rule has:
   - **Log** only records an event.
 - **Assigned to**: users, groups or everyone. A rule with no assignment applies to everyone.
 - **Condition** (optional): a [CEL](https://github.com/google/cel-spec) expression that must be true for the rule to apply.
-  - For LLM traffic it can use `model` (for example `"openai/gpt-4.1"`), `provider`, `params` and `headers`.
-  - For MCP tool calls it can use `mcp_server`, `mcp_tool` and `mcp_arguments`, as well as `headers`.
-  - Both can use `user.id` and `user.groups`.
-  - For example: `mcp_server == "GitHub" && mcp_tool.startsWith("create_")`.
-  - Reading a header or argument that isn't there is an error, so test for it first: `"x-team" in headers && headers["x-team"] == "sales"`. A condition that fails to evaluate records an error event (at most once a minute per rule); the rule is then skipped, or blocks the request if it fails closed.
+  - It can use `model` (for example `"openai/gpt-4.1"`), `provider`, `params`, `headers`, `user.id` and `user.groups`.
+  - For example: `model.startsWith("openai/") && !("contractors" in user.groups)`.
+  - Reading a header that isn't there is an error, so test for it first: `"x-team" in headers && headers["x-team"] == "sales"`. A condition that fails to evaluate records an error event (at most once a minute per rule); the rule is then skipped, or blocks the request if it fails closed.
 - **Sampling rate**: the percentage of matching traffic to check, for expensive profiles.
 - **Input scope**: whether input checks look at the whole conversation or only what was added since the model last replied. Redacting rules always check the whole conversation, so nothing unredacted is sent.
 - **Fail closed**: whether to block when a profile or the rule's condition can't be evaluated, for example because an external service or the LLM judge's model is down. By default the rule is skipped and an error event is recorded.
@@ -74,17 +74,15 @@ For **streamed responses**, Obot holds the stream while a rule that can block or
 
 A blocked request gets HTTP 400 with an error of type `guardrail_intervention`.
 
-### MCP tool calls
+### MCP gateway
 
-Guardrails run after any MCP hooks configured for the server. For input, every string in the tool call's arguments is checked. For output, the tool result's text content, embedded text resources and structured content are checked. Images and other binary content are not checked.
+MCP traffic is checked by [guardrail filters](./filters.md#guardrail-filters), which run in-process in the MCP gateway's filter chain, in order with any other filters. See that page for what is checked and how outcomes are audited.
 
-A blocked tool call or result is returned to the client as a JSON-RPC error, and the MCP server is never called for a blocked tool call. Results are checked whichever stream they arrive on, including a GET stream when a client resumes a stream or uses the legacy SSE transport. While any MCP guardrail rule exists, JSON-RPC batches are refused, and so are tool calls whose parameters can't be parsed. Guardrail outcomes appear with hook results in the MCP audit log, which records both the original and the redacted message.
-
-For composite MCP servers, `mcp_server` is the composite server's name and `mcp_tool` is the tool name as the composite server exposes it.
+Earlier versions of Obot let a rule target MCP tool calls. When Obot starts, each such rule is converted once into a guardrail filter that applies to `tools/call` on every server in the default catalog, with the rule's detectors, action, direction (input becomes request, output becomes response), fail closed, sampling rate, assignment, condition and block message. The rule is then deleted. A disabled rule becomes a disabled filter.
 
 ## Events
 
-Every finding and every evaluation error is recorded under **Guardrails > Events**. Each event records the rule, profile, target and stage, outcome, user, model or MCP server and tool, and a description of what was found. Events never include the offending content. They are kept for as long as LLM audit logs.
+Every finding and every evaluation error is recorded as a guardrail event, for LLM rules and MCP guardrail filters alike. Each event records the rule or filter, detector, target and stage, outcome, user, model or MCP server and tool, and a description of what was found. For a guardrail filter, the rule is the filter's name and ID. Events never include the offending content. They are kept for as long as LLM audit logs.
 
 ## Message policies
 
@@ -103,14 +101,37 @@ Administrators can manage guardrails under `/api/llm-gateway/guardrails`:
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /providers` | Profile types and their settings |
-| `GET, POST /rules`, `GET, PUT, DELETE /rules/{id}` | Rules |
-| `GET, POST /profiles`, `GET, PUT, DELETE /profiles/{id}` | Profiles (credentials are write-only) |
-| `POST /profiles/{id}/test` | Run a profile against sample text |
+| `GET, POST /rules`, `GET, PUT, DELETE /rules/{id}` | Rules (`target` must be `llm`) |
+| `GET, POST /profiles`, `GET, PUT, DELETE /profiles/{id}` | Detectors (credentials are write-only) |
+| `POST /profiles/{id}/test` | Run a detector against sample text |
 | `POST /validate-condition` | Check a CEL condition |
 | `GET /events` | Events, filterable by `ruleID`, `outcome`, `target`, `userID` and `since` |
+
+Guardrail filters are managed with the filter API, `/api/mcp-webhook-validations`. A guardrail filter has a `guardrail` object in place of a `url`, `mcpServerManifest` or `systemMCPServerCatalogEntryID`:
+
+```json
+{
+  "name": "No secrets in tool calls",
+  "resources": [{ "type": "mcpCatalog", "id": "default" }],
+  "selectors": [{ "method": "tools/call" }],
+  "guardrail": {
+    "detectorIDs": ["<detector id>"],
+    "action": "redact",
+    "direction": "both",
+    "failClosed": false,
+    "samplingRate": 100,
+    "subjects": [{ "type": "group", "id": "<group id>" }],
+    "condition": "mcp_tool != \"search\"",
+    "blockMessage": ""
+  }
+}
+```
+
+`action` is `block`, `redact` or `log`. `direction` is `request`, `response` or `both` (the default). `samplingRate` defaults to 100. `subjects` are `user`, `group` or `everyone`; none means everyone. `allowedToMutate` is set from the action (true for `redact`) and doesn't otherwise apply to guardrail filters.
 
 ## Related topics
 
 - [LLM Gateway](./llm-gateway.md)
 - [MCP Servers](./mcp-servers.md)
+- [Filters](./filters.md)
 - [Audit Logs and Usage](./audit-logs-and-usage.md)

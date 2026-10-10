@@ -19,21 +19,22 @@ Bifrost, the engine embedded as Obot's LLM gateway ([ADR](2026-09-26-embed-bifro
 
 ## Decision
 
-Obot implements guardrails itself (`pkg/guardrails`) and applies the same rules to LLM gateway traffic and to MCP tool calls.
+Obot implements guardrails itself (`pkg/guardrails`) and applies the same detectors (profiles) to LLM gateway traffic, through guardrail rules, and to MCP traffic, through guardrail filters.
 
 - **Data model.** Rules and profiles live in Obot's database (`guardrail_rules`, `guardrail_profiles`). Profile credentials are kept in the encrypted credential store and are write-only through the API. Findings are recorded in `guardrail_events`, without the offending content, and follow the LLM audit log's retention.
 - **Checkers are pluggable.** Each profile type registers a checker that reports findings and, where it can, the spans to redact. There are three built-in checkers (secrets, regex and PII, and an LLM judge) and integrations with eight external services. A redact rule whose checker can't locate a finding blocks instead.
 - **LLM gateway: two Bifrost plugins.** An input plugin is registered before Bifrost's built-in plugins and an output plugin after them, so Bifrost's request logging only ever sees content after it has been checked. They are registered as part of the engine's startup, so the gateway never serves a request without them, and the admin API can't disable them. When a guardrail applies, the plugins turn off Bifrost's raw passthrough (used for Claude Code), so the provider receives the checked request rather than the client's original body. Token counting requests are checked like any other input.
   - **Streams.** The output plugin holds a stream while any rule that can change it applies. It blanks the deltas as they pass through logging, checks the complete response, then rewrites the held chunks, either redacted or ended with an error.
   - **Identity.** Obot's proxy passes the caller's identity to the plugins through a per-request token that maps to an in-process registry. It is not sent in a header anyone can forge.
-- **MCP gateway: after hooks.** Guardrails run in the MCP proxy's hook processor after the configured hooks, on `tools/call` arguments and results. Their outcomes appear in the MCP audit log like hook results.
+- **MCP gateway: guardrail filters.** Guardrails apply to MCP traffic as a type of MCP filter (`MCPWebhookValidation` with a `guardrail` configuration) alongside webhook, custom MCP server and built-in filters. A guardrail filter uses the same server targeting and selectors, runs in the same filter chain in the same order (by resource name), and is audited like other filters. It runs in-process: Obot creates no system MCP server, container or deployment for it, and the hook processor dispatches it to the guardrails engine instead of the hook runner. A block is a rejection in the chain and a redaction is a mutation, so later filters see the redacted message. It checks `tools/call` arguments and results, `resources/read` contents and `prompts/get` arguments and messages, and records guardrail events under the filter's name. Guardrail rules apply to LLM traffic only; rules that targeted MCP before this change are converted into guardrail filters once at startup.
 - **Message policies are folded in.** A message policy is an LLM judge profile used by a blocking rule. Existing policies are converted once at startup. The legacy per-provider LLM routes read judge rules from the guardrail tables. The message policy API becomes read-only.
 
 ## Rationale
 
 - **Build rather than buy Enterprise.** The rule and profile model is small. The value is in the integrations and the enforcement points, and Obot needs those in the MCP gateway too, which Bifrost doesn't cover.
 - **Plugins inside Bifrost rather than checks in Obot's proxy.** Only inside Bifrost can input be redacted before request logging and before fallbacks, retries and caching see it, and streamed output be held and rewritten in Bifrost's own chunk format for every API dialect.
-- **One engine for both gateways.** Rules, conditions, events and the UI are shared, so an administrator configures, for example, secrets redaction once for models and tools.
+- **One engine for both gateways.** Detectors, conditions and events are shared, so an administrator configures, for example, secrets detection once for models and tools.
+- **MCP guardrails as filters rather than a separate step.** A separate guardrail step after the filter chain had its own server targeting (CEL over the server's display name), covered only tool calls, and appeared in audit logs as a fake hook. As a filter type, MCP guardrails share the targeting, ordering, auditing and UI that administrators already use for MCP filters. Running them in-process, rather than as a filter server, avoids deploying a container to call code that is already in Obot.
 
 ## Consequences
 
@@ -45,7 +46,8 @@ Obot implements guardrails itself (`pkg/guardrails`) and applies the same rules 
 ## References
 
 - `pkg/guardrails/`: engine, checkers, LLM gateway plugins, MCP checks, message policy conversion
-- `pkg/api/handlers/mcpgateway/guardrails.go`: MCP gateway integration
+- `pkg/api/handlers/mcpgateway/guardrails.go`, `proxy_hooks.go`: guardrail filters in the MCP filter chain
+- `apiclient/types/mcpwebhookvalidation.go`: guardrail filter configuration
 - `pkg/api/handlers/guardrails.go`: API
 - `ui/user/src/routes/llm-gateway/guardrails/`: admin UI
 - [Bifrost Enterprise guardrails](https://docs.getbifrost.ai/enterprise/guardrails)
