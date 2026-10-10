@@ -34,7 +34,8 @@ type MigrationStore interface {
 
 // MigrateMessagePolicies converts message policies into guardrails: each becomes an LLM
 // judge profile with its definition and a blocking rule with its subjects. Policies on user
-// messages check model input, and policies on tool calls check model output.
+// messages check model input, and policies on tool calls check model output. The rules fail
+// closed, as message policies did.
 //
 // enforced reports whether message policies were being enforced (the message policy feature
 // was enabled). If not, the rules are created disabled, so policies that never applied don't
@@ -96,8 +97,11 @@ func MigrateMessagePolicies(ctx context.Context, store MigrationStore, policies 
 			Action:       gatewaytypes.GuardrailActionBlock,
 			SamplingRate: 100,
 			InputScope:   gatewaytypes.GuardrailScopeLatest,
-			ProfileIDs:   []string{profile.ID},
-			Subjects:     subjects,
+			// Message policies blocked when the judge couldn't decide, for example because
+			// its model was unavailable; keep that, rather than letting traffic through.
+			FailClosed: true,
+			ProfileIDs: []string{profile.ID},
+			Subjects:   subjects,
 		}
 		if err := store.CreateGuardrailRule(ctx, rule); err != nil {
 			return fmt.Errorf("failed to convert message policy %s: %w", p.ID, err)

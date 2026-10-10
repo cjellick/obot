@@ -472,6 +472,7 @@ flowchart LR
   - Selector `*` → everyone; user → user; group → group.
   - A policy with no subjects applied to no one, so it converts to a disabled
     rule.
+  - The rules fail closed, as message policies did when the judge failed.
 - **Legacy routes.** The legacy per-provider routes still evaluate policies
   themselves. `messagepolicy.Helper` now reads its policies from the
   guardrail tables: enabled, blocking, LLM-target rules with judge profiles.

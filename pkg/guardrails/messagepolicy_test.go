@@ -49,6 +49,11 @@ func TestMigrateMessagePolicies(t *testing.T) {
 	for _, r := range store.rules {
 		byID[r.ID] = r
 	}
+	for id, r := range byID {
+		if !r.FailClosed {
+			t.Errorf("rule %s doesn't fail closed; message policies blocked when the judge failed", id)
+		}
+	}
 	if r := byID["mp-mp1"]; r.ApplyTo != types.GuardrailApplyInput || r.Action != types.GuardrailActionBlock || !r.Enabled || r.Subjects[0].Type != "group" || r.Subjects[0].ID != "sales" {
 		t.Fatalf("unexpected rule %+v", r)
 	}

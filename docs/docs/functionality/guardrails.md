@@ -101,6 +101,8 @@ Message policies are now LLM Judge guardrails. When Obot starts, each existing m
 - Policies on **tool calls** become output rules.
 - Policies on **both** become rules for input and output.
 
+The rules fail closed, as message policies did: when the judge's model is unavailable, the request is blocked.
+
 The original policies are kept but no longer enforced. The message policy API is now read-only. Violations found through the legacy per-provider LLM routes are recorded as guardrail events too.
 
 ## API
