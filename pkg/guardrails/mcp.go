@@ -142,10 +142,10 @@ func filterRule(f MCPFilter, profiles map[string]*compiledProfile) *compiledRule
 func (e *Engine) CheckMCPFilter(ctx context.Context, f MCPFilter, msg MCPMessage) MCPDecision {
 	_, profiles, err := e.loadAll(ctx)
 	if err != nil {
-		slog.Error("failed to load guardrail detectors", "filter", f.Name, "error", err)
-		if !f.Config.FailClosed {
-			return MCPDecision{}
-		}
+		// Unlike a detector failing (which the filter's fail-closed setting decides), this means
+		// no detector can run at all. Block, as any filter that errors does and as model
+		// guardrails do when their rules can't be loaded.
+		slog.Error("failed to load guardrail detectors; blocking", "filter", f.Name, "error", err)
 		return MCPDecision{Applied: true, Blocked: true, Message: fmt.Sprintf("Blocked: the %q guardrail filter could not be evaluated.", f.Name)}
 	}
 

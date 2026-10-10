@@ -56,8 +56,10 @@ func MCPRuleFilter(rule gatewaytypes.GuardrailRule, namespace string) *v1.MCPWeb
 		Namespace: namespace,
 		Spec: v1.MCPWebhookValidationSpec{
 			Manifest: types.MCPWebhookValidationManifest{
-				Name:            rule.Name,
-				Resources:       []types.Resource{{Type: types.ResourceTypeMcpCatalog, ID: system.DefaultCatalog}},
+				Name: rule.Name,
+				// MCP guardrail rules applied to every proxied MCP server, including those in
+				// power-user workspaces, so the filter targets every server too.
+				Resources:       []types.Resource{{Type: types.ResourceTypeSelector, ID: "*"}},
 				Selectors:       types.MCPSelectors{{Method: MCPMethodToolsCall}},
 				AllowedToMutate: rule.Action == gatewaytypes.GuardrailActionRedact,
 				Disabled:        !rule.Enabled,

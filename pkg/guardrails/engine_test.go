@@ -17,6 +17,8 @@ type fakeStore struct {
 	profiles []types.GuardrailProfile
 	secrets  map[string]map[string]string
 	events   []types.GuardrailEvent
+	// loadErr makes listing rules and profiles fail, like an unreachable database.
+	loadErr error
 }
 
 // misplacedChecker reports a finding whose span doesn't fit the text, like a service whose
@@ -42,11 +44,11 @@ func init() {
 }
 
 func (f *fakeStore) ListGuardrailRules(context.Context) ([]types.GuardrailRule, error) {
-	return f.rules, nil
+	return f.rules, f.loadErr
 }
 
 func (f *fakeStore) ListGuardrailProfiles(context.Context) ([]types.GuardrailProfile, error) {
-	return f.profiles, nil
+	return f.profiles, f.loadErr
 }
 
 func (f *fakeStore) GuardrailProfileSecrets(_ context.Context, id string) (map[string]string, error) {

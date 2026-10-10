@@ -84,7 +84,7 @@ func TestMigrateMCPRules(t *testing.T) {
 	}
 	want := types.MCPWebhookValidationManifest{
 		Name:            "No secrets",
-		Resources:       []types.Resource{{Type: types.ResourceTypeMcpCatalog, ID: "default"}},
+		Resources:       []types.Resource{{Type: types.ResourceTypeSelector, ID: "*"}},
 		Selectors:       types.MCPSelectors{{Method: "tools/call"}},
 		AllowedToMutate: true,
 		Guardrail: &types.MCPGuardrailFilterConfig{

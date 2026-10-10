@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -149,6 +150,17 @@ func TestMCPFilterMissingDetector(t *testing.T) {
 	e.Flush()
 	if got := store.outcomes(); len(got) != 2 || got[0] != "error" {
 		t.Fatalf("unexpected events %v", got)
+	}
+}
+
+func TestMCPFilterBlocksWhenDetectorsCannotBeLoaded(t *testing.T) {
+	e, store := secretsEngine(t)
+	store.loadErr = errors.New("database unavailable")
+	e.Invalidate()
+	f := secretsFilter(apitypes.MCPGuardrailActionLog, "")
+	msg := MCPMessage{Method: MCPMethodToolsCall, Name: "send", Stage: StageInput, Params: json.RawMessage(`{"name":"send","arguments":{"a":"b"}}`)}
+	if d := e.CheckMCPFilter(t.Context(), f, msg); !d.Blocked {
+		t.Fatalf("a filter that can't load its detectors must block, even when fail-open: %+v", d)
 	}
 }
 
