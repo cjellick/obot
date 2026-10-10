@@ -4,10 +4,29 @@ import { AdminService, UserService, type Model, type ModelProvider } from '$lib/
 import type { ModelAccessPolicy } from '$lib/services/admin/types';
 import accessibleModels, { filterAccessibleModels } from '$lib/stores/accessibleModels.svelte';
 import type { PageLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
 
-const views = new Set(['models', 'model-providers', 'access-policies']);
+const views = new Set([
+	'models',
+	'providers',
+	'routing',
+	'budgets',
+	'guardrails',
+	'access-policies',
+	'settings'
+]);
+
+// Older links point at the legacy model providers tab, which now lives on the Providers tab.
+const viewAliases: Record<string, string> = { 'model-providers': 'providers' };
 
 export const load: PageLoad = async ({ fetch, parent, url }) => {
+	const alias = viewAliases[url.searchParams.get('view') ?? ''];
+	if (alias) {
+		const searchParams = new URLSearchParams(url.searchParams);
+		searchParams.set('view', alias);
+		throw redirect(307, `${url.pathname}?${searchParams}`);
+	}
+
 	const { profile, models: initialModels } = await parent();
 	const hasAdminAccess = profile.hasAdminAccess?.() ?? false;
 	const requestedView = url.searchParams.get('view');
@@ -37,7 +56,7 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 		}
 	} else if (hasAdminAccess) {
 		switch (view) {
-			case 'model-providers':
+			case 'providers':
 				try {
 					modelProviders = await AdminService.listModelProviders({ fetch });
 				} catch (err) {

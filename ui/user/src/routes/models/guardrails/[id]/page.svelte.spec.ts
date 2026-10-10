@@ -1,7 +1,7 @@
 import { page as appPage } from '$app/state';
 import { goto } from '$lib/url';
-import { preparePageData } from '../../../../../tests/helpers/pageData';
-import { worker } from '../../../../../tests/mocks/worker';
+import { preparePageData } from '../../../../tests/helpers/pageData';
+import { worker } from '../../../../tests/mocks/worker';
 import RulePage from './+page.svelte';
 import { http, HttpResponse } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -60,8 +60,8 @@ afterEach(() => {
 	delete (appPage.params as Record<string, string>).id;
 });
 
-describe('Guardrail rule editor', () => {
-	it('creates a rule with the selected profiles and condition', async () => {
+describe('Model guardrail rule editor', () => {
+	it('creates a rule with the selected detectors and condition', async () => {
 		mockProfilesAndProviders();
 		const created = vi.fn();
 		worker.use(
@@ -97,7 +97,7 @@ describe('Guardrail rule editor', () => {
 				subjects: []
 			})
 		);
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/llm-gateway/guardrails'));
+		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/models?view=guardrails'));
 	});
 
 	it('shows condition errors as the condition is typed', async () => {
@@ -115,15 +115,44 @@ describe('Guardrail rule editor', () => {
 		await expect.element(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 	});
 
-	it('shows MCP variables for MCP rules', async () => {
+	it('only offers model rules, with model condition variables', async () => {
 		mockProfilesAndProviders();
 		await preparePageData();
 		render(RulePage);
 
 		await expect.element(page.getByText('provider', { exact: true })).toBeInTheDocument();
-		await page.getByLabelText('Target').selectOptions('mcp');
-		await expect.element(page.getByText('mcp_tool', { exact: true })).toBeInTheDocument();
-		await expect.element(page.getByText('provider', { exact: true })).not.toBeInTheDocument();
+		await expect.element(page.getByText('mcp_tool', { exact: true })).not.toBeInTheDocument();
+		await expect.element(page.getByLabelText('Target')).not.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('link', { name: 'Create a detector' }))
+			.toHaveAttribute('href', '/guardrails?view=detectors');
+	});
+
+	it('saves an existing rule as a model rule', async () => {
+		mockProfilesAndProviders();
+		mockRedactingRule();
+		const updated = vi.fn();
+		worker.use(
+			http.put('/api/llm-gateway/guardrails/rules/:id', async ({ params, request }) => {
+				updated(params.id, await request.json());
+				return HttpResponse.json({ id: 'r2' });
+			})
+		);
+		await preparePageData();
+		render(RulePage);
+
+		await expect
+			.element(page.getByLabelText('Name', { exact: true }))
+			.toHaveValue('Redact everything');
+		await page.getByRole('combobox', { name: 'Apply to' }).click();
+		await page.getByRole('button', { name: 'Input & output', exact: true }).click();
+		await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+		await vi.waitFor(() => expect(updated).toHaveBeenCalledOnce());
+		expect(updated).toHaveBeenCalledWith(
+			'r2',
+			expect.objectContaining({ target: 'llm', applyTo: 'both', action: 'redact' })
+		);
 	});
 
 	function mockRedactingRule() {
@@ -172,7 +201,8 @@ describe('Guardrail rule editor', () => {
 		expect(warning.element().textContent?.replace(/\s+/g, ' ')).toContain(
 			'Content safety uses a provider'
 		);
-		await page.getByLabelText('Action').selectOptions('block');
+		await page.getByRole('combobox', { name: 'Action' }).click();
+		await page.getByRole('button', { name: 'Block', exact: true }).click();
 		await expect.element(warning).not.toBeInTheDocument();
 	});
 });

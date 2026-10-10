@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import Confirm from '$lib/components/Confirm.svelte';
 	import Layout from '$lib/components/Layout.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 	import Toggle from '$lib/components/Toggle.svelte';
 	import ProviderKeyDialog from '$lib/components/llm-gateway/ProviderKeyDialog.svelte';
 	import IconButton from '$lib/components/primitives/IconButton.svelte';
@@ -30,6 +31,8 @@
 	import { goto } from '$lib/url';
 	import { Pencil, Plus, RefreshCw, Trash2 } from '@lucide/svelte';
 	import { onMount } from 'svelte';
+
+	const PROVIDERS_URL = '/models?view=providers';
 
 	let name = $derived(decodeURIComponent(page.params.name ?? ''));
 	let provider = $state<Provider>();
@@ -158,8 +161,7 @@
 <Layout
 	title={base ? name : providerLabel(name)}
 	showBackButton
-	onBackButtonClick={() => goto('/llm-gateway/providers')}
-	classes={{ childrenContainer: 'max-w-6xl' }}
+	onBackButtonClick={() => goto(PROVIDERS_URL)}
 >
 	{#snippet rightNavActions()}
 		{#if !readonly && provider}
@@ -174,10 +176,14 @@
 	{/snippet}
 
 	{#if loading}
-		<div class="flex justify-center p-12"><Loading class="size-8" /></div>
+		<Skeleton
+			type="table"
+			count={4}
+			classes={{ header: 'h-14 rounded-none', body: 'rounded-none' }}
+		/>
 	{:else if provider}
-		<div class="flex flex-col gap-8">
-			<div class="flex items-center gap-3">
+		<div class="flex flex-col gap-6">
+			<div class="paper flex-row items-center gap-3">
 				{#if providerIcon(base ?? name)}
 					<img src={providerIcon(base ?? name)} alt="" class="size-10 rounded object-contain" />
 				{/if}
@@ -190,9 +196,14 @@
 				</div>
 			</div>
 
-			<section class="flex flex-col gap-2">
-				<div class="flex items-center justify-between">
-					<h2 class="text-lg font-semibold">Keys</h2>
+			<section class="paper">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<div>
+						<h2 class="text-lg font-semibold">Keys</h2>
+						<p class="text-muted-content text-sm">
+							Requests are load-balanced across enabled keys by weight.
+						</p>
+					</div>
 					{#if !readonly && !provider.custom_provider_config?.is_key_less}
 						<button
 							class="btn btn-primary flex items-center gap-1 text-sm"
@@ -252,9 +263,14 @@
 				</Table>
 			</section>
 
-			<section class="flex flex-col gap-2">
-				<h2 class="text-lg font-semibold">Network &amp; reliability</h2>
-				<div class="paper grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
+			<section class="paper">
+				<div>
+					<h2 class="text-lg font-semibold">Network &amp; reliability</h2>
+					<p class="text-muted-content text-sm">
+						How the gateway connects to this provider, retries and queues requests.
+					</p>
+				</div>
+				<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 					<div class="flex flex-col gap-1 md:col-span-2">
 						<label for="p-base-url" class="text-sm font-light">Base URL</label>
 						<input
@@ -356,19 +372,19 @@
 							</button>
 						{/if}
 					</div>
-					{#if !readonly}
-						<div class="flex justify-end md:col-span-2">
-							<button class="btn btn-primary text-sm" onclick={saveNetwork} disabled={saving}>
-								{#if saving}<Loading class="size-4" />{:else}Save{/if}
-							</button>
-						</div>
-					{/if}
 				</div>
 			</section>
 
-			<section class="flex flex-col gap-2">
-				<div class="flex items-center justify-between">
-					<h2 class="text-lg font-semibold">Models ({models.length})</h2>
+			<section class="paper">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<div>
+						<h2 class="text-lg font-semibold">Models ({models.length})</h2>
+						<p class="text-muted-content text-sm">
+							Models appear on the <a href={resolve('/models?view=models')} class="text-link"
+								>Models</a
+							> page, where access policies decide who can use them.
+						</p>
+					</div>
 					{#if !readonly}
 						<button
 							class="btn btn-secondary flex items-center gap-1 text-sm"
@@ -380,7 +396,7 @@
 						</button>
 					{/if}
 				</div>
-				<div class="paper flex flex-row flex-wrap gap-1.5 p-4">
+				<div class="flex flex-row flex-wrap gap-1.5">
 					{#each models as m (m.name)}
 						<span class="bg-base-200 dark:bg-base-300 rounded px-2 py-0.5 font-mono text-xs"
 							>{m.name}</span
@@ -389,12 +405,20 @@
 						<span class="text-muted-content text-sm">No models listed yet.</span>
 					{/each}
 				</div>
-				<p class="text-muted-content text-xs">
-					Models appear on the <a href={resolve('/models')} class="text-link">Models</a> page, where access
-					policies decide who can use them.
-				</p>
 			</section>
 		</div>
+
+		{#if !readonly}
+			<div
+				class="bg-base-200 dark:bg-base-100 sticky bottom-0 left-0 z-40 flex w-full justify-end gap-2 py-4"
+			>
+				<button class="btn btn-secondary text-sm" onclick={() => goto(PROVIDERS_URL)}>Cancel</button
+				>
+				<button class="btn btn-primary text-sm" onclick={saveNetwork} disabled={saving}>
+					{#if saving}<Loading class="size-4" />{:else}Save{/if}
+				</button>
+			</div>
+		{/if}
 	{/if}
 </Layout>
 
@@ -450,7 +474,7 @@
 	onsuccess={async () => {
 		await deleteProvider(name);
 		deleting = false;
-		goto('/llm-gateway/providers');
+		goto(PROVIDERS_URL);
 	}}
 	oncancel={() => (deleting = false)}
 />

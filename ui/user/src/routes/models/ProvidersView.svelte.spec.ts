@@ -1,25 +1,15 @@
 import { Group } from '$lib/services';
 import { goto } from '$lib/url';
-import { createMockProfile, preparePageData } from '../../../tests/helpers/pageData';
-import { worker } from '../../../tests/mocks/worker';
-import ProvidersPage from './+page.svelte';
+import { worker } from '../../tests/mocks/worker';
+import { readyStatus, renderModelsTab, resetModelsTab } from './testing';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 
 vi.mock(import('$lib/url'), async (importOriginal) => ({
 	...(await importOriginal()),
 	goto: vi.fn()
 }));
-
-const readyStatus = {
-	enabled: true,
-	ready: true,
-	hasProviders: true,
-	modelProviderName: 'llm-gateway-model-provider',
-	proxyPath: '/api/llm-proxy'
-};
 
 const openai = {
 	name: 'openai',
@@ -49,18 +39,42 @@ function mockGateway({
 }
 
 async function renderProvidersPage(groups: string[] = [Group.ADMIN]) {
-	await preparePageData({ profile: createMockProfile(groups) });
-	return render(ProvidersPage);
+	return renderModelsTab('providers', groups);
 }
 
-describe('LLM gateway providers page', () => {
-	it('lists configured providers with their key counts', async () => {
+afterEach(resetModelsTab);
+
+describe('Models providers tab', () => {
+	it('lists gateway providers as provider cards with their key counts', async () => {
 		mockGateway();
 		await renderProvidersPage();
 
-		await expect.element(page.getByText('OpenAI', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { name: 'OpenAI' })).toBeInTheDocument();
 		await expect.element(page.getByText('1 key', { exact: true })).toBeInTheDocument();
-		await expect.element(page.getByText('Retries: 2')).toBeInTheDocument();
+		await expect.element(page.getByText('Configured', { exact: true })).toBeInTheDocument();
+	});
+
+	it('opens a provider from its card', async () => {
+		mockGateway();
+		await renderProvidersPage();
+
+		await page.getByRole('button', { name: 'Modify' }).click();
+
+		expect(goto).toHaveBeenCalledWith('/models/providers/openai');
+	});
+
+	it('shows the legacy providers in their own section', async () => {
+		mockGateway();
+		await renderProvidersPage();
+
+		await expect
+			.element(page.getByRole('heading', { name: 'Legacy providers' }))
+			.toBeInTheDocument();
+		await expect
+			.element(
+				page.getByText('Per-provider integrations Obot used before the gateway', { exact: false })
+			)
+			.toBeInTheDocument();
 	});
 
 	it('shows an empty state when no providers are configured', async () => {
@@ -84,7 +98,8 @@ describe('LLM gateway providers page', () => {
 		mockGateway();
 		await renderProvidersPage([Group.AUDITOR]);
 
-		await expect.element(page.getByText('OpenAI', { exact: true })).toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { name: 'OpenAI' })).toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'View' })).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('button', { name: 'Add Provider' }))
 			.not.toBeInTheDocument();
@@ -145,6 +160,6 @@ describe('LLM gateway providers page', () => {
 		expect(keyCreated).toHaveBeenCalledWith(
 			expect.objectContaining({ name: 'groq-key-1', value: 'gsk_secret', models: ['*'] })
 		);
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/llm-gateway/providers/groq'));
+		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/models/providers/groq'));
 	});
 });

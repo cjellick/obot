@@ -1,16 +1,16 @@
 import { Group } from '$lib/services';
 import { goto } from '$lib/url';
-import { createMockProfile, preparePageData } from '../../../tests/helpers/pageData';
-import { worker } from '../../../tests/mocks/worker';
-import BudgetsPage from './+page.svelte';
+import { worker } from '../../tests/mocks/worker';
+import { renderModelsTab, resetModelsTab } from './testing';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 
 vi.mock(import('$lib/url'), async (importOriginal) => ({
 	...(await importOriginal()),
-	goto: vi.fn()
+	goto: vi.fn(),
+	// The search box syncs its query to the URL, which needs a router the specs don't have.
+	replaceState: vi.fn()
 }));
 
 const engineering = {
@@ -46,11 +46,12 @@ function mockBudgets(budgets: unknown[] = [engineering, sales]) {
 }
 
 async function renderBudgetsPage(groups: string[] = [Group.ADMIN]) {
-	await preparePageData({ profile: createMockProfile(groups) });
-	return render(BudgetsPage);
+	return renderModelsTab('budgets', groups);
 }
 
-describe('LLM gateway budgets page', () => {
+afterEach(resetModelsTab);
+
+describe('Models budgets tab', () => {
 	it('lists budgets with their assignment, allowance and limits', async () => {
 		mockBudgets();
 		await renderBudgetsPage();
@@ -94,7 +95,7 @@ describe('LLM gateway budgets page', () => {
 
 		await page.getByRole('button', { name: 'Add Budget' }).click();
 
-		expect(goto).toHaveBeenCalledWith('/llm-gateway/budgets/new');
+		expect(goto).toHaveBeenCalledWith('/models/budgets/new');
 	});
 
 	it('deletes a budget after confirmation and reloads the list', async () => {
@@ -149,6 +150,23 @@ describe('LLM gateway budgets page', () => {
 		await expect.element(page.getByRole('button', { name: 'Add Budget' })).not.toBeInTheDocument();
 		await expect
 			.element(page.getByRole('button', { name: 'Delete budget' }))
+			.not.toBeInTheDocument();
+	});
+
+	it('filters budgets with the search box', async () => {
+		mockBudgets();
+		await renderBudgetsPage();
+
+		await expect
+			.element(page.getByRole('cell', { name: 'Sales', exact: true }))
+			.toBeInTheDocument();
+		await page.getByPlaceholder('Search budgets...').fill('engin');
+
+		await expect
+			.element(page.getByRole('cell', { name: 'Engineering', exact: true }))
+			.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('cell', { name: 'Sales', exact: true }))
 			.not.toBeInTheDocument();
 	});
 });

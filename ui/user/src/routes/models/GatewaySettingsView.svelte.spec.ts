@@ -1,7 +1,7 @@
 import { Group } from '$lib/services';
-import { createMockProfile, preparePageData } from '../../../tests/helpers/pageData';
-import { worker } from '../../../tests/mocks/worker';
-import SettingsPage from './+page.svelte';
+import { createMockProfile, preparePageData } from '../../tests/helpers/pageData';
+import { worker } from '../../tests/mocks/worker';
+import SettingsPage from './GatewaySettingsView.svelte';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
@@ -60,6 +60,10 @@ function mockGateway({
 			})
 		),
 		http.get('/api/llm-gateway/admin/plugins', () => HttpResponse.json({ plugins })),
+		// The single Save also writes the cache plugin; specs that care override these.
+		http.post('/api/llm-gateway/admin/plugins', () => HttpResponse.json({})),
+		http.put('/api/llm-gateway/admin/plugins/:name', () => HttpResponse.json({})),
+		http.put('/api/llm-gateway/admin/config', () => HttpResponse.json({})),
 		http.get('/api/llm-gateway/admin/providers', () =>
 			HttpResponse.json({
 				providers: [
@@ -80,15 +84,11 @@ async function renderSettingsPage(groups: string[] = [Group.ADMIN]) {
 	return render(SettingsPage);
 }
 
-function generalSave() {
-	return page.getByRole('button', { name: 'Save', exact: true }).first();
+function save() {
+	return page.getByRole('button', { name: 'Save', exact: true });
 }
 
-function cacheSave() {
-	return page.getByRole('button', { name: 'Save', exact: true }).last();
-}
-
-describe('LLM gateway settings page', () => {
+describe('Models gateway settings tab', () => {
 	it('loads the current logging and traffic settings', async () => {
 		mockGateway();
 		await renderSettingsPage();
@@ -106,7 +106,7 @@ describe('LLM gateway settings page', () => {
 			.not.toBeChecked();
 	});
 
-	it('sends the full client and framework config when saving general settings', async () => {
+	it('sends the full client and framework config when saving', async () => {
 		mockGateway();
 		const saved = vi.fn();
 		worker.use(
@@ -122,9 +122,11 @@ describe('LLM gateway settings page', () => {
 			.getByRole('switch', { name: "Reject requests when a provider's queue is full" })
 			.click();
 		await page.getByLabelText('Log retention (days)').fill('7');
-		await generalSave().click();
+		await save().click();
 
 		await vi.waitFor(() => expect(saved).toHaveBeenCalledOnce());
+		// The cache plugin write follows; let it finish so it can't reach the next test's mocks.
+		await expect.element(save()).toBeEnabled();
 		expect(saved).toHaveBeenCalledWith({
 			client_config: {
 				...clientConfig,
@@ -149,9 +151,11 @@ describe('LLM gateway settings page', () => {
 		await renderSettingsPage();
 
 		await page.getByRole('switch', { name: 'Log requests' }).click();
-		await generalSave().click();
+		await save().click();
 
 		await vi.waitFor(() => expect(saved).toHaveBeenCalledOnce());
+		// The cache plugin write follows; let it finish so it can't reach the next test's mocks.
+		await expect.element(save()).toBeEnabled();
 		expect(saved).toHaveBeenCalledWith({
 			client_config: { ...clientConfig, enable_logging: false },
 			framework_config: frameworkConfig
@@ -174,8 +178,10 @@ describe('LLM gateway settings page', () => {
 		);
 		await renderSettingsPage();
 
-		await page.getByRole('switch', { name: 'Enable caching' }).click();
-		await cacheSave().click();
+		const enableCaching = page.getByRole('switch', { name: 'Enable caching' });
+		await enableCaching.click();
+		await expect.element(enableCaching).toBeChecked();
+		await save().click();
 
 		await vi.waitFor(() => expect(created).toHaveBeenCalledOnce());
 		expect(updated).not.toHaveBeenCalled();
@@ -212,7 +218,7 @@ describe('LLM gateway settings page', () => {
 			.element(page.getByLabelText('Embedding model'))
 			.toHaveValue('text-embedding-3-large');
 		await page.getByLabelText('Similarity threshold (0–1)').fill('0.95');
-		await cacheSave().click();
+		await save().click();
 
 		await vi.waitFor(() => expect(updated).toHaveBeenCalledOnce());
 		expect(updated).toHaveBeenCalledWith('semantic_cache', {
@@ -244,6 +250,61 @@ describe('LLM gateway settings page', () => {
 		await expect
 			.element(page.getByRole('switch', { name: 'Enable caching' }))
 			.not.toBeInTheDocument();
+	});
+
+	it('saves the general settings and the cache plugin with one Save', async () => {
+		mockGateway();
+		const saved = vi.fn();
+		const created = vi.fn();
+		worker.use(
+			http.put('/api/llm-gateway/admin/config', async ({ request }) => {
+				saved(await request.json());
+				return HttpResponse.json({});
+			}),
+			http.post('/api/llm-gateway/admin/plugins', async ({ request }) => {
+				created(await request.json());
+				return HttpResponse.json({});
+			})
+		);
+		await renderSettingsPage();
+
+		await page.getByLabelText('Log retention (days)').fill('14');
+		const enableCaching = page.getByRole('switch', { name: 'Enable caching' });
+		await enableCaching.click();
+		await expect.element(enableCaching).toBeChecked();
+		await save().click();
+
+		await vi.waitFor(() => expect(created).toHaveBeenCalledOnce());
+		expect(saved).toHaveBeenCalledWith(
+			expect.objectContaining({
+				client_config: expect.objectContaining({ log_retention_days: 14 })
+			})
+		);
+		expect(created).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
+	});
+
+	it('does not write the cache plugin when no cache server is connected', async () => {
+		mockGateway({ cacheConnected: false });
+		const saved = vi.fn();
+		const created = vi.fn();
+		worker.use(
+			http.put('/api/llm-gateway/admin/config', async ({ request }) => {
+				saved(await request.json());
+				return HttpResponse.json({});
+			}),
+			http.post('/api/llm-gateway/admin/plugins', () => {
+				created();
+				return HttpResponse.json({});
+			})
+		);
+		await renderSettingsPage();
+
+		await save().click();
+
+		await vi.waitFor(() => expect(saved).toHaveBeenCalledOnce());
+		// The cache plugin write follows; let it finish so it can't reach the next test's mocks.
+		await expect.element(save()).toBeEnabled();
+		expect(created).not.toHaveBeenCalled();
 	});
 
 	it('shows settings read-only to auditors', async () => {

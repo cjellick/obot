@@ -1,19 +1,9 @@
 import { Group } from '$lib/services';
-import { createMockProfile, preparePageData } from '../../../tests/helpers/pageData';
-import { worker } from '../../../tests/mocks/worker';
-import RoutingPage from './+page.svelte';
+import { worker } from '../../tests/mocks/worker';
+import { readyStatus, renderModelsTab, resetModelsTab } from './testing';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it, vi } from 'vitest';
-import { render } from 'vitest-browser-svelte';
-import { page } from 'vitest/browser';
-
-const readyStatus = {
-	enabled: true,
-	ready: true,
-	hasProviders: true,
-	modelProviderName: 'llm-gateway-model-provider',
-	proxyPath: '/api/llm-proxy'
-};
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { page, type Locator } from 'vitest/browser';
 
 const provider = (name: string) => ({
 	name,
@@ -50,11 +40,23 @@ function mockGateway({
 }
 
 async function renderRoutingPage(groups: string[] = [Group.ADMIN]) {
-	await preparePageData({ profile: createMockProfile(groups) });
-	return render(RoutingPage);
+	return renderModelsTab('routing', groups);
 }
 
-describe('LLM gateway routing page', () => {
+async function chooseProvider(scope: Locator, name: string, option: string) {
+	await scope.getByRole('combobox', { name }).last().click();
+	await page.getByRole('button', { name: option, exact: true }).click();
+}
+
+// The search box syncs its query to the URL, which needs a router the specs don't have.
+vi.mock(import('$lib/url'), async (importOriginal) => ({
+	...(await importOriginal()),
+	replaceState: vi.fn()
+}));
+
+afterEach(resetModelsTab);
+
+describe('Models routing tab', () => {
 	it('lists rules with their targets, fallbacks and status', async () => {
 		mockGateway();
 		await renderRoutingPage();
@@ -100,11 +102,11 @@ describe('LLM gateway routing page', () => {
 		await dialog.getByLabelText('Target model').fill('claude-sonnet-4-5');
 		await dialog.getByLabelText('Target weight').fill('0.75');
 		await dialog.getByRole('button', { name: 'Add target' }).click();
-		await dialog.getByLabelText('Target provider').last().selectOptions('anthropic');
+		await chooseProvider(dialog, 'Target provider', 'Anthropic');
 		await dialog.getByLabelText('Target weight').last().fill('0.25');
 
 		await dialog.getByRole('button', { name: 'Add fallback' }).click();
-		await dialog.getByLabelText('Fallback provider').selectOptions('anthropic');
+		await chooseProvider(dialog, 'Fallback provider', 'Anthropic');
 		await dialog.getByLabelText('Fallback model').fill('claude-haiku-4-5');
 		// A fallback without a model is dropped from the payload.
 		await dialog.getByRole('button', { name: 'Add fallback' }).click();
@@ -226,5 +228,18 @@ describe('LLM gateway routing page', () => {
 		await expect.element(page.getByRole('button', { name: 'Add Rule' })).not.toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: 'Edit rule' })).not.toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: 'Delete rule' })).not.toBeInTheDocument();
+	});
+
+	it('filters rules with the search box', async () => {
+		mockGateway({
+			rules: [cheapRule, { ...cheapRule, id: 'r2', name: 'Claude split', priority: 2 }]
+		});
+		await renderRoutingPage();
+
+		await expect.element(page.getByText('Claude split')).toBeInTheDocument();
+		await page.getByPlaceholder('Search routing rules...').fill('cheaper');
+
+		await expect.element(page.getByText('Cheaper GPT')).toBeInTheDocument();
+		await expect.element(page.getByText('Claude split')).not.toBeInTheDocument();
 	});
 });

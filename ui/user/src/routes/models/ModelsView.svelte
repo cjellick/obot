@@ -136,12 +136,6 @@
 </script>
 
 <div class="flex h-full w-full flex-col gap-6" in:fade={{ duration }}>
-	<p class="text-muted-content max-w-3xl text-sm">
-		Use the Obot LLM Gateway to call OpenAI, Anthropic, Generic Responses, Amazon Bedrock, and Azure
-		models with your Obot credentials. Configure your client below, then pick from the models you
-		have access to.
-	</p>
-
 	{#if ready}
 		<div class="flex flex-col gap-4">
 			{#if gatewayModels.length > 0}

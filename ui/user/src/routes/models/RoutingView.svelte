@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import Confirm from '$lib/components/Confirm.svelte';
-	import Layout from '$lib/components/Layout.svelte';
 	import ResponsiveDialog from '$lib/components/ResponsiveDialog.svelte';
+	import Search from '$lib/components/Search.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 	import Toggle from '$lib/components/Toggle.svelte';
 	import GatewayStatusBanner from '$lib/components/llm-gateway/GatewayStatusBanner.svelte';
 	import IconButton from '$lib/components/primitives/IconButton.svelte';
@@ -22,8 +25,26 @@
 	import { providerLabel } from '$lib/services/llm-gateway/providers';
 	import { profile } from '$lib/stores';
 	import { success } from '$lib/stores/success';
+	import {
+		clearUrlParams,
+		getTableUrlParamsFilters,
+		getTableUrlParamsSort,
+		replaceState,
+		setFilterUrlParams,
+		setSortUrlParams
+	} from '$lib/url';
 	import { GitFork, Pencil, Plus, Trash2 } from '@lucide/svelte';
 	import { onMount } from 'svelte';
+
+	interface Props {
+		// Reports whether the gateway is running, so the page can offer actions that need it.
+		onReadyChange?: (ready: boolean) => void;
+	}
+
+	let { onReadyChange }: Props = $props();
+
+	// Select needs a truthy option id, so "keep the requested provider" gets a sentinel.
+	const SAME_PROVIDER = '__same__';
 
 	type TargetRow = { provider: string; model: string; weight: number };
 	type FallbackRow = { provider: string; model: string };
@@ -60,6 +81,7 @@
 		loading = true;
 		try {
 			status = await getStatus();
+			onReadyChange?.(!!status.ready);
 			if (!status.ready) return;
 			[rules, providers] = await Promise.all([listRoutingRules(), listProviders()]);
 			rules.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
@@ -70,7 +92,7 @@
 
 	onMount(load);
 
-	function open(rule?: RoutingRule) {
+	export function open(rule?: RoutingRule) {
 		editing = rule;
 		error = '';
 		name = rule?.name ?? '';
@@ -151,52 +173,71 @@
 			enabledLabel: r.enabled === false ? 'Disabled' : 'Enabled'
 		}))
 	);
+
+	let query = $state(page.url.searchParams.get('query') || '');
+	let filteredRows = $derived(
+		rows.filter((r) =>
+			[r.name, r.cel_expression, r.targetsLabel].some((v) =>
+				v?.toLowerCase().includes(query.toLowerCase())
+			)
+		)
+	);
+	let urlFilters = $derived(getTableUrlParamsFilters());
+	let initSort = $derived(getTableUrlParamsSort({ property: 'priority', order: 'asc' }));
+
+	let providerOptions = $derived(
+		providers.map((p) => ({ id: p.name, label: providerLabel(p.name) }))
+	);
+	let targetProviderOptions = $derived([
+		{ id: SAME_PROVIDER, label: 'Same provider' },
+		...providerOptions
+	]);
+
+	function updateQuery(value: string) {
+		query = value;
+		if (value) {
+			page.url.searchParams.set('query', value);
+		} else {
+			page.url.searchParams.delete('query');
+		}
+		replaceState(page.url, { query: value });
+	}
+
+	function clearFilters() {
+		clearUrlParams(Array.from(page.url.searchParams.keys()).filter((key) => key !== 'view'));
+	}
 </script>
 
-<svelte:head>
-	<title>Obot | LLM Routing</title>
-</svelte:head>
+<div class="flex flex-col gap-4">
+	<GatewayStatusBanner {status} showNoProviders={false} />
 
-<Layout title="Routing" classes={{ childrenContainer: 'max-w-none' }}>
-	{#snippet rightNavActions()}
-		{#if !readonly && status?.ready}
-			<button class="btn btn-primary flex items-center gap-1 text-sm" onclick={() => open()}>
-				<Plus class="size-4" /> Add Rule
-			</button>
-		{/if}
-	{/snippet}
-
-	<div class="flex flex-col gap-6">
-		<p class="text-muted-content max-w-4xl text-sm">
-			Routing rules redirect matching requests before they reach a provider: send a model to a
-			cheaper or faster one, split traffic across providers by weight for A/B tests or migrations,
-			and fail over through a chain of fallback models. Rules are evaluated in priority order and
-			match with a <a
-				class="text-link"
-				href="https://github.com/google/cel-spec"
-				target="_blank"
-				rel="noreferrer">CEL</a
-			>
-			expression over <code>model</code>, <code>provider</code> and <code>headers</code>. Obot
-			checks access to the model a user asks for; the rule decides where it is served.
-		</p>
-
-		<GatewayStatusBanner {status} showNoProviders={false} />
-
-		{#if loading}
-			<div class="flex justify-center p-12"><Loading class="size-8" /></div>
-		{:else if status?.ready && rules.length === 0}
-			<div class="mt-12 flex w-md flex-col items-center gap-4 self-center text-center">
-				<GitFork class="text-base-content/80 size-24 opacity-25" />
-				<h4 class="text-muted-content text-lg font-semibold">No routing rules</h4>
-				<p class="text-muted-content text-sm font-light">
-					Requests go to the provider and model they name. Add a rule to redirect, split or fail
-					over traffic.
-				</p>
+	{#if loading}
+		<Skeleton
+			type="table"
+			count={5}
+			classes={{ header: 'h-14 rounded-none', body: 'rounded-none' }}
+		/>
+	{:else if status?.ready && rules.length === 0}
+		<div class="mt-12 flex w-md max-w-full flex-col items-center gap-4 self-center text-center">
+			<GitFork class="text-muted-content size-24 opacity-25" />
+			<h4 class="text-muted-content text-lg font-semibold">No routing rules</h4>
+			<p class="text-muted-content text-sm font-light">
+				Requests go to the provider and model they name. Add a rule to redirect, split or fail over
+				traffic.
+			</p>
+		</div>
+	{:else if status?.ready}
+		<div class="flex flex-col gap-2">
+			<div class="bg-base-200 dark:bg-base-100 sticky top-16 left-0 z-20 w-full py-1">
+				<Search
+					value={query}
+					class="dark:bg-base-200 dark:border-base-400 bg-base-100 border border-transparent shadow-sm"
+					onChange={updateQuery}
+					placeholder="Search routing rules..."
+				/>
 			</div>
-		{:else}
 			<Table
-				data={rows}
+				data={filteredRows}
 				fields={[
 					'priority',
 					'name',
@@ -213,6 +254,13 @@
 					{ property: 'fallbacksLabel', title: 'Fallbacks' },
 					{ property: 'enabledLabel', title: 'Status' }
 				]}
+				sortable={['priority', 'name', 'enabledLabel']}
+				filterable={['enabledLabel']}
+				filters={urlFilters}
+				onFilter={setFilterUrlParams}
+				onClearAllFilters={clearFilters}
+				onSort={setSortUrlParams}
+				{initSort}
 				onClickRow={readonly
 					? undefined
 					: (row) => open(rules.find((r) => (r.id ?? r.name) === row.id))}
@@ -248,9 +296,9 @@
 					{/if}
 				{/snippet}
 			</Table>
-		{/if}
-	</div>
-</Layout>
+		</div>
+	{/if}
+</div>
 
 <ResponsiveDialog
 	bind:this={dialog}
@@ -289,6 +337,10 @@
 						>
 					{/each}
 				</div>
+				<span class="text-muted-content text-xs">
+					Match on <code>model</code>, <code>provider</code> and <code>headers</code>. Rules are
+					evaluated in priority order.
+				</span>
 			</div>
 		</div>
 
@@ -303,11 +355,15 @@
 			</div>
 			{#each targets as t, i (i)}
 				<div class="flex flex-wrap items-center gap-2">
-					<select class="select" bind:value={t.provider} aria-label="Target provider">
-						<option value="">Same provider</option>
-						{#each providers as p (p.name)}<option value={p.name}>{providerLabel(p.name)}</option
-							>{/each}
-					</select>
+					<Select
+						id={`target-provider-${i}`}
+						class="bg-base-200 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-inner"
+						classes={{ root: 'w-48' }}
+						placeholder="Target provider"
+						options={targetProviderOptions}
+						selected={t.provider || SAME_PROVIDER}
+						onSelect={(option) => (t.provider = option.id === SAME_PROVIDER ? '' : option.id)}
+					/>
 					<input
 						class="text-input-filled min-w-48 flex-1"
 						placeholder="Model (empty keeps the requested model)"
@@ -348,10 +404,15 @@
 			>
 			{#each fallbacks as f, i (i)}
 				<div class="flex flex-wrap items-center gap-2">
-					<select class="select" bind:value={f.provider} aria-label="Fallback provider">
-						{#each providers as p (p.name)}<option value={p.name}>{providerLabel(p.name)}</option
-							>{/each}
-					</select>
+					<Select
+						id={`fallback-provider-${i}`}
+						class="bg-base-200 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-inner"
+						classes={{ root: 'w-48' }}
+						placeholder="Fallback provider"
+						options={providerOptions}
+						selected={f.provider}
+						onSelect={(option) => (f.provider = option.id)}
+					/>
 					<input
 						class="text-input-filled min-w-48 flex-1"
 						placeholder="Model"

@@ -191,7 +191,7 @@ describe('LLM gateway provider page', () => {
 		await page.getByRole('button', { name: "Yes, I'm sure" }).click();
 
 		await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('openai'));
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/llm-gateway/providers'));
+		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/models?view=providers'));
 	});
 
 	it('does not offer keys for a keyless custom provider', async () => {
@@ -209,6 +209,41 @@ describe('LLM gateway provider page', () => {
 		await expect.element(page.getByRole('button', { name: 'Add Key' })).not.toBeInTheDocument();
 	});
 
+	it('saves network settings from the sticky footer', async () => {
+		mockProvider();
+		const updated = vi.fn();
+		worker.use(
+			http.put('/api/llm-gateway/admin/providers/:name', async ({ params, request }) => {
+				updated(params.name, await request.json());
+				return HttpResponse.json(openai);
+			})
+		);
+		await renderProviderPage();
+
+		await page.getByLabelText('Max retries').fill('5');
+		await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+		await vi.waitFor(() =>
+			expect(updated).toHaveBeenCalledWith(
+				'openai',
+				expect.objectContaining({
+					network_config: expect.objectContaining({ max_retries: 5 })
+				})
+			)
+		);
+	});
+
+	it('links models to the Models tab and goes back to providers on cancel', async () => {
+		mockProvider();
+		await renderProviderPage();
+
+		await expect
+			.element(page.getByRole('main').getByRole('link', { name: 'Models', exact: true }))
+			.toHaveAttribute('href', '/models?view=models');
+		await page.getByRole('button', { name: 'Cancel' }).click();
+		expect(goto).toHaveBeenCalledWith('/models?view=providers');
+	});
+
 	it('hides key management from auditors', async () => {
 		mockProvider();
 		await renderProviderPage([Group.USER, Group.AUDITOR]);
@@ -220,6 +255,9 @@ describe('LLM gateway provider page', () => {
 		await expect.element(page.getByRole('button', { name: 'Delete key' })).not.toBeInTheDocument();
 		await expect
 			.element(page.getByRole('button', { name: 'Delete provider' }))
+			.not.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('button', { name: 'Save', exact: true }))
 			.not.toBeInTheDocument();
 	});
 });

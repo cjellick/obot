@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import Layout from '$lib/components/Layout.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 	import Toggle from '$lib/components/Toggle.svelte';
 	import SearchUsers from '$lib/components/admin/SearchUsers.svelte';
 	import IconButton from '$lib/components/primitives/IconButton.svelte';
@@ -40,7 +42,15 @@
 		{ id: 'w', label: 'week' },
 		{ id: 'M', label: 'month' }
 	];
-	const metrics = Object.entries(METRIC_LABELS) as [BudgetMetric, string][];
+	const metricOptions = (Object.entries(METRIC_LABELS) as [BudgetMetric, string][]).map(
+		([id, label]) => ({ id, label })
+	);
+	// Select needs truthy option ids, so the window type is a string rather than a boolean.
+	const windowTypeOptions = [
+		{ id: 'rolling', label: 'Rolling' },
+		{ id: 'calendar', label: 'Calendar' }
+	];
+	const BUDGETS_URL = '/models?view=budgets';
 
 	type Subject = { type: 'user' | 'group' | 'selector'; id: string };
 	type LimitRow = {
@@ -158,7 +168,7 @@
 				await updateBudget(id, body, { dontLogErrors: true });
 			}
 			success.add(isNew ? 'Budget created.' : 'Budget saved.');
-			goto('/llm-gateway/budgets');
+			goto(BUDGETS_URL);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			error = /"?error"?:\s*"([^"]+)"/.exec(msg)?.[1] ?? msg;
@@ -183,6 +193,21 @@
 				label: u.userID ? (userNames[u.userID] ?? u.userID) : 'Everyone (shared)'
 			}))
 	);
+	let usageFields = $derived(['label', ...savedLimits.map((_, i) => `limit-${i}`)]);
+	let usageHeaders = $derived([
+		{ property: 'label', title: perUser ? 'User' : 'Allowance' },
+		...savedLimits.map((l, i) => ({
+			property: `limit-${i}`,
+			title: `${METRIC_LABELS[l.metric]} ${windowLabel(l)}`
+		}))
+	]);
+
+	function unitOptions(l: LimitRow) {
+		return units.map((u) => ({
+			id: u.id,
+			label: `${u.label}${!l.calendar && l.count > 1 ? 's' : ''}`
+		}));
+	}
 </script>
 
 <svelte:head>
@@ -192,14 +217,20 @@
 <Layout
 	title={isNew ? 'New Budget' : name || 'Budget'}
 	showBackButton
-	onBackButtonClick={() => goto('/llm-gateway/budgets')}
-	classes={{ childrenContainer: 'max-w-5xl' }}
+	onBackButtonClick={() => goto(BUDGETS_URL)}
 >
 	{#if loading && !isNew}
-		<div class="flex justify-center p-12"><Loading class="size-8" /></div>
+		<Skeleton type="items" count={4} class="h-32" />
 	{:else}
-		<div class="flex flex-col gap-8 pb-24">
-			<section class="paper flex flex-col gap-4 p-4">
+		<div class="flex flex-col gap-6">
+			<section class="paper">
+				<div>
+					<h2 class="text-lg font-semibold">Details</h2>
+					<p class="text-muted-content text-sm">
+						A budget either gives each assigned user their own allowance or is one pool shared by
+						everyone assigned.
+					</p>
+				</div>
 				<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 					<div class="flex flex-col gap-1">
 						<label for="budget-name" class="text-sm font-light">Name</label>
@@ -272,11 +303,11 @@
 				{/if}
 			</section>
 
-			<section class="flex flex-col gap-2">
-				<div class="flex items-center justify-between">
+			<section class="paper">
+				<div class="flex flex-wrap items-center justify-between gap-2">
 					<div>
 						<h2 class="text-lg font-semibold">Limits</h2>
-						<p class="text-muted-content text-xs">
+						<p class="text-muted-content text-sm">
 							Requests are rejected once any limit is reached. Rolling windows free up as usage ages
 							out; calendar windows reset at the start of the hour, day, week or month (UTC).
 						</p>
@@ -297,19 +328,21 @@
 						</button>
 					{/if}
 				</div>
-				<div class="paper flex flex-col gap-3 p-4">
+				<div class="flex flex-col gap-3">
 					{#each limits as l, i (i)}
 						<div class="flex flex-wrap items-end gap-3">
 							<div class="flex flex-col gap-1">
-								<label for={`limit-metric-${i}`} class="text-sm font-light">Metric</label>
-								<select
+								<span id={`limit-metric-${i}-label`} class="text-sm font-light">Metric</span>
+								<Select
 									id={`limit-metric-${i}`}
-									class="select"
-									bind:value={l.metric}
+									class="bg-base-200 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-inner"
+									classes={{ root: 'w-48' }}
+									ariaLabelledby={`limit-metric-${i}-label`}
+									options={metricOptions}
+									selected={l.metric}
+									onSelect={(option) => (l.metric = option.id)}
 									disabled={readonly}
-								>
-									{#each metrics as [value, label] (value)}<option {value}>{label}</option>{/each}
-								</select>
+								/>
 							</div>
 							<div class="flex flex-col gap-1">
 								<label for={`limit-amount-${i}`} class="text-sm font-light">Limit</label>
@@ -326,15 +359,16 @@
 							<div class="flex flex-col gap-1">
 								<span class="text-sm font-light">Window</span>
 								<div class="flex items-center gap-2">
-									<select
-										class="select w-32"
-										aria-label="Window type"
-										bind:value={l.calendar}
+									<Select
+										id={`limit-window-type-${i}`}
+										class="bg-base-200 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-inner"
+										classes={{ root: 'w-32' }}
+										placeholder="Window type"
+										options={windowTypeOptions}
+										selected={l.calendar ? 'calendar' : 'rolling'}
+										onSelect={(option) => (l.calendar = option.id === 'calendar')}
 										disabled={readonly}
-									>
-										<option value={false}>Rolling</option>
-										<option value={true}>Calendar</option>
-									</select>
+									/>
 									{#if !l.calendar}
 										<input
 											type="number"
@@ -345,16 +379,16 @@
 											disabled={readonly}
 										/>
 									{/if}
-									<select
-										class="select w-28"
-										aria-label="Window unit"
-										bind:value={l.unit}
+									<Select
+										id={`limit-window-unit-${i}`}
+										class="bg-base-200 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-inner"
+										classes={{ root: 'w-32' }}
+										placeholder="Window unit"
+										options={unitOptions(l)}
+										selected={l.unit}
+										onSelect={(option) => (l.unit = option.id)}
 										disabled={readonly}
-									>
-										{#each units as u (u.id)}<option value={u.id}
-												>{u.label}{!l.calendar && l.count > 1 ? 's' : ''}</option
-											>{/each}
-									</select>
+									/>
 								</div>
 							</div>
 							{#if !readonly}
@@ -373,11 +407,11 @@
 				</div>
 			</section>
 
-			<section class="flex flex-col gap-2">
-				<div class="flex items-center justify-between">
+			<section class="paper">
+				<div class="flex flex-wrap items-center justify-between gap-2">
 					<div>
 						<h2 class="text-lg font-semibold">Assigned to</h2>
-						<p class="text-muted-content text-xs">
+						<p class="text-muted-content text-sm">
 							The budget applies to requests from these users and groups.
 						</p>
 					</div>
@@ -410,15 +444,15 @@
 				</Table>
 			</section>
 
-			<section class="flex flex-col gap-2">
+			<section class="paper">
 				<div>
 					<h2 class="text-lg font-semibold">Models</h2>
-					<p class="text-muted-content text-xs">
+					<p class="text-muted-content text-sm">
 						Only requests for the selected models count against this budget. Select none to cover
 						every model.
 					</p>
 				</div>
-				<div class="paper flex flex-col gap-2 p-4">
+				<div class="flex flex-col gap-2">
 					<input class="text-input-filled" placeholder="Search models" bind:value={modelSearch} />
 					<div class="grid max-h-64 grid-cols-1 gap-1 overflow-y-auto md:grid-cols-2">
 						{#each visibleModels as m (m.id)}
@@ -448,51 +482,37 @@
 			</section>
 
 			{#if !isNew && savedLimits.length}
-				<section class="flex flex-col gap-2">
-					<h2 class="text-lg font-semibold">Current usage</h2>
-					<div class="paper overflow-x-auto p-0">
-						<table class="table-sm table w-full text-sm">
-							<thead>
-								<tr class="text-muted-content text-xs">
-									<th class="text-left">{perUser ? 'User' : ''}</th>
-									{#each savedLimits as l, i (i)}
-										<th class="text-left">{METRIC_LABELS[l.metric]} {windowLabel(l)}</th>
-									{/each}
-								</tr>
-							</thead>
-							<tbody>
-								{#each usageRows as row (row.id)}
-									<tr>
-										<td>{row.label}</td>
-										{#each savedLimits as l, i (i)}
-											{@const used = row.used[i] ?? 0}
-											<td>
-												<div class="flex items-center gap-2">
-													<progress
-														class={`progress w-24 ${used >= l.amount ? 'progress-error' : 'progress-primary'}`}
-														value={Math.min(used, l.amount)}
-														max={l.amount || 1}
-													></progress>
-													<span class="text-xs"
-														>{formatMetric(l.metric, used)} / {formatMetric(
-															l.metric,
-															l.amount
-														)}</span
-													>
-												</div>
-											</td>
-										{/each}
-									</tr>
-								{:else}
-									<tr
-										><td colspan={savedLimits.length + 1} class="text-muted-content p-4 text-center"
-											>No usage in the current window.</td
-										></tr
-									>
-								{/each}
-							</tbody>
-						</table>
+				<section class="paper">
+					<div>
+						<h2 class="text-lg font-semibold">Current usage</h2>
+						<p class="text-muted-content text-sm">Usage in each limit's current window.</p>
 					</div>
+					<Table
+						data={usageRows}
+						fields={usageFields}
+						headers={usageHeaders}
+						noDataMessage="No usage in the current window."
+					>
+						{#snippet onRenderColumn(property, row)}
+							{#if property === 'label'}
+								{row.label}
+							{:else}
+								{@const i = Number(property.slice('limit-'.length))}
+								{@const l = savedLimits[i]}
+								{@const used = row.used[i] ?? 0}
+								<div class="flex items-center gap-2">
+									<progress
+										class={`progress w-24 ${used >= l.amount ? 'progress-error' : 'progress-primary'}`}
+										value={Math.min(used, l.amount)}
+										max={l.amount || 1}
+									></progress>
+									<span class="text-xs">
+										{formatMetric(l.metric, used)} / {formatMetric(l.metric, l.amount)}
+									</span>
+								</div>
+							{/if}
+						{/snippet}
+					</Table>
 				</section>
 			{/if}
 
@@ -505,9 +525,7 @@
 			<div
 				class="bg-base-200 dark:bg-base-100 sticky bottom-0 left-0 z-40 flex w-full justify-end gap-2 py-4"
 			>
-				<button class="btn btn-secondary text-sm" onclick={() => goto('/llm-gateway/budgets')}
-					>Cancel</button
-				>
+				<button class="btn btn-secondary text-sm" onclick={() => goto(BUDGETS_URL)}>Cancel</button>
 				<button class="btn btn-primary text-sm" disabled={!valid || saving} onclick={save}>
 					{#if saving}<Loading class="size-4" />{:else}Save{/if}
 				</button>

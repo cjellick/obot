@@ -23,7 +23,7 @@
 	});
 
 	const setupPath = '/admin/setup';
-	const modelProviderPath = '/models?view=model-providers';
+	const modelProviderPath = '/models?view=providers';
 
 	const storeData = $derived($adminConfigStore);
 	const isAuthProviderConfigured = $derived(

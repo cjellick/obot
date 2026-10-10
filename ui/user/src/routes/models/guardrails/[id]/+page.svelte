@@ -2,6 +2,8 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Layout from '$lib/components/Layout.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 	import Toggle from '$lib/components/Toggle.svelte';
 	import SearchUsers from '$lib/components/admin/SearchUsers.svelte';
 	import IconButton from '$lib/components/primitives/IconButton.svelte';
@@ -23,8 +25,7 @@
 		type GuardrailInputScope,
 		type GuardrailProfile,
 		type GuardrailProvider,
-		type GuardrailRule,
-		type GuardrailTarget
+		type GuardrailRule
 	} from '$lib/services/llm-gateway/guardrails';
 	import { profile } from '$lib/stores';
 	import { success } from '$lib/stores/success';
@@ -35,26 +36,27 @@
 
 	type Subject = { type: 'user' | 'group' | 'selector'; id: string };
 
-	const conditionVariables: Record<GuardrailTarget, { name: string; description: string }[]> = {
-		llm: [
-			{ name: 'model', description: 'Requested model, as "provider/model"' },
-			{ name: 'provider', description: 'Provider name' },
-			{ name: 'params', description: 'Request parameters, e.g. params.temperature' },
-			{ name: 'headers', description: 'Request headers (map of strings)' },
-			{ name: 'user', description: 'Caller, with user.id and user.groups' }
-		],
-		mcp: [
-			{ name: 'mcp_server', description: 'MCP server name' },
-			{ name: 'mcp_tool', description: 'Tool name' },
-			{ name: 'mcp_arguments', description: 'Tool call arguments (map)' },
-			{ name: 'headers', description: 'Request headers (map of strings)' },
-			{ name: 'user', description: 'Caller, with user.id and user.groups' }
-		]
-	};
-	const conditionExamples: Record<GuardrailTarget, string> = {
-		llm: 'model.startsWith("openai/") && !("admins" in user.groups)',
-		mcp: 'mcp_server == "github" && mcp_tool.startsWith("create_")'
-	};
+	// Rules on this page guard model traffic. MCP guardrails are configured as MCP server filters.
+	const TARGET = 'llm';
+	const RULES_URL = '/models?view=guardrails';
+
+	const conditionVariables = [
+		{ name: 'model', description: 'Requested model, as "provider/model"' },
+		{ name: 'provider', description: 'Provider name' },
+		{ name: 'params', description: 'Request parameters, e.g. params.temperature' },
+		{ name: 'headers', description: 'Request headers (map of strings)' },
+		{ name: 'user', description: 'Caller, with user.id and user.groups' }
+	];
+	const conditionExample = 'model.startsWith("openai/") && !("admins" in user.groups)';
+
+	const applyToOptions = Object.entries(APPLY_TO_LABELS).map(([id, label]) => ({ id, label }));
+	const actionOptions = Object.entries(ACTION_LABELS).map(([id, label]) => ({ id, label }));
+	const inputScopeOptions = [
+		{ id: 'latest', label: 'Only new messages since the last response' },
+		{ id: 'all', label: 'Every message in the request' }
+	];
+	const selectClass =
+		'bg-base-200 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-inner';
 
 	let id = $derived(page.params.id ?? 'new');
 	let isNew = $derived(id === 'new');
@@ -66,7 +68,6 @@
 	let name = $state('');
 	let description = $state('');
 	let enabled = $state(true);
-	let target = $state<GuardrailTarget>('llm');
 	let applyTo = $state<GuardrailApplyTo>('both');
 	let action = $state<GuardrailAction>('block');
 	let condition = $state('');
@@ -78,7 +79,7 @@
 	let subjects = $state<Subject[]>([]);
 	let resolved = $state<{ users: OrgUser[]; groups: OrgGroup[] }>({ users: [], groups: [] });
 
-	let profiles = $state<GuardrailProfile[]>([]);
+	let detectors = $state<GuardrailProfile[]>([]);
 	let providers = $state<GuardrailProvider[]>([]);
 	let conditionError = $state('');
 	let validating = $state(false);
@@ -87,7 +88,7 @@
 
 	onMount(async () => {
 		try {
-			[profiles, providers] = await Promise.all([
+			[detectors, providers] = await Promise.all([
 				listGuardrailProfiles(),
 				listGuardrailProviders()
 			]);
@@ -96,7 +97,6 @@
 			name = rule.name;
 			description = rule.description ?? '';
 			enabled = rule.enabled;
-			target = rule.target;
 			applyTo = rule.applyTo;
 			action = rule.action;
 			condition = rule.condition ?? '';
@@ -119,7 +119,6 @@
 	let validationSeq = 0;
 	$effect(() => {
 		const expr = condition.trim();
-		const t = target;
 		const seq = ++validationSeq;
 		if (!expr) {
 			conditionError = '';
@@ -129,7 +128,7 @@
 		validating = true;
 		const timer = setTimeout(async () => {
 			try {
-				const result = await validateGuardrailCondition(t, expr, { dontLogErrors: true });
+				const result = await validateGuardrailCondition(TARGET, expr, { dontLogErrors: true });
 				if (seq === validationSeq) conditionError = result.valid ? '' : (result.error ?? '');
 			} catch (e) {
 				if (seq === validationSeq) conditionError = parseErrorContent(e).message;
@@ -143,7 +142,7 @@
 	let providersByType = $derived(Object.fromEntries(providers.map((p) => [p.type, p])));
 	let nonRedacting = $derived(
 		action === 'redact'
-			? profiles.filter(
+			? detectors.filter(
 					(p) => p.id && profileIDs.includes(p.id) && providersByType[p.type]?.redacts === false
 				)
 			: []
@@ -166,7 +165,7 @@
 				name: name.trim(),
 				description,
 				enabled,
-				target,
+				target: TARGET,
 				applyTo,
 				action,
 				condition: condition.trim(),
@@ -185,7 +184,7 @@
 				await updateGuardrailRule(id, body, { dontLogErrors: true });
 			}
 			success.add(isNew ? 'Guardrail rule created.' : 'Guardrail rule saved.');
-			goto('/llm-gateway/guardrails');
+			goto(RULES_URL);
 		} catch (e) {
 			error = parseErrorContent(e).message;
 		} finally {
@@ -197,20 +196,26 @@
 </script>
 
 <svelte:head>
-	<title>Obot | {isNew ? 'New Guardrail Rule' : name}</title>
+	<title>Obot | {isNew ? 'New Model Guardrail Rule' : name}</title>
 </svelte:head>
 
 <Layout
-	title={isNew ? 'New Guardrail Rule' : name || 'Guardrail Rule'}
+	title={isNew ? 'New Model Guardrail Rule' : name || 'Model Guardrail Rule'}
 	showBackButton
-	onBackButtonClick={() => goto('/llm-gateway/guardrails')}
-	classes={{ childrenContainer: 'max-w-5xl' }}
+	onBackButtonClick={() => goto(RULES_URL)}
 >
 	{#if loading && !isNew}
-		<div class="flex justify-center p-12"><Loading class="size-8" /></div>
+		<Skeleton type="items" count={4} class="h-32" />
 	{:else}
-		<div class="flex flex-col gap-8 pb-24">
-			<section class="paper flex flex-col gap-4 p-4">
+		<div class="flex flex-col gap-6">
+			<section class="paper">
+				<div>
+					<h2 class="text-lg font-semibold">Details</h2>
+					<p class="text-muted-content text-sm">
+						What the rule checks in model requests and responses, and what happens when a detector
+						finds something.
+					</p>
+				</div>
 				<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 					<div class="flex flex-col gap-1">
 						<label for="rule-name" class="text-sm font-light">Name</label>
@@ -235,37 +240,36 @@
 						/>
 					</div>
 					<div class="flex flex-col gap-1">
-						<label for="rule-target" class="text-sm font-light">Target</label>
-						<select id="rule-target" class="select" bind:value={target} disabled={readonly}>
-							<option value="llm">LLM requests and responses</option>
-							<option value="mcp">MCP tool calls</option>
-						</select>
-					</div>
-					<div class="flex flex-col gap-1">
-						<label for="rule-apply-to" class="text-sm font-light">Apply to</label>
-						<select id="rule-apply-to" class="select" bind:value={applyTo} disabled={readonly}>
-							{#each Object.entries(APPLY_TO_LABELS) as [value, label] (value)}
-								<option {value}>{label}</option>
-							{/each}
-						</select>
+						<span id="rule-apply-to-label" class="text-sm font-light">Apply to</span>
+						<Select
+							id="rule-apply-to"
+							class={selectClass}
+							ariaLabelledby="rule-apply-to-label"
+							options={applyToOptions}
+							selected={applyTo}
+							onSelect={(option) => (applyTo = option.id as GuardrailApplyTo)}
+							disabled={readonly}
+						/>
 						<span class="text-muted-content text-xs">
-							{target === 'llm'
-								? 'Input is the prompt sent to the model; output is its response, including streams.'
-								: 'Input is the tool call arguments; output is the tool result.'}
+							Input is the prompt sent to the model; output is its response, including streams.
 						</span>
 					</div>
 					<div class="flex flex-col gap-1">
-						<label for="rule-action" class="text-sm font-light">Action</label>
-						<select id="rule-action" class="select" bind:value={action} disabled={readonly}>
-							{#each Object.entries(ACTION_LABELS) as [value, label] (value)}
-								<option {value}>{label}</option>
-							{/each}
-						</select>
+						<span id="rule-action-label" class="text-sm font-light">Action</span>
+						<Select
+							id="rule-action"
+							class={selectClass}
+							ariaLabelledby="rule-action-label"
+							options={actionOptions}
+							selected={action}
+							onSelect={(option) => (action = option.id as GuardrailAction)}
+							disabled={readonly}
+						/>
 						<span class="text-muted-content text-xs">
 							{action === 'block'
-								? 'Rejects the request or response when any profile finds a problem.'
+								? 'Rejects the request or response when any detector finds a problem.'
 								: action === 'redact'
-									? 'Masks what the profiles find and lets the rest through.'
+									? 'Masks what the detectors find and lets the rest through.'
 									: 'Lets the traffic through and records an event.'}
 						</span>
 					</div>
@@ -286,16 +290,16 @@
 					</div>
 					{#if applyTo !== 'output'}
 						<div class="flex flex-col gap-1">
-							<label for="rule-input-scope" class="text-sm font-light">Input scope</label>
-							<select
+							<span id="rule-input-scope-label" class="text-sm font-light">Input scope</span>
+							<Select
 								id="rule-input-scope"
-								class="select"
-								bind:value={inputScope}
+								class={selectClass}
+								ariaLabelledby="rule-input-scope-label"
+								options={inputScopeOptions}
+								selected={inputScope}
+								onSelect={(option) => (inputScope = option.id as GuardrailInputScope)}
 								disabled={readonly}
-							>
-								<option value="latest">Only new messages since the last response</option>
-								<option value="all">Every message in the request</option>
-							</select>
+							/>
 							<span class="text-muted-content text-xs">
 								Redacting rules always check every message.
 							</span>
@@ -303,7 +307,7 @@
 					{/if}
 				</div>
 				<Toggle
-					label="Fail closed: block when a profile can't be evaluated"
+					label="Fail closed: block when a detector can't be evaluated"
 					labelInline
 					checked={failClosed}
 					disabled={readonly}
@@ -323,43 +327,43 @@
 				{/if}
 			</section>
 
-			<section class="flex flex-col gap-2">
-				<div>
-					<h2 class="text-lg font-semibold">Profiles</h2>
-					<p class="text-muted-content text-xs">
-						The checks this rule runs. Any finding from any selected profile triggers the action.
-					</p>
-				</div>
-				<div class="paper flex flex-col gap-2 p-4">
-					<div class="grid grid-cols-1 gap-1 md:grid-cols-2">
-						{#each profiles as p (p.id)}
-							<label class="flex items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									class="checkbox checkbox-sm"
-									checked={!!p.id && profileIDs.includes(p.id)}
-									disabled={readonly}
-									onchange={(e) => {
-										const checked = (e.target as HTMLInputElement).checked;
-										profileIDs = checked
-											? [...profileIDs, p.id!]
-											: profileIDs.filter((x) => x !== p.id);
-									}}
-								/>
-								<span>{p.name}</span>
-								<span class="text-muted-content text-xs">
-									{providersByType[p.type]?.label ?? p.type}
-								</span>
-							</label>
-						{:else}
-							<span class="text-muted-content text-sm">No profiles yet.</span>
-						{/each}
+			<section class="paper">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<div>
+						<h2 class="text-lg font-semibold">Detectors</h2>
+						<p class="text-muted-content text-sm">
+							The checks this rule runs. Any finding from any selected detector triggers the action.
+						</p>
 					</div>
 					{#if !readonly}
-						<a href={resolve('/llm-gateway/guardrails/profiles')} class="text-link w-fit text-xs">
-							Create a profile
+						<a href={resolve('/guardrails?view=detectors')} class="text-link text-sm">
+							Create a detector
 						</a>
 					{/if}
+				</div>
+				<div class="grid grid-cols-1 gap-1 md:grid-cols-2">
+					{#each detectors as p (p.id)}
+						<label class="flex items-center gap-2 text-sm">
+							<input
+								type="checkbox"
+								class="checkbox checkbox-sm"
+								checked={!!p.id && profileIDs.includes(p.id)}
+								disabled={readonly}
+								onchange={(e) => {
+									const checked = (e.target as HTMLInputElement).checked;
+									profileIDs = checked
+										? [...profileIDs, p.id!]
+										: profileIDs.filter((x) => x !== p.id);
+								}}
+							/>
+							<span>{p.name}</span>
+							<span class="text-muted-content text-xs">
+								{providersByType[p.type]?.label ?? p.type}
+							</span>
+						</label>
+					{:else}
+						<span class="text-muted-content text-sm">No detectors yet.</span>
+					{/each}
 				</div>
 				{#if nonRedacting.length}
 					<div class="notification-alert flex items-start gap-2 rounded-md p-3 text-sm">
@@ -374,11 +378,11 @@
 				{/if}
 			</section>
 
-			<section class="flex flex-col gap-2">
-				<div class="flex items-center justify-between">
+			<section class="paper">
+				<div class="flex flex-wrap items-center justify-between gap-2">
 					<div>
 						<h2 class="text-lg font-semibold">Assigned to</h2>
-						<p class="text-muted-content text-xs">
+						<p class="text-muted-content text-sm">
 							The rule applies to traffic from these users and groups.
 						</p>
 					</div>
@@ -411,10 +415,10 @@
 				</Table>
 			</section>
 
-			<section class="flex flex-col gap-2">
+			<section class="paper">
 				<div>
 					<h2 class="text-lg font-semibold">Condition</h2>
-					<p class="text-muted-content text-xs">
+					<p class="text-muted-content text-sm">
 						An optional <a
 							href="https://cel.dev"
 							target="_blank"
@@ -424,19 +428,19 @@
 						traffic.
 					</p>
 				</div>
-				<div class="paper flex flex-col gap-2 p-4">
+				<div class="flex flex-col gap-2">
 					<textarea
 						id="rule-condition"
 						aria-label="Condition"
 						class="text-input-filled min-h-20 font-mono text-sm"
-						placeholder={conditionExamples[target]}
+						placeholder={conditionExample}
 						bind:value={condition}
 						disabled={readonly}></textarea>
 					{#if conditionError}
 						<span class="text-error text-xs" role="alert">{conditionError}</span>
 					{/if}
 					<div class="text-muted-content grid grid-cols-1 gap-x-4 gap-y-1 text-xs md:grid-cols-2">
-						{#each conditionVariables[target] as v (v.name)}
+						{#each conditionVariables as v (v.name)}
 							<span><code class="text-base-content">{v.name}</code> — {v.description}</span>
 						{/each}
 					</div>
@@ -452,9 +456,7 @@
 			<div
 				class="bg-base-200 dark:bg-base-100 sticky bottom-0 left-0 z-40 flex w-full justify-end gap-2 py-4"
 			>
-				<button class="btn btn-secondary text-sm" onclick={() => goto('/llm-gateway/guardrails')}
-					>Cancel</button
-				>
+				<button class="btn btn-secondary text-sm" onclick={() => goto(RULES_URL)}>Cancel</button>
 				<button class="btn btn-primary text-sm" disabled={!valid || saving} onclick={save}>
 					{#if saving}<Loading class="size-4" />{:else}Save{/if}
 				</button>

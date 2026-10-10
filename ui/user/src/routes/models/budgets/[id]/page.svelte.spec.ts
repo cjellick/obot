@@ -1,6 +1,7 @@
 import { page as appPage } from '$app/state';
+import { Group } from '$lib/services';
 import { goto } from '$lib/url';
-import { preparePageData } from '../../../../tests/helpers/pageData';
+import { createMockProfile, preparePageData } from '../../../../tests/helpers/pageData';
 import { worker } from '../../../../tests/mocks/worker';
 import BudgetPage from './+page.svelte';
 import { http, HttpResponse } from 'msw';
@@ -34,7 +35,7 @@ afterEach(() => {
 	delete (appPage.params as Record<string, string>).id;
 });
 
-describe('LLM gateway budget page', () => {
+describe('Models budget editor', () => {
 	it('creates a per-user budget with a monthly spend limit by default', async () => {
 		mockModels();
 		const created = vi.fn();
@@ -65,7 +66,7 @@ describe('LLM gateway budget page', () => {
 				subjects: []
 			})
 		);
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/llm-gateway/budgets'));
+		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/models?view=budgets'));
 	});
 
 	it('shows a shared budget with its assignments and current usage', async () => {
@@ -95,5 +96,48 @@ describe('LLM gateway budget page', () => {
 		await expect.element(page.getByText('Everyone (shared)')).toBeInTheDocument();
 		await expect.element(page.getByText('250 / 1K')).toBeInTheDocument();
 		await expect.element(page.getByLabelText('Window length')).toHaveValue(6);
+	});
+
+	it('saves a rolling token limit chosen with the dropdowns', async () => {
+		mockModels();
+		const created = vi.fn();
+		worker.use(
+			http.post('/api/llm-gateway/budgets', async ({ request }) => {
+				created(await request.json());
+				return HttpResponse.json({ id: 'b1' });
+			})
+		);
+		await preparePageData();
+		render(BudgetPage);
+
+		await page.getByLabelText('Name').first().fill('Tokens');
+		await page.getByRole('combobox', { name: 'Metric' }).click();
+		await page.getByRole('button', { name: 'Total tokens', exact: true }).click();
+		await page.getByLabelText('Limit', { exact: true }).fill('5000');
+		await page.getByRole('combobox', { name: 'Window type' }).click();
+		await page.getByRole('button', { name: 'Rolling', exact: true }).click();
+		await page.getByLabelText('Window length').fill('2');
+		await page.getByRole('combobox', { name: 'Window unit' }).click();
+		await page.getByRole('button', { name: 'days', exact: true }).click();
+		await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+		await vi.waitFor(() => expect(created).toHaveBeenCalledOnce());
+		expect(created).toHaveBeenCalledWith(
+			expect.objectContaining({
+				limits: [{ metric: 'tokens', amount: 5000, window: '2d', calendar: false }]
+			})
+		);
+	});
+
+	it('hides editing actions from auditors', async () => {
+		mockModels();
+		await preparePageData({ profile: createMockProfile([Group.USER, Group.AUDITOR]) });
+		render(BudgetPage);
+
+		await expect.element(page.getByLabelText('Name').first()).toBeDisabled();
+		await expect
+			.element(page.getByRole('button', { name: 'Save', exact: true }))
+			.not.toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Add limit' })).not.toBeInTheDocument();
 	});
 });
