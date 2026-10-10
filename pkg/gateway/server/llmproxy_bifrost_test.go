@@ -1,12 +1,16 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/obot-platform/obot/pkg/gateway/client"
+	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 )
 
@@ -181,4 +185,40 @@ func TestSanitizingTransport(t *testing.T) {
 
 func (f fakeRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return f.resp, nil
+}
+
+func TestWriteBudgetExceeded(t *testing.T) {
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	exceeded := &client.LLMGatewayBudgetExceeded{
+		Budget:  gatewaytypes.LLMGatewayBudget{Name: "Daily", PerUser: true},
+		Limit:   gatewaytypes.LLMGatewayBudgetLimit{Metric: gatewaytypes.LLMGatewayBudgetMetricRequests, Amount: 3, Window: "1h"},
+		Used:    3,
+		ResetAt: now.Add(90 * time.Second),
+	}
+	tests := []struct {
+		name     string
+		path     string
+		wantType string
+	}{
+		{name: "anthropic messages", path: "/api/llm-proxy/v1/messages", wantType: "rate_limit_error"},
+		{name: "openai chat completions", path: "/api/llm-proxy/v1/chat/completions", wantType: "budget_exceeded"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeBudgetExceeded(rec, tt.path, exceeded, now)
+			if rec.Code != http.StatusTooManyRequests || rec.Header().Get("X-Should-Retry") != "false" || rec.Header().Get("Retry-After") != "90" {
+				t.Fatalf("unexpected response %d %v", rec.Code, rec.Header())
+			}
+			var body struct {
+				Error struct {
+					Type    string `json:"type"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Error.Type != tt.wantType || !strings.Contains(body.Error.Message, `"Daily"`) {
+				t.Fatalf("unexpected body %s", rec.Body.String())
+			}
+		})
+	}
 }

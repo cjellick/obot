@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -1186,7 +1187,8 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 			var err error
 			if budgetIDs, err = enforcer.admit(req.Context(), req.GatewayClient, req.User, resolvedModel); err != nil {
 				if exceeded := (*client.LLMGatewayBudgetExceeded)(nil); errors.As(err, &exceeded) {
-					return types2.NewErrHTTP(http.StatusTooManyRequests, exceeded.Error())
+					writeBudgetExceeded(req.ResponseWriter, req.URL.Path, exceeded, time.Now())
+					return nil
 				}
 				return err
 			}
@@ -1348,4 +1350,28 @@ func modelName(model *v1.Model) string {
 		return ""
 	}
 	return model.Name
+}
+
+// writeBudgetExceeded answers a request an exhausted budget refuses, as a JSON error in the
+// API format the client speaks, so SDKs and tools like Claude Code show the message. Clients
+// are told not to retry: a budget frees up when its window moves on, not in seconds.
+func writeBudgetExceeded(w http.ResponseWriter, path string, exceeded *client.LLMGatewayBudgetExceeded, now time.Time) {
+	var body any
+	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/messages/count_tokens") {
+		body = map[string]any{
+			"type":  "error",
+			"error": map[string]any{"type": "rate_limit_error", "message": exceeded.Error()},
+		}
+	} else {
+		body = map[string]any{
+			"error": map[string]any{"message": exceeded.Error(), "type": "budget_exceeded", "code": "budget_exceeded"},
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Should-Retry", "false")
+	if !exceeded.ResetAt.IsZero() && exceeded.ResetAt.After(now) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(exceeded.ResetAt.Sub(now).Seconds()))))
+	}
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(body)
 }

@@ -315,3 +315,13 @@ func TestJudgeExplanationIsShownButNotStored(t *testing.T) {
 		t.Fatalf("the explanation must not be stored: %s", raw)
 	}
 }
+
+func TestBlockMessagePunctuation(t *testing.T) {
+	r := &compiledRule{rule: types.GuardrailRule{Name: "No cooking"}}
+	if got := blockMessage(r, []Finding{{Explanation: "Recipes aren't allowed here."}}); strings.HasSuffix(got, "..") {
+		t.Fatalf("double period: %q", got)
+	}
+	if got := blockMessage(r, []Finding{{Category: "policy"}}); !strings.HasSuffix(got, "policy.") {
+		t.Fatalf("missing period: %q", got)
+	}
+}

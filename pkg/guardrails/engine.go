@@ -455,6 +455,10 @@ func blockMessage(r *compiledRule, findings []Finding) string {
 	if len(reasons) > 0 {
 		msg += ": " + strings.Join(reasons, "; ")
 	}
+	// Reasons, such as a judge's explanation, may already end in punctuation.
+	if strings.HasSuffix(msg, ".") || strings.HasSuffix(msg, "!") || strings.HasSuffix(msg, "?") {
+		return msg
+	}
 	return msg + "."
 }
 
