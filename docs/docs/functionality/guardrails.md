@@ -17,6 +17,15 @@ Guardrails are made of:
 - **Rules** decide which LLM gateway traffic is checked, by which detectors, for whom, and what happens when a detector finds something.
 - **Guardrail filters** do the same for MCP traffic. They are MCP filters, so they use the same server targeting and selectors as other filters and run in the same filter chain. See [Guardrail filters](./filters.md#guardrail-filters).
 
+Where to find them:
+
+| What | Where |
+| --- | --- |
+| Detectors | **AI Resources > Guardrails > Detectors** |
+| Rules for model traffic | **AI Resources > Models > Guardrails** |
+| Guardrail filters for MCP traffic | **AI Resources > MCP Servers > Filters** |
+| Events for both | **AI Resources > Guardrails > Events** |
+
 ## Detectors
 
 | Type | What it detects | Can redact |
@@ -44,17 +53,17 @@ A detector can't be deleted while a rule or a guardrail filter uses it.
 Rules apply to LLM gateway traffic only. To check MCP traffic, create a [guardrail filter](./filters.md#guardrail-filters). Each rule has:
 
 - **Apply to**: input, output or both.
-- **Profiles**: one or more profiles to run.
+- **Detectors**: one or more detectors to run.
 - **Action**:
   - **Block** rejects the request, or ends the response, with a message naming the rule and what was found. You can replace that message with your own.
-  - **Redact** replaces what was found with a label such as `[REDACTED:EMAIL]` and lets the rest through. Some profiles can only tell that content is a problem, not where it is. A redact rule blocks when one of those finds something.
+  - **Redact** replaces what was found with a label such as `[REDACTED:EMAIL]` and lets the rest through. Some detectors can only tell that content is a problem, not where it is. A redact rule blocks when one of those finds something.
   - **Log** only records an event.
 - **Assigned to**: users, groups or everyone. A rule with no assignment applies to everyone.
 - **Condition** (optional): a [CEL](https://github.com/google/cel-spec) expression that must be true for the rule to apply.
   - It can use `model` (for example `"openai/gpt-4.1"`), `provider`, `params`, `headers`, `user.id` and `user.groups`.
   - For example: `model.startsWith("openai/") && !("contractors" in user.groups)`.
   - Reading a header that isn't there is an error, so test for it first: `"x-team" in headers && headers["x-team"] == "sales"`. A condition that fails to evaluate records an error event (at most once a minute per rule); the rule is then skipped, or blocks the request if it fails closed.
-- **Sampling rate**: the percentage of matching traffic to check, for expensive profiles.
+- **Sampling rate**: the percentage of matching traffic to check, for expensive detectors.
 - **Input scope**: whether input checks look at the whole conversation or only what was added since the model last replied. Redacting rules always check the whole conversation, so nothing unredacted is sent.
 - **Fail closed**: whether to block when a profile or the rule's condition can't be evaluated, for example because an external service or the LLM judge's model is down. By default the rule is skipped and an error event is recorded.
 

@@ -320,7 +320,7 @@
 									</p>
 									<p class="max-w-md text-sm font-light">
 										Prefer not to register? You can still use this feature by
-										<a class="text-link" href={resolve('/models?view=model-providers')}>
+										<a class="text-link" href={resolve('/models?view=providers')}>
 											configuring your own model provider
 										</a>.
 									</p>
