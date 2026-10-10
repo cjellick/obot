@@ -9,9 +9,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// autoMigrateLockID is the Postgres advisory lock that serializes AutoMigrate across Obot
-// replicas.
-const autoMigrateLockID int64 = 0x6f626f746d6967 // "obotmig"
+const (
+	// autoMigrateLockID is the Postgres advisory lock that serializes AutoMigrate across Obot
+	// replicas.
+	autoMigrateLockID int64 = 0x6f626f746d6967 // "obotmig"
+)
 
 type DB struct {
 	gormDB      *gorm.DB
