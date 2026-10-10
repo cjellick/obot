@@ -9,6 +9,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// autoMigrateLockID is the Postgres advisory lock that serializes AutoMigrate across Obot
+// replicas.
+const autoMigrateLockID int64 = 0x6f626f746d6967 // "obotmig"
+
 type DB struct {
 	gormDB      *gorm.DB
 	sqlDB       *sql.DB
@@ -36,6 +40,15 @@ func (db *DB) AutoMigrate() (err error) {
 			tx.Commit()
 		}
 	}()
+
+	if db.gormDB.Name() == "postgres" {
+		// Replicas that start together would otherwise race to create the same new tables,
+		// and all but one would fail with a duplicate type error. The lock is held until this
+		// transaction ends, so the others wait and then find the schema up to date.
+		if err = tx.Exec("SELECT pg_advisory_xact_lock(?)", autoMigrateLockID).Error; err != nil {
+			return fmt.Errorf("failed to lock the database for migrations: %w", err)
+		}
+	}
 
 	if err = tx.AutoMigrate(&types.Migration{}); err != nil {
 		return fmt.Errorf("failed to migrate migration table: %w", err)
