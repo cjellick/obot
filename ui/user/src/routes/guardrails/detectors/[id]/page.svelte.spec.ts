@@ -1,8 +1,8 @@
 import { page as appPage } from '$app/state';
 import { goto } from '$lib/url';
-import { preparePageData } from '../../../../../tests/helpers/pageData';
-import { worker } from '../../../../../tests/mocks/worker';
-import ProfilePage from './+page.svelte';
+import { preparePageData } from '../../../../tests/helpers/pageData';
+import { worker } from '../../../../tests/mocks/worker';
+import DetectorPage from './+page.svelte';
 import { http, HttpResponse } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
@@ -40,8 +40,8 @@ afterEach(() => {
 	appPage.url.searchParams.delete('type');
 });
 
-describe('Guardrail profile editor', () => {
-	it('creates a profile from the provider fields, then enables testing', async () => {
+describe('Guardrail detector editor', () => {
+	it('creates a detector from the provider fields, then enables testing', async () => {
 		mockProviders();
 		appPage.url.searchParams.set('type', 'presidio');
 		const created = vi.fn();
@@ -53,12 +53,12 @@ describe('Guardrail profile editor', () => {
 			})
 		);
 		await preparePageData();
-		render(ProfilePage);
+		render(DetectorPage);
 
 		await expect
 			.element(page.getByLabelText('Name', { exact: true }))
 			.toHaveValue('Microsoft Presidio');
-		await expect.element(page.getByText('Save the profile to test it.')).toBeInTheDocument();
+		await expect.element(page.getByText('Save the detector to test it.')).toBeInTheDocument();
 		await expect.element(page.getByLabelText('Sample text')).toBeDisabled();
 
 		const save = page.getByRole('button', { name: 'Save', exact: true });
@@ -81,7 +81,7 @@ describe('Guardrail profile editor', () => {
 			}
 		});
 		await vi.waitFor(() =>
-			expect(goto).toHaveBeenCalledWith('/llm-gateway/guardrails/profiles/p1', {
+			expect(goto).toHaveBeenCalledWith('/guardrails/detectors/p1', {
 				replaceState: true
 			})
 		);
@@ -118,7 +118,7 @@ describe('Guardrail profile editor', () => {
 			})
 		);
 		await preparePageData();
-		render(ProfilePage);
+		render(DetectorPage);
 
 		await expect.element(page.getByLabelText('Entities')).toHaveValue('EMAIL_ADDRESS');
 		await expect
@@ -129,7 +129,10 @@ describe('Guardrail profile editor', () => {
 		await vi.waitFor(() => expect(updated).toHaveBeenCalledOnce());
 		expect(updated.mock.calls[0][0].config).not.toHaveProperty('apiKey');
 
-		await page.getByLabelText('Stage').selectOptions('output');
+		await page.getByRole('combobox', { name: 'Stage' }).click();
+		const output = page.getByRole('button', { name: 'Output', exact: true });
+		await expect.element(output).toBeVisible();
+		await output.click();
 		await page.getByLabelText('Sample text').fill('Mail a@example.com or b@example.com');
 		await page.getByRole('button', { name: 'Run test' }).click();
 
@@ -144,5 +147,28 @@ describe('Guardrail profile editor', () => {
 		await expect
 			.element(page.getByText('Mail [EMAIL_ADDRESS] or [EMAIL_ADDRESS]'))
 			.toBeInTheDocument();
+	});
+
+	it('returns to the detectors list on cancel', async () => {
+		mockProviders();
+		appPage.url.searchParams.set('type', 'presidio');
+		await preparePageData();
+		render(DetectorPage);
+
+		await expect
+			.element(page.getByRole('heading', { name: 'Microsoft Presidio' }))
+			.toBeInTheDocument();
+		await page.getByRole('button', { name: 'Cancel' }).click();
+
+		expect(goto).toHaveBeenCalledWith('/guardrails?view=detectors');
+	});
+
+	it('reports an unknown detector type', async () => {
+		mockProviders();
+		appPage.url.searchParams.set('type', 'nope');
+		await preparePageData();
+		render(DetectorPage);
+
+		await expect.element(page.getByText('Unknown detector type "nope".')).toBeInTheDocument();
 	});
 });
