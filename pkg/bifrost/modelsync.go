@@ -9,6 +9,7 @@ import (
 	gateway "github.com/obot-platform/obot/pkg/gateway/client"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
+	"k8s.io/client-go/util/retry"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -20,21 +21,24 @@ const (
 )
 
 // TriggerModelSync flips the sync annotation on the gateway's ModelProvider so
-// the provider controller re-lists models.
+// the provider controller re-lists models. The provider controller updates the same
+// resource while it syncs, so a conflicting write is retried against the latest version.
 func TriggerModelSync(ctx context.Context, c kclient.Client) error {
-	var mp v1.ModelProvider
-	if err := c.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: system.LLMGatewayModelProvider}, &mp); err != nil {
-		return err
-	}
-	if mp.Annotations[v1.ModelProviderSyncAnnotation] == "" {
-		if mp.Annotations == nil {
-			mp.Annotations = map[string]string{}
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		var mp v1.ModelProvider
+		if err := c.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: system.LLMGatewayModelProvider}, &mp); err != nil {
+			return err
 		}
-		mp.Annotations[v1.ModelProviderSyncAnnotation] = "true"
-	} else {
-		delete(mp.Annotations, v1.ModelProviderSyncAnnotation)
-	}
-	return c.Update(ctx, &mp)
+		if mp.Annotations[v1.ModelProviderSyncAnnotation] == "" {
+			if mp.Annotations == nil {
+				mp.Annotations = map[string]string{}
+			}
+			mp.Annotations[v1.ModelProviderSyncAnnotation] = "true"
+		} else {
+			delete(mp.Annotations, v1.ModelProviderSyncAnnotation)
+		}
+		return c.Update(ctx, &mp)
+	})
 }
 
 // RunStartupTasks waits for the engine to start, imports legacy model provider credentials
@@ -98,11 +102,8 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 	for {
-		// A conflicting write just means the provider changed underneath; retry once fresh.
 		if err := TriggerModelSync(ctx, c); err != nil {
-			if err := TriggerModelSync(ctx, c); err != nil {
-				slog.Warn("failed to trigger LLM gateway model sync", "error", err)
-			}
+			slog.Warn("failed to trigger LLM gateway model sync", "error", err)
 		}
 		select {
 		case <-ctx.Done():
