@@ -21,13 +21,15 @@ into Obot instead:
   windows, per user or shared, assigned to users, groups or everyone. Obot
   enforces them from usage recorded in its own database, so they hold across
   replicas. They replace the daily token quota for gateway traffic.
-- **Guardrails.** Rules that run profiles (detectors) over content and block,
-  redact or log what they find. They apply to LLM gateway traffic, including
-  streamed responses, and to MCP tool call arguments and results. There are
-  three built-in detectors and eight integrations with external guardrail
-  services. Message policies become one kind of guardrail.
+- **Guardrails.** Detectors that check content, applied to LLM gateway
+  traffic (including streamed responses) by guardrail rules, and to MCP traffic
+  by a new in-process **guardrail filter** type in the existing MCP filter
+  chain. Either can block, redact or log. There are three built-in detectors
+  and eight integrations with external guardrail services. Message policies
+  become one kind of guardrail.
 
-Everything is managed from a new **LLM Gateway** section of the admin UI.
+The gateway is managed from the existing **Models** page (new tabs), a new
+**Guardrails** page, and the Usage and Audit Logs pages.
 
 A working prototype exists on the `bifrost-llm-gateway` branch of
 `obot-platform/obot`, with ADRs `2026-09-26-embed-bifrost-llm-gateway.md` and
@@ -157,7 +159,7 @@ flowchart LR
             gout[guardrails output plugin]
         end
         ge[Guardrail engine]
-        mcpgw["MCP gateway<br/>hooks, then guardrails"]
+        mcpgw["MCP gateway<br/>filter chain, incl.<br/>guardrail filters"]
     end
     providers[(Upstream LLM providers)]
     mcps[(MCP servers)]
@@ -401,30 +403,51 @@ checked on input. If a stream can't be held, a finding that would block or
 redact ends the stream and is recorded as an error, since the content was
 already delivered.
 
-### Guardrails on MCP tool calls
+### Guardrails on MCP traffic: guardrail filters
 
-Guardrails run in the MCP gateway's hook processor, after the configured MCP
-hooks, and only for `tools/call`.
+MCP filters are Obot's existing mechanism for MCP traffic policy. So for MCP,
+a guardrail is a **filter type** rather than a separate system. A "Guardrail"
+filter sits alongside webhook, custom MCP server and built-in filters.
 
-- **Input:** every string value in `arguments` is checked (object keys are
-  not).
-- **Output:** text content blocks, embedded text resources and
-  `structuredContent` strings are checked. Images and other binary content
-  are not.
-- **Block.** A block becomes a JSON-RPC error. On input, the MCP server is
-  never called.
-- **Redact.** Redaction mutates the message and adds
-  `_meta["ai.obot.hooks/mutations"]` like a hook mutation.
-- **Audit.** Outcomes appear in the MCP audit log with hook results.
+- **In-process.** A guardrail filter runs inside Obot. Unlike other filters,
+  nothing is deployed for it: no system MCP server and no container.
+- **Same targeting.** It uses the filter's `resources` (servers, catalog
+  entries, vMCPs, the catalog, or every server) and `selectors` (method plus
+  tool names or URIs). This replaces CEL over server display names, which
+  broke on renames and collided on duplicate names.
+- **Same chain.** It runs in the filter chain in the same order as other
+  filters, and later filters see its redactions. A block is a rejection, a
+  redaction is a mutation, and `log` only records.
+- **Configuration.** Detectors, action, direction (request, response or
+  both), fail-closed, sampling, user/group subjects, an optional CEL condition
+  (`mcp_arguments`, `mcp_tool`, `mcp_method`, `user`, `headers`) and a block
+  message.
+- **Methods.** `tools/call` arguments and results, `resources/read` text
+  contents, and `prompts/get` arguments and messages.
+- **Audit.** Hook statuses record the filter's display name for every filter
+  type; before, they recorded the method pattern. Findings are also recorded
+  as guardrail events (rule = the filter), so one events view covers MCP and
+  LLM traffic.
+- **Failure.** A detector that fails follows the filter's fail-closed setting.
+  If detectors can't be loaded at all, the filter blocks, as any filter that
+  errors does.
+- **Batches.** While filters apply to a server, JSON-RPC batches and
+  unparseable calls are refused, since they would skip the per-message checks.
 - **Every stream.** Results are checked whichever stream they arrive on,
-  including a GET stream (stream resumption, legacy SSE).
-- **Fail closed on what can't be checked.** While any MCP rule exists,
-  JSON-RPC batches and tool calls whose parameters can't be parsed are refused.
-- **Cost when unused.** If no rule targets MCP traffic, no guard is created
-  and the request is proxied exactly as before.
-- **Composite servers and vMCPs** are guarded at their outer endpoint:
-  `mcp_server` is the composite's name and `mcp_tool` is the tool name it
-  exposes.
+  including GET streams.
+- **Migration.** Guardrail rules are now LLM-only. Earlier MCP-target rules
+  are converted once into guardrail filters on every server, under the marker
+  `guardrails_mcp_rules_to_filters`.
+
+**Custom filters are kept, not retired.** Filters run arbitrary customer code
+on any MCP method and can make any mutation, which guardrails don't replace.
+The intended path is convergence:
+1. Add a webhook detector, so a guardrail can call a customer's webhook
+   in-process. Webhook filters then no longer need the container they run in
+   today.
+2. Detection-only built-in filters become detectors.
+
+"Custom MCP server filter" then remains only for the exotic cases.
 
 ### Message policies fold-in
 
@@ -481,21 +504,19 @@ read `/debug/metrics`.
 
 ### Admin UI
 
-A new **LLM Gateway** navigation group has these pages:
+The gateway fits the existing navigation and page patterns: tabbed pages, the
+shared table, filters and empty-state components, and the same forms.
 
-- **Overview:** requests, success rate, latency, tokens, cost, top models,
-  and client setup.
-- **Providers:** add providers and keys, with weights, model restrictions,
-  base URLs, timeouts, retries, concurrency and headers.
-- **Budgets & Limits.**
-- **Guardrails:** Rules, Profiles (with a test panel) and Events.
-- **Routing:** CEL rules, weighted targets and fallback chains.
-- **Request Logs.**
-- **Settings:** logging, retention, content logging, queueing and caching.
+| Where | What |
+| --- | --- |
+| **AI Resources → Models** | Tabs: Models (with client setup for Claude Code, Codex, the SDKs and `curl`), Providers (gateway providers, plus the legacy per-provider integrations), Routing, Budgets & Limits, Guardrails (model rules), Access Policies, Settings |
+| **AI Resources → Guardrails** | Detectors (with a test panel) and Events, shared by model rules and guardrail filters |
+| **AI Resources → MCP Servers → Filters** | Guardrail filters next to the other filter types |
+| **Operations → Usage → Gateway** | Requests, success rate, latency, tokens, cost, cost by provider, top models |
+| **Operations → Audit Logs → Gateway Requests** | Every routed request with retries, fallbacks, key, cost and latency |
 
-The Models page shows the gateway provider and ready-to-copy configuration for
-Claude Code, Codex, the OpenAI and Anthropic SDKs, and `curl`. The Message
-Policies and Policy Violations entries are removed.
+Old `/llm-gateway/...` URLs redirect. The Message Policies and Policy
+Violations pages redirect to their guardrail equivalents.
 
 ### Configuration
 
@@ -519,7 +540,7 @@ The Helm chart's persistence note now also covers the gateway data dir.
 | Reload after another replica's change fails | The replica keeps serving its current configuration, and the ProviderSync controller retries. |
 | Gateway disabled | The built-in model provider is removed, so its models don't look usable. The legacy routes are unaffected. |
 | Budget storage error | The request fails, closed. |
-| Guardrail rules can't be loaded | LLM requests and MCP tool calls are blocked, closed. |
+| Guardrail rules or detectors can't be loaded | LLM requests, and MCP messages a guardrail filter applies to, are blocked. |
 | A detector errors or times out, or the LLM judge's model is unavailable | The rule is skipped and an error event is recorded, unless the rule fails closed. |
 | A rule's condition fails at runtime (e.g. a missing header) | Same as a detector error. Error events are recorded at most once a minute per rule. |
 | A redaction can't be applied (a span outside the text) | The rule blocks instead. |
