@@ -1,6 +1,7 @@
-import { preparePageData } from '../../../tests/helpers/pageData';
-import { worker } from '../../../tests/mocks/worker';
-import OverviewPage from './+page.svelte';
+import { page as appPage } from '$app/state';
+import { preparePageData } from '../../tests/helpers/pageData';
+import { worker } from '../../tests/mocks/worker';
+import GatewayUsageView from './GatewayUsageView.svelte';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
@@ -61,46 +62,62 @@ function mockGateway({
 	return { statsQueries };
 }
 
-async function renderOverviewPage() {
+async function renderGatewayUsage() {
 	await preparePageData();
-	return render(OverviewPage);
+	return render(GatewayUsageView);
 }
 
-describe('LLM gateway overview page', () => {
-	it('shows cost by provider, top models and client setup', async () => {
+describe('Gateway usage view', () => {
+	it('shows the stats strip, cost by provider and top models', async () => {
 		mockGateway();
-		await renderOverviewPage();
+		await renderGatewayUsage();
 
+		await expect.element(page.getByText('Requests', { exact: true }).first()).toBeInTheDocument();
+		await expect.element(page.getByText('99.5%')).toBeInTheDocument();
+		await expect.element(page.getByText('420 ms')).toBeInTheDocument();
+		await expect.element(page.getByText('$12.50')).toBeInTheDocument();
 		await expect.element(page.getByText('$9.25').first()).toBeInTheDocument();
 		await expect.element(page.getByText('$3.25')).toBeInTheDocument();
-		await expect.element(page.getByRole('cell', { name: /gpt-4o/ })).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('cell', { name: 'gpt-4o', exact: true }))
+			.toBeInTheDocument();
 		await expect.element(page.getByRole('cell', { name: '98.7%' })).toBeInTheDocument();
 		await expect.element(page.getByRole('cell', { name: '500 ms' })).toBeInTheDocument();
 		await expect.element(page.getByText('No requests in this period.')).toBeInTheDocument();
-		await expect.element(page.getByRole('tab', { name: 'Claude Code' })).toBeInTheDocument();
 	});
 
-	it('only counts inference requests and reloads for a new time range', async () => {
+	it('only counts inference requests over the last 7 days by default', async () => {
 		const { statsQueries } = mockGateway();
-		await renderOverviewPage();
+		await renderGatewayUsage();
 
 		await vi.waitFor(() => expect(statsQueries).toHaveBeenCalledOnce());
-		const first = statsQueries.mock.calls[0][0] as URLSearchParams;
-		expect(first.get('objects')?.split(',')).toContain('chat_completion');
-		expect(first.get('objects')?.split(',')).not.toContain('list_models');
-
-		await page.getByLabelText('Time range').selectOptions('7d');
-
-		await vi.waitFor(() => expect(statsQueries).toHaveBeenCalledTimes(2));
-		const second = statsQueries.mock.calls[1][0] as URLSearchParams;
+		const query = statsQueries.mock.calls[0][0] as URLSearchParams;
+		expect(query.get('objects')?.split(',')).toContain('chat_completion');
+		expect(query.get('objects')?.split(',')).not.toContain('list_models');
 		const days =
-			(Date.parse(second.get('end_time')!) - Date.parse(second.get('start_time')!)) / 86400e3;
+			(Date.parse(query.get('end_time')!) - Date.parse(query.get('start_time')!)) / 86400e3;
 		expect(Math.round(days)).toBe(7);
+	});
+
+	it('uses the time range from the URL', async () => {
+		appPage.url.searchParams.set('start_time', '2026-09-01T00:00:00.000Z');
+		appPage.url.searchParams.set('end_time', '2026-09-02T00:00:00.000Z');
+		const { statsQueries } = mockGateway();
+		const screen = await renderGatewayUsage();
+
+		await vi.waitFor(() => expect(statsQueries).toHaveBeenCalledOnce());
+		const query = statsQueries.mock.calls[0][0] as URLSearchParams;
+		expect(query.get('start_time')).toBe('2026-09-01T00:00:00.000Z');
+		expect(query.get('end_time')).toBe('2026-09-02T00:00:00.000Z');
+
+		screen.unmount();
+		appPage.url.searchParams.delete('start_time');
+		appPage.url.searchParams.delete('end_time');
 	});
 
 	it('shows the starting banner and no usage while the gateway is starting', async () => {
 		const { statsQueries } = mockGateway({ status: { ...readyStatus, ready: false } });
-		await renderOverviewPage();
+		await renderGatewayUsage();
 
 		await expect.element(page.getByText('The LLM gateway is starting…')).toBeInTheDocument();
 		await expect.element(page.getByRole('cell', { name: /gpt-4o/ })).not.toBeInTheDocument();
@@ -109,7 +126,7 @@ describe('LLM gateway overview page', () => {
 
 	it('shows the disabled banner when the gateway is turned off', async () => {
 		mockGateway({ status: { ...readyStatus, enabled: false, ready: false } });
-		await renderOverviewPage();
+		await renderGatewayUsage();
 
 		await expect
 			.element(page.getByText('The LLM gateway is disabled on this Obot server', { exact: false }))
@@ -118,7 +135,7 @@ describe('LLM gateway overview page', () => {
 
 	it('prompts to add a provider when none are configured', async () => {
 		mockGateway({ status: { ...readyStatus, hasProviders: false }, rankings: [] });
-		await renderOverviewPage();
+		await renderGatewayUsage();
 
 		await expect.element(page.getByRole('link', { name: 'Add a provider' })).toBeInTheDocument();
 	});

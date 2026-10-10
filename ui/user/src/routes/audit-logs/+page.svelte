@@ -2,6 +2,7 @@
 	import DotDotDot from '$lib/components/DotDotDot.svelte';
 	import TabLayout from '$lib/components/TabLayout.svelte';
 	import AuditLogsPageContent from '$lib/components/admin/audit-logs/AuditLogsPageContent.svelte';
+	import GatewayRequestsContent from '$lib/components/admin/audit-logs/GatewayRequestsContent.svelte';
 	import LlmAuditLogsContent from '$lib/components/admin/audit-logs/LlmAuditLogsContent.svelte';
 	import VirtualPageRoot from '$lib/components/ui/virtual-page/virtual-page-viewport.svelte';
 	import { Group } from '$lib/services';
@@ -34,7 +35,8 @@
 	views={profile.current.hasAdminAccess?.()
 		? [
 				{ label: 'MCP', value: 'mcp', content: mcp },
-				{ label: 'Model', value: 'llm', content: llm }
+				{ label: 'Model', value: 'llm', content: llm },
+				{ label: 'Gateway Requests', value: 'gateway', content: gateway }
 			]
 		: [{ label: 'MCP', value: 'mcp', content: mcp }]}
 />
@@ -82,6 +84,12 @@
 {#snippet mcp()}
 	<div class="flex min-h-full flex-col gap-8 pb-8">
 		<AuditLogsPageContent bind:this={mcpLogs} />
+	</div>
+{/snippet}
+
+{#snippet gateway()}
+	<div class="flex min-h-full flex-col gap-4">
+		<GatewayRequestsContent />
 	</div>
 {/snippet}
 

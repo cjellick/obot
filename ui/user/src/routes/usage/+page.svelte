@@ -1,6 +1,7 @@
 <script lang="ts">
 	import TabLayout, { type TabView } from '$lib/components/TabLayout.svelte';
 	import { profile } from '$lib/stores';
+	import GatewayUsageView from './GatewayUsageView.svelte';
 	import LlmUsageView from './LlmUsageView.svelte';
 	import McpUsageView from './McpUsageView.svelte';
 
@@ -8,7 +9,10 @@
 	let views = $derived.by(() => {
 		const items: TabView[] = [{ label: 'MCP', value: 'mcp', content: mcp }];
 		if (hasAdminAccess) {
-			items.push({ label: 'Model', value: 'llm', content: llm });
+			items.push(
+				{ label: 'Model', value: 'llm', content: llm },
+				{ label: 'Gateway', value: 'gateway', content: gateway }
+			);
 		}
 		return items;
 	});
@@ -30,6 +34,10 @@
 
 {#snippet mcp()}
 	<McpUsageView />
+{/snippet}
+
+{#snippet gateway()}
+	<GatewayUsageView />
 {/snippet}
 
 {#snippet llm()}
