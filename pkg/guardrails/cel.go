@@ -34,6 +34,7 @@ func celEnv(target string) (*cel.Env, error) {
 		}
 		mcp, err := cel.NewEnv(append(common,
 			cel.Variable("mcp_server", cel.StringType),
+			cel.Variable("mcp_method", cel.StringType),
 			cel.Variable("mcp_tool", cel.StringType),
 			cel.Variable("mcp_arguments", cel.MapType(cel.StringType, cel.DynType)),
 		)...)
@@ -94,6 +95,7 @@ func conditionVars(target string, identity Identity, vars map[string]any) map[st
 	}
 	if target == types.GuardrailTargetMCP {
 		out["mcp_server"] = ""
+		out["mcp_method"] = ""
 		out["mcp_tool"] = ""
 		out["mcp_arguments"] = map[string]any{}
 	} else {

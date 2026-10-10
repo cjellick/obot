@@ -101,6 +101,7 @@ type Engine struct {
 	lock     sync.Mutex
 	loadedAt time.Time
 	rules    []*compiledRule
+	profiles map[string]*compiledProfile
 
 	events chan types.GuardrailEvent
 
@@ -147,19 +148,25 @@ func (e *Engine) Invalidate() {
 }
 
 func (e *Engine) load(ctx context.Context) ([]*compiledRule, error) {
+	rules, _, err := e.loadAll(ctx)
+	return rules, err
+}
+
+// loadAll returns the enabled rules and every profile, by ID.
+func (e *Engine) loadAll(ctx context.Context) ([]*compiledRule, map[string]*compiledProfile, error) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	if time.Since(e.loadedAt) < cacheTTL {
-		return e.rules, nil
+		return e.rules, e.profiles, nil
 	}
 
 	rules, err := e.client.ListGuardrailRules(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	profiles, err := e.client.ListGuardrailProfiles(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	byID := map[string]*compiledProfile{}
@@ -201,8 +208,9 @@ func (e *Engine) load(ctx context.Context) ([]*compiledRule, error) {
 		}
 	}
 	e.rules = compiled
+	e.profiles = byID
 	e.loadedAt = time.Now()
-	return compiled, nil
+	return compiled, byID, nil
 }
 
 func stageMatches(applyTo, stage string) bool {
@@ -235,28 +243,34 @@ func (e *Engine) Plan(ctx context.Context, target, stage string, identity Identi
 	}
 	var plan Plan
 	for _, r := range rules {
-		if r.rule.Target != target || !stageMatches(r.rule.ApplyTo, stage) || !subjectsMatch(r.rule.Subjects, identity) {
-			continue
-		}
-		ok, err := evalCondition(target, r.rule.Condition, identity, vars)
-		if err != nil {
-			// A condition can fail at runtime, e.g. headers["x"] when the header is absent.
-			// Fail-closed rules block; others are skipped. Either way the failure is recorded.
-			e.conditionFailed(r, target, stage, identity, err)
-			if r.rule.FailClosed {
-				plan.broken = append(plan.broken, r)
-			}
-			continue
-		}
-		if !ok {
-			continue
-		}
-		if rate := r.rule.SamplingRate; rate > 0 && rate < 100 && rand.IntN(100) >= rate {
-			continue
-		}
-		plan.rules = append(plan.rules, r)
+		e.addToPlan(&plan, r, target, stage, identity, vars)
 	}
 	return plan, nil
+}
+
+// addToPlan adds a rule to a plan when it applies to the target, stage, caller and
+// variables, and is sampled.
+func (e *Engine) addToPlan(plan *Plan, r *compiledRule, target, stage string, identity Identity, vars map[string]any) {
+	if r.rule.Target != target || !stageMatches(r.rule.ApplyTo, stage) || !subjectsMatch(r.rule.Subjects, identity) {
+		return
+	}
+	ok, err := evalCondition(target, r.rule.Condition, identity, vars)
+	if err != nil {
+		// A condition can fail at runtime, e.g. headers["x"] when the header is absent.
+		// Fail-closed rules block; others are skipped. Either way the failure is recorded.
+		e.conditionFailed(r, target, stage, identity, err)
+		if r.rule.FailClosed {
+			plan.broken = append(plan.broken, r)
+		}
+		return
+	}
+	if !ok {
+		return
+	}
+	if rate := r.rule.SamplingRate; rate > 0 && rate < 100 && rand.IntN(100) >= rate {
+		return
+	}
+	plan.rules = append(plan.rules, r)
 }
 
 // Evaluate checks a request against a plan's rules. Rules run in order; a block stops

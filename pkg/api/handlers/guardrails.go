@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	gatewayclient "github.com/obot-platform/obot/pkg/gateway/client"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	"github.com/obot-platform/obot/pkg/guardrails"
+	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"gorm.io/gorm"
 )
 
@@ -264,6 +266,15 @@ func (h *GuardrailsHandler) DeleteProfile(req api.Context) error {
 			return types.NewErrHTTP(http.StatusConflict, fmt.Sprintf("profile is used by rule %q; remove it from the rule first", r.Name))
 		}
 	}
+	var filters v1.MCPWebhookValidationList
+	if err := req.List(&filters); err != nil {
+		return err
+	}
+	for _, f := range filters.Items {
+		if g := f.Spec.Manifest.Guardrail; g != nil && slices.Contains(g.DetectorIDs, profile.ID) {
+			return types.NewErrHTTP(http.StatusConflict, fmt.Sprintf("profile is used by filter %q; remove it from the filter first", cmp.Or(f.Spec.Manifest.Name, f.Name)))
+		}
+	}
 	if err := req.GatewayClient.DeleteGuardrailProfile(req.Context(), profile.ID); err != nil {
 		return err
 	}
@@ -498,9 +509,9 @@ func profileResponse(req api.Context, profile gatewaytypes.GuardrailProfile) (Gu
 	if err != nil {
 		return resp, err
 	}
+	resp.Error = guardrails.ProfileError(profile, secrets)
 	info, ok := guardrails.Provider(profile.Type)
 	if !ok {
-		resp.Error = fmt.Sprintf("unknown profile type %q", profile.Type)
 		return resp, nil
 	}
 	config := map[string]any{}
@@ -510,11 +521,7 @@ func profileResponse(req api.Context, profile gatewaytypes.GuardrailProfile) (Gu
 			delete(config, f.Name)
 			if secrets[f.Name] != "" {
 				resp.ConfiguredSecrets = append(resp.ConfiguredSecrets, f.Name)
-			} else if f.Required {
-				resp.Error = f.Label + " is required"
 			}
-		} else if v, ok := config[f.Name]; f.Required && (!ok || v == nil || v == "") {
-			resp.Error = f.Label + " is required"
 		}
 	}
 	resp.Config, _ = json.Marshal(config)

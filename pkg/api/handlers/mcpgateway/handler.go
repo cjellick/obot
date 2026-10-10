@@ -287,18 +287,18 @@ func (h *Handler) Proxy(req api.Context) error {
 			return fmt.Errorf("failed to prepare MCP request audit log: %w", err)
 		}
 
-		var guard *mcpGuard
-		// Guard every method: tool results can also arrive on a GET stream (stream
-		// resumption, or the legacy SSE transport).
-		if h.guardrails != nil {
+		var filterGuardrails *mcpGuardrails
+		// Resolve the caller for guardrail filters on every method: tool results can also
+		// arrive on a GET stream (stream resumption, or the legacy SSE transport).
+		if h.guardrails != nil && hookConfig.HasGuardrails() {
 			identity, _, err := guardrails.ResolveIdentity(req.Context(), req.GatewayClient, req.User)
 			if err != nil {
 				return err
 			}
-			guard = newMCPGuard(req.Context(), h.guardrails, identity, serverConfig, req.Request.Header)
+			filterGuardrails = newMCPGuardrails(h.guardrails, identity, serverConfig, req.Request.Header)
 		}
 
-		hooks, err := newGuardedHookProcessor(req.Request, guard, h.hookRunner, hookConfig, hookServers, audit, newHookCorrelationStore(req.Storage, serverConfig.AuditLogMetadata))
+		hooks, err := newHookProcessor(req.Request, h.hookRunner, hookConfig, hookServers, audit, newHookCorrelationStore(req.Storage, serverConfig.AuditLogMetadata), filterGuardrails)
 		if err != nil {
 			return fmt.Errorf("failed to prepare MCP request hooks: %w", err)
 		}

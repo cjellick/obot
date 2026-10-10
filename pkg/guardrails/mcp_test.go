@@ -1,59 +1,73 @@
 package guardrails
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
+	apitypes "github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/gateway/types"
 )
 
-func mcpRule(name, action, condition string, profiles ...string) types.GuardrailRule {
-	r := rule(name, action, profiles...)
-	r.Target = types.GuardrailTargetMCP
-	r.Condition = condition
-	return r
+func secretsFilter(action, direction string) MCPFilter {
+	return MCPFilter{ID: "mwv1secrets", Name: "No secrets", Config: apitypes.MCPGuardrailFilterConfig{
+		DetectorIDs: []string{"secrets"}, Action: action, Direction: direction, SamplingRate: 100,
+	}}
 }
 
-func TestMCPToolCallRedactsArguments(t *testing.T) {
-	store := &fakeStore{
-		profiles: []types.GuardrailProfile{profile("secrets", "secrets", nil)},
-		rules:    []types.GuardrailRule{mcpRule("redact", types.GuardrailActionRedact, `mcp_tool == "send"`, "secrets")},
-	}
-	e := New(context.Background(), store, nil)
-	call := MCPCall{Identity: Identity{UserID: "u"}, Server: "mail", Tool: "send", Arguments: json.RawMessage(`{"to":"bob","body":{"lines":["key ` + leakedKey + `"]},"n":1.50}`)}
+func secretsEngine(t *testing.T) (*Engine, *fakeStore) {
+	t.Helper()
+	store := &fakeStore{profiles: []types.GuardrailProfile{profile("secrets", "secrets", nil)}}
+	return New(t.Context(), store, nil), store
+}
 
-	d := e.CheckMCPToolCall(context.Background(), call)
-	if d.Blocked || d.Changed == nil {
-		t.Fatalf("expected redacted arguments, got %+v", d)
-	}
-	if strings.Contains(string(d.Changed), leakedKey) || !strings.Contains(string(d.Changed), "[REDACTED:AWS_ACCESS_KEY_ID]") || !strings.Contains(string(d.Changed), `"n":1.50`) {
-		t.Fatalf("unexpected arguments %s", d.Changed)
+func TestMCPFilterRedactsToolCallArguments(t *testing.T) {
+	e, store := secretsEngine(t)
+	f := secretsFilter(apitypes.MCPGuardrailActionRedact, "")
+	f.Config.Condition = `mcp_tool == "send" && mcp_method == "tools/call"`
+	msg := MCPMessage{
+		Identity: Identity{UserID: "u"}, Server: "mail", Method: MCPMethodToolsCall, Name: "send", Stage: StageInput,
+		Params: json.RawMessage(`{"name":"send","arguments":{"to":"bob","body":{"lines":["key ` + leakedKey + `"]},"n":1.50}}`),
 	}
 
-	// The condition limits the rule to one tool.
-	call.Tool = "read"
-	if d := e.CheckMCPToolCall(context.Background(), call); d.Changed != nil || len(d.Rules) != 0 {
-		t.Fatalf("rule should not apply to other tools: %+v", d)
+	d := e.CheckMCPFilter(t.Context(), f, msg)
+	if !d.Applied || d.Blocked || d.Params == nil {
+		t.Fatalf("expected redacted params, got %+v", d)
 	}
-	// LLM traffic isn't affected by MCP rules.
-	if !e.HasMCPRules(context.Background()) {
-		t.Fatal("expected MCP rules")
+	params := string(d.Params)
+	if strings.Contains(params, leakedKey) || !strings.Contains(params, "[REDACTED:AWS_ACCESS_KEY_ID]") || !strings.Contains(params, `"n":1.50`) || !strings.Contains(params, `"name":"send"`) {
+		t.Fatalf("unexpected params %s", params)
+	}
+
+	// The condition limits the filter to one tool.
+	msg.Name = "read"
+	if d := e.CheckMCPFilter(t.Context(), f, msg); d.Applied || d.Params != nil {
+		t.Fatalf("filter should not apply to other tools: %+v", d)
+	}
+
+	e.Flush()
+	store.lock.Lock()
+	defer store.lock.Unlock()
+	if len(store.events) != 1 {
+		t.Fatalf("expected one event, got %+v", store.events)
+	}
+	ev := store.events[0]
+	if ev.RuleID != "mwv1secrets" || ev.RuleName != "No secrets" || ev.Target != types.GuardrailTargetMCP || ev.Resource != "mail/send" || ev.Outcome != "redacted" {
+		t.Fatalf("unexpected event %+v", ev)
 	}
 }
 
-func TestMCPToolResult(t *testing.T) {
-	store := &fakeStore{
-		profiles: []types.GuardrailProfile{profile("secrets", "secrets", nil)},
-		rules:    []types.GuardrailRule{mcpRule("redact", types.GuardrailActionRedact, "", "secrets")},
+func TestMCPFilterToolResult(t *testing.T) {
+	e, _ := secretsEngine(t)
+	f := secretsFilter(apitypes.MCPGuardrailActionRedact, apitypes.MCPGuardrailDirectionResponse)
+	msg := MCPMessage{
+		Identity: Identity{UserID: "u"}, Server: "files", Method: MCPMethodToolsCall, Name: "read", Stage: StageOutput,
+		Params: json.RawMessage(`{"name":"read"}`),
+		Result: json.RawMessage(`{"content":[{"type":"text","text":"found ` + leakedKey + `"},{"type":"image","data":"` + leakedKey + `"}],"structuredContent":{"key":"` + leakedKey + `"}}`),
 	}
-	e := New(context.Background(), store, nil)
-	call := MCPCall{Identity: Identity{UserID: "u"}, Server: "files", Tool: "read"}
-	result := json.RawMessage(`{"content":[{"type":"text","text":"found ` + leakedKey + `"},{"type":"image","data":"` + leakedKey + `"}],"structuredContent":{"key":"` + leakedKey + `"}}`)
 
-	d := e.CheckMCPToolResult(context.Background(), call, result)
-	if d.Changed == nil {
+	d := e.CheckMCPFilter(t.Context(), f, msg)
+	if d.Result == nil {
 		t.Fatalf("expected a redacted result, got %+v", d)
 	}
 	var out struct {
@@ -63,25 +77,93 @@ func TestMCPToolResult(t *testing.T) {
 		} `json:"content"`
 		StructuredContent map[string]string `json:"structuredContent"`
 	}
-	if err := json.Unmarshal(d.Changed, &out); err != nil {
+	if err := json.Unmarshal(d.Result, &out); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.Content[0].Text, leakedKey) || strings.Contains(out.StructuredContent["key"], leakedKey) {
-		t.Fatalf("result not redacted: %s", d.Changed)
+		t.Fatalf("result not redacted: %s", d.Result)
 	}
 	// Binary content isn't text and is left alone.
 	if out.Content[1].Data != leakedKey {
-		t.Fatalf("image data should be untouched: %s", d.Changed)
+		t.Fatalf("image data should be untouched: %s", d.Result)
 	}
 
-	store.rules = []types.GuardrailRule{mcpRule("block", types.GuardrailActionBlock, "", "secrets")}
-	// The default input scope (latest) must not skip tool call arguments.
-	store.rules[0].InputScope = types.GuardrailScopeLatest
-	e.Invalidate()
-	if d := e.CheckMCPToolCall(context.Background(), MCPCall{Tool: "write", Arguments: json.RawMessage(`{"text":"` + leakedKey + `"}`)}); !d.Blocked {
+	// A response-only filter doesn't check requests.
+	msg.Stage = StageInput
+	msg.Params = json.RawMessage(`{"name":"read","arguments":{"text":"` + leakedKey + `"}}`)
+	if d := e.CheckMCPFilter(t.Context(), f, msg); d.Applied {
+		t.Fatalf("response filter applied to a request: %+v", d)
+	}
+
+	f = secretsFilter(apitypes.MCPGuardrailActionBlock, "")
+	f.Config.BlockMessage = "no secrets please"
+	if d := e.CheckMCPFilter(t.Context(), f, msg); !d.Blocked || d.Message != "no secrets please" {
 		t.Fatalf("expected the tool call to be blocked, got %+v", d)
 	}
-	if d := e.CheckMCPToolResult(context.Background(), call, result); !d.Blocked || !strings.Contains(d.Message, "block") {
-		t.Fatalf("expected a block, got %+v", d)
+}
+
+func TestMCPFilterResourcesAndPrompts(t *testing.T) {
+	e, _ := secretsEngine(t)
+	f := secretsFilter(apitypes.MCPGuardrailActionRedact, "")
+
+	d := e.CheckMCPFilter(t.Context(), f, MCPMessage{
+		Method: MCPMethodResourcesRead, Name: "file:///keys", Stage: StageOutput,
+		Params: json.RawMessage(`{"uri":"file:///keys"}`),
+		Result: json.RawMessage(`{"contents":[{"uri":"file:///keys","text":"key ` + leakedKey + `"},{"uri":"file:///bin","blob":"` + leakedKey + `"}]}`),
+	})
+	if d.Result == nil || strings.Count(string(d.Result), leakedKey) != 1 || !strings.Contains(string(d.Result), "REDACTED") {
+		t.Fatalf("resource text not redacted (blob kept): %+v %s", d, d.Result)
+	}
+
+	d = e.CheckMCPFilter(t.Context(), f, MCPMessage{
+		Method: MCPMethodPromptsGet, Name: "review", Stage: StageInput,
+		Params: json.RawMessage(`{"name":"review","arguments":{"code":"` + leakedKey + `"}}`),
+	})
+	if d.Params == nil || strings.Contains(string(d.Params), leakedKey) {
+		t.Fatalf("prompt arguments not redacted: %+v %s", d, d.Params)
+	}
+
+	d = e.CheckMCPFilter(t.Context(), f, MCPMessage{
+		Method: MCPMethodPromptsGet, Name: "review", Stage: StageOutput,
+		Params: json.RawMessage(`{"name":"review"}`),
+		Result: json.RawMessage(`{"messages":[{"role":"user","content":{"type":"text","text":"use ` + leakedKey + `"}},{"role":"user","content":{"type":"resource","resource":{"uri":"x","text":"` + leakedKey + `"}}}]}`),
+	})
+	if d.Result == nil || strings.Contains(string(d.Result), leakedKey) {
+		t.Fatalf("prompt messages not redacted: %+v %s", d, d.Result)
+	}
+}
+
+func TestMCPFilterMissingDetector(t *testing.T) {
+	e, store := secretsEngine(t)
+	f := secretsFilter(apitypes.MCPGuardrailActionBlock, "")
+	f.Config.DetectorIDs = []string{"gone"}
+	msg := MCPMessage{Method: MCPMethodToolsCall, Name: "send", Stage: StageInput, Params: json.RawMessage(`{"name":"send","arguments":{"a":"b"}}`)}
+
+	if d := e.CheckMCPFilter(t.Context(), f, msg); d.Blocked {
+		t.Fatalf("a fail-open filter should not block: %+v", d)
+	}
+	f.Config.FailClosed = true
+	if d := e.CheckMCPFilter(t.Context(), f, msg); !d.Blocked {
+		t.Fatalf("a fail-closed filter should block: %+v", d)
+	}
+	e.Flush()
+	if got := store.outcomes(); len(got) != 2 || got[0] != "error" {
+		t.Fatalf("unexpected events %v", got)
+	}
+}
+
+func TestMCPFilterSubjects(t *testing.T) {
+	e, _ := secretsEngine(t)
+	f := secretsFilter(apitypes.MCPGuardrailActionBlock, "")
+	f.Config.Subjects = []apitypes.MCPGuardrailFilterSubject{{Type: apitypes.MCPGuardrailSubjectGroup, ID: "eng"}}
+	msg := MCPMessage{Method: MCPMethodToolsCall, Name: "send", Stage: StageInput, Params: json.RawMessage(`{"name":"send","arguments":{"a":"` + leakedKey + `"}}`)}
+
+	msg.Identity = Identity{UserID: "u", Groups: []string{"sales"}}
+	if d := e.CheckMCPFilter(t.Context(), f, msg); d.Applied {
+		t.Fatalf("filter applied to a user outside its subjects: %+v", d)
+	}
+	msg.Identity.Groups = []string{"eng"}
+	if d := e.CheckMCPFilter(t.Context(), f, msg); !d.Blocked {
+		t.Fatalf("filter should block its subjects: %+v", d)
 	}
 }

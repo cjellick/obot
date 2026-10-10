@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -15,27 +16,51 @@ import (
 	kuser "k8s.io/apiserver/pkg/authentication/user"
 )
 
-// MCPCall is an MCP tool call that guardrails check: its arguments on the way to the
-// server, and its result on the way back.
-type MCPCall struct {
+const (
+	// MCP methods whose content guardrail filters check.
+	MCPMethodToolsCall     = "tools/call"
+	MCPMethodResourcesRead = "resources/read"
+	MCPMethodPromptsGet    = "prompts/get"
+)
+
+// MCPFilter is a guardrail filter: an MCP filter that Obot evaluates in-process with
+// guardrail profiles (detectors) instead of calling a filter MCP server.
+type MCPFilter struct {
+	// ID and Name identify the filter on guardrail events.
+	ID     string
+	Name   string
+	Config types2.MCPGuardrailFilterConfig
+}
+
+// MCPMessage is an MCP request or response that a guardrail filter checks.
+type MCPMessage struct {
 	Identity Identity
 	// Server is the MCP server's display name, and ServerID its ID.
 	Server   string
 	ServerID string
-	Tool     string
-	// Arguments are the tool call's arguments.
-	Arguments json.RawMessage
-	Headers   map[string]string
+	Headers  map[string]string
+	// Method is the request's method, and Name its tool or prompt name or resource URI.
+	Method string
+	Name   string
+	// Stage is StageInput for a request and StageOutput for its response.
+	Stage string
+	// Params are the request's params, at both stages.
+	Params json.RawMessage
+	// Result is the response's result, at the output stage.
+	Result json.RawMessage
 }
 
-// MCPDecision is the outcome of checking an MCP tool call or result.
+// MCPDecision is the outcome of a guardrail filter.
 type MCPDecision struct {
+	// Applied reports whether the filter checked the message: it covers the message's
+	// direction and caller, its condition held, and the message was sampled.
+	Applied bool
 	Blocked bool
 	Message string
-	// Rules names the rules that applied, for auditing.
-	Rules []string
-	// Changed is the redacted arguments or result; nil when nothing changed.
-	Changed json.RawMessage
+	// Params and Result are the redacted request params or response result; nil when
+	// unchanged.
+	Params json.RawMessage
+	Result json.RawMessage
 }
 
 // jsonText is one string in a JSON document, with a way to replace it.
@@ -68,88 +93,135 @@ func ResolveIdentity(ctx context.Context, gatewayClient *gateway.Client, user ku
 	return Identity{UserID: userID, Groups: groups}, owner.Role.HasRole(types2.RoleAdmin), nil
 }
 
-// HasMCPRules reports whether any rule targets MCP traffic, so callers can skip reading
-// messages when none does.
-func (e *Engine) HasMCPRules(ctx context.Context) bool {
-	rules, err := e.load(ctx)
-	if err != nil {
-		// Let the check itself fail (closed) with the error.
-		return true
+// filterRule converts a guardrail filter into a rule. A detector that doesn't exist fails
+// like one that can't be evaluated, so a fail-closed filter blocks.
+func filterRule(f MCPFilter, profiles map[string]*compiledProfile) *compiledRule {
+	c := f.Config
+	applyTo := types.GuardrailApplyBoth
+	switch c.Direction {
+	case types2.MCPGuardrailDirectionRequest:
+		applyTo = types.GuardrailApplyInput
+	case types2.MCPGuardrailDirectionResponse:
+		applyTo = types.GuardrailApplyOutput
 	}
-	return slices.ContainsFunc(rules, func(r *compiledRule) bool { return r.rule.Target == types.GuardrailTargetMCP })
+	subjects := make([]types.GuardrailRuleSubject, 0, len(c.Subjects))
+	for _, s := range c.Subjects {
+		subjects = append(subjects, types.GuardrailRuleSubject{Type: s.Type, ID: s.ID})
+	}
+	r := &compiledRule{
+		rule: types.GuardrailRule{
+			ID:           f.ID,
+			Name:         f.Name,
+			Enabled:      true,
+			Target:       types.GuardrailTargetMCP,
+			ApplyTo:      applyTo,
+			Action:       c.Action,
+			Condition:    c.Condition,
+			SamplingRate: c.SamplingRate,
+			FailClosed:   c.FailClosed,
+			BlockMessage: c.BlockMessage,
+			ProfileIDs:   c.DetectorIDs,
+			Subjects:     subjects,
+		},
+		allRedact: true,
+	}
+	for _, id := range c.DetectorIDs {
+		p, ok := profiles[id]
+		if !ok {
+			p = &compiledProfile{profile: types.GuardrailProfile{ID: id, Name: id}, err: fmt.Errorf("detector %s does not exist", id)}
+		}
+		r.profiles = append(r.profiles, p)
+		r.allRedact = r.allRedact && p.redacts
+	}
+	return r
 }
 
-func (c MCPCall) vars() map[string]any {
-	args := map[string]any{}
-	if len(c.Arguments) > 0 {
-		_ = json.Unmarshal(c.Arguments, &args)
+// CheckMCPFilter runs a guardrail filter on an MCP request or response. Tool call arguments
+// and results, resource contents, and prompt arguments and messages are checked; other
+// methods carry no content to check and pass unchanged.
+func (e *Engine) CheckMCPFilter(ctx context.Context, f MCPFilter, msg MCPMessage) MCPDecision {
+	_, profiles, err := e.loadAll(ctx)
+	if err != nil {
+		slog.Error("failed to load guardrail detectors", "filter", f.Name, "error", err)
+		if !f.Config.FailClosed {
+			return MCPDecision{}
+		}
+		return MCPDecision{Applied: true, Blocked: true, Message: fmt.Sprintf("Blocked: the %q guardrail filter could not be evaluated.", f.Name)}
 	}
-	headers := c.Headers
+
+	var params map[string]any
+	if len(msg.Params) > 0 {
+		if err := decodeJSON(msg.Params, &params); err != nil {
+			// The server might still accept what can't be checked here, so don't forward it.
+			return MCPDecision{Applied: true, Blocked: true, Message: fmt.Sprintf("Blocked: the %q guardrail filter could not read the request's params.", f.Name)}
+		}
+	}
+	arguments, _ := params["arguments"].(map[string]any)
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	headers := msg.Headers
 	if headers == nil {
 		headers = map[string]string{}
 	}
-	return map[string]any{"mcp_server": c.Server, "mcp_tool": c.Tool, "mcp_arguments": args, "headers": headers}
-}
-
-func (c MCPCall) resource() string {
-	if c.Server == "" {
-		return c.Tool
+	vars := map[string]any{
+		"mcp_server": msg.Server, "mcp_method": msg.Method, "mcp_tool": msg.Name,
+		"mcp_arguments": arguments, "headers": headers,
 	}
-	return c.Server + "/" + c.Tool
-}
 
-// CheckMCPToolCall checks a tool call's arguments before they reach the MCP server.
-func (e *Engine) CheckMCPToolCall(ctx context.Context, call MCPCall) MCPDecision {
-	return e.checkMCP(ctx, call, StageInput, call.Arguments, RoleToolCall, nil)
-}
-
-// CheckMCPToolResult checks a tool call's result before it reaches the client.
-func (e *Engine) CheckMCPToolResult(ctx context.Context, call MCPCall, result json.RawMessage) MCPDecision {
-	var history []Segment
-	if len(call.Arguments) > 0 {
-		history = []Segment{{Role: RoleToolCall, Name: call.Tool, Text: string(call.Arguments)}}
-	}
-	return e.checkMCP(ctx, call, StageOutput, result, RoleToolResult, history)
-}
-
-func (e *Engine) checkMCP(ctx context.Context, call MCPCall, stage string, doc json.RawMessage, role string, history []Segment) MCPDecision {
-	vars := call.vars()
-	plan, err := e.Plan(ctx, types.GuardrailTargetMCP, stage, call.Identity, vars)
-	if err != nil {
-		slog.Error("failed to load guardrail rules; blocking the tool call", "error", err)
-		return MCPDecision{Blocked: true, Message: "Tool call blocked: guardrails could not be evaluated."}
-	}
+	var plan Plan
+	e.addToPlan(&plan, filterRule(f, profiles), types.GuardrailTargetMCP, msg.Stage, msg.Identity, vars)
 	if plan.Empty() {
 		return MCPDecision{}
 	}
 
 	var (
-		parsed any
-		texts  []jsonText
+		doc     any
+		texts   []jsonText
+		role    = RoleToolCall
+		history []Segment
 	)
-	if len(doc) > 0 {
-		decoder := json.NewDecoder(bytes.NewReader(doc))
-		decoder.UseNumber()
-		if err := decoder.Decode(&parsed); err != nil {
-			// Not JSON; check it as one piece of text.
-			parsed = string(doc)
+	switch msg.Stage {
+	case StageInput:
+		doc = params
+		if params != nil && (msg.Method == MCPMethodToolsCall || msg.Method == MCPMethodPromptsGet) {
+			texts = fieldTexts(params, "arguments")
 		}
-		if stage == StageOutput {
-			texts = toolResultTexts(&parsed)
-		} else {
-			texts = collectJSONText(&parsed)
+	case StageOutput:
+		role = RoleToolResult
+		if len(msg.Result) > 0 {
+			if err := decodeJSON(msg.Result, &doc); err != nil {
+				return MCPDecision{Applied: true, Blocked: true, Message: fmt.Sprintf("Blocked: the %q guardrail filter could not read the response.", f.Name)}
+			}
 		}
-	}
-	segments := make([]Segment, len(texts))
-	for i, t := range texts {
-		segments[i] = Segment{Role: role, Name: call.Tool, Text: t.get()}
+		switch msg.Method {
+		case MCPMethodToolsCall:
+			texts = toolResultTexts(&doc)
+			if raw, ok := params["arguments"]; ok {
+				if args, err := json.Marshal(raw); err == nil {
+					history = []Segment{{Role: RoleToolCall, Name: msg.Name, Text: string(args)}}
+				}
+			}
+		case MCPMethodResourcesRead:
+			texts = resourceContentsTexts(doc)
+		case MCPMethodPromptsGet:
+			texts = promptMessagesTexts(doc)
+		}
 	}
 
+	segments := make([]Segment, len(texts))
+	for i, t := range texts {
+		segments[i] = Segment{Role: role, Name: msg.Name, Text: t.get()}
+	}
+	resource := msg.Name
+	if msg.Server != "" {
+		resource = msg.Server + "/" + msg.Name
+	}
 	d := e.Evaluate(ctx, plan, Request{
-		Target: types.GuardrailTargetMCP, Stage: stage, Identity: call.Identity, Vars: vars,
-		Segments: segments, History: history, Resource: call.resource(),
+		Target: types.GuardrailTargetMCP, Stage: msg.Stage, Identity: msg.Identity, Vars: vars,
+		Segments: segments, History: history, Resource: resource,
 	})
-	out := MCPDecision{Blocked: d.Blocked, Message: d.Message, Rules: plan.ruleNames()}
+	out := MCPDecision{Applied: true, Blocked: d.Blocked, Message: d.Message}
 	if d.Blocked || !d.Redacted {
 		return out
 	}
@@ -158,28 +230,38 @@ func (e *Engine) checkMCP(ctx context.Context, call MCPCall, stage string, doc j
 			t.set(d.Segments[i].Text)
 		}
 	}
-	if s, ok := parsed.(string); ok && !json.Valid(doc) {
-		out.Changed = json.RawMessage(s)
-		return out
-	}
-	changed, err := json.Marshal(parsed)
+	changed, err := json.Marshal(doc)
 	if err != nil {
-		return MCPDecision{Blocked: true, Message: "Tool call blocked: redacted content could not be encoded.", Rules: out.Rules}
+		return MCPDecision{Applied: true, Blocked: true, Message: fmt.Sprintf("Blocked: the %q guardrail filter could not encode the redacted message.", f.Name)}
 	}
-	out.Changed = changed
+	if msg.Stage == StageInput {
+		out.Params = changed
+	} else {
+		out.Result = changed
+	}
 	return out
 }
 
-func (p Plan) ruleNames() []string {
-	names := make([]string, 0, len(p.broken)+len(p.rules))
-	for _, r := range slices.Concat(p.broken, p.rules) {
-		names = append(names, r.rule.Name)
-	}
-	return names
+func decodeJSON(data []byte, v any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode(v)
 }
 
 // collectJSONText returns every string value (not key) in a JSON document, depth first.
 func collectJSONText(v *any) []jsonText {
+	return collectTexts(func() any { return *v }, func(n any) { *v = n })
+}
+
+// fieldTexts returns every string value in a field of a JSON object.
+func fieldTexts(m map[string]any, key string) []jsonText {
+	if _, ok := m[key]; !ok {
+		return nil
+	}
+	return collectTexts(func() any { return m[key] }, func(n any) { m[key] = n })
+}
+
+func collectTexts(get func() any, set func(any)) []jsonText {
 	var out []jsonText
 	var walk func(get func() any, set func(any))
 	walk = func(get func() any, set func(any)) {
@@ -203,7 +285,7 @@ func collectJSONText(v *any) []jsonText {
 			}
 		}
 	}
-	walk(func() any { return *v }, func(n any) { *v = n })
+	walk(get, set)
 	return out
 }
 
@@ -218,30 +300,70 @@ func toolResultTexts(v *any) []jsonText {
 	var out []jsonText
 	if content, ok := result["content"].([]any); ok {
 		for _, item := range content {
-			block, ok := item.(map[string]any)
-			if !ok {
-				continue
+			if block, ok := item.(map[string]any); ok {
+				out = append(out, contentBlockTexts(block)...)
 			}
-			switch block["type"] {
-			case "text":
-				out = append(out, stringField(block, "text")...)
-			case "resource":
-				if res, ok := block["resource"].(map[string]any); ok {
-					out = append(out, stringField(res, "text")...)
+		}
+	}
+	return append(out, fieldTexts(result, "structuredContent")...)
+}
+
+// resourceContentsTexts returns the text of an MCP ReadResourceResult's text contents.
+// Binary (blob) contents are not checked.
+func resourceContentsTexts(v any) []jsonText {
+	result, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	contents, _ := result["contents"].([]any)
+	var out []jsonText
+	for _, item := range contents {
+		if content, ok := item.(map[string]any); ok {
+			out = append(out, stringField(content, "text")...)
+		}
+	}
+	return out
+}
+
+// promptMessagesTexts returns the text of an MCP GetPromptResult's messages.
+func promptMessagesTexts(v any) []jsonText {
+	result, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	messages, _ := result["messages"].([]any)
+	var out []jsonText
+	for _, item := range messages {
+		message, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch content := message["content"].(type) {
+		case map[string]any:
+			out = append(out, contentBlockTexts(content)...)
+		case []any:
+			for _, c := range content {
+				if block, ok := c.(map[string]any); ok {
+					out = append(out, contentBlockTexts(block)...)
 				}
 			}
 		}
 	}
-	if structured, ok := result["structuredContent"]; ok {
-		out = append(out, collectJSONText(&structured)...)
-		// structured is a copy of the interface; nested maps and slices are shared, but a
-		// top-level string must be written back.
-		if _, isString := structured.(string); isString {
-			last := len(out) - 1
-			out[last].set = func(s string) { result["structuredContent"] = s }
+	return out
+}
+
+// contentBlockTexts returns the text of an MCP content block: a text block, or an embedded
+// text resource.
+func contentBlockTexts(block map[string]any) []jsonText {
+	switch block["type"] {
+	case "text":
+		return stringField(block, "text")
+	case "resource":
+		if res, ok := block["resource"].(map[string]any); ok {
+			return stringField(res, "text")
 		}
 	}
-	return out
+	return nil
 }
 
 func stringField(m map[string]any, key string) []jsonText {

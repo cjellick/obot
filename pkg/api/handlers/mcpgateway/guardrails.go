@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -12,21 +13,20 @@ import (
 )
 
 const (
-	guardrailsHookName = "guardrails"
+	// guardrailHookTool is the tool recorded in audit logs for guardrail filters, which have
+	// no filter server or tool.
+	guardrailHookTool = "guardrail"
 )
 
-// mcpGuard applies guardrail rules to the tool calls of one proxied MCP exchange.
-type mcpGuard struct {
+// mcpGuardrails runs the guardrail filters of one proxied MCP exchange in-process.
+type mcpGuardrails struct {
 	engine *guardrails.Engine
-	call   guardrails.MCPCall
+	// message holds what every check shares: the caller, the server and the headers.
+	message guardrails.MCPMessage
 }
 
-// newMCPGuard returns the guard for a request, or nil when no guardrail rule targets MCP
-// traffic.
-func newMCPGuard(ctx context.Context, engine *guardrails.Engine, identity guardrails.Identity, serverConfig mcp.ServerConfig, header http.Header) *mcpGuard {
-	if engine == nil || !engine.HasMCPRules(ctx) {
-		return nil
-	}
+// newMCPGuardrails returns what guardrail filters need to check a request's messages.
+func newMCPGuardrails(engine *guardrails.Engine, identity guardrails.Identity, serverConfig mcp.ServerConfig, header http.Header) *mcpGuardrails {
 	headers := map[string]string{}
 	for k, v := range header {
 		lower := strings.ToLower(k)
@@ -35,9 +35,9 @@ func newMCPGuard(ctx context.Context, engine *guardrails.Engine, identity guardr
 		}
 		headers[lower] = strings.Join(v, ",")
 	}
-	return &mcpGuard{
+	return &mcpGuardrails{
 		engine: engine,
-		call: guardrails.MCPCall{
+		message: guardrails.MCPMessage{
 			Identity: identity,
 			Server:   cmp.Or(serverConfig.MCPServerDisplayName, serverConfig.MCPServerName),
 			ServerID: serverConfig.MCPServerName,
@@ -46,61 +46,53 @@ func newMCPGuard(ctx context.Context, engine *guardrails.Engine, identity guardr
 	}
 }
 
-// apply checks a tool call's arguments or a tool result. It returns the message with any
-// redactions applied, a hook status when rules applied, and whether the message changed.
-func (g *mcpGuard) apply(ctx context.Context, message mcp.Message, method, name, direction string, requestParams json.RawMessage) (mcp.Message, *hookStatus, bool) {
-	if g == nil || method != "tools/call" {
-		return message, nil, false
+// run checks a message with a guardrail filter and answers like a filter server would: a
+// block rejects the message and a redaction mutates it. It returns nil when the filter
+// didn't apply. requestParams are the params of the request a response answers.
+func (g *mcpGuardrails) run(ctx context.Context, target mcp.HookTarget, message mcp.Message, method, name, direction string, requestParams json.RawMessage) (*mcp.SessionMessageHook, error) {
+	if g == nil || g.engine == nil {
+		return nil, errors.New("guardrails are not available")
 	}
-	call := g.call
-	call.Tool = name
-
-	var decision guardrails.MCPDecision
+	msg := g.message
+	msg.Method = method
+	msg.Name = name
 	switch direction {
 	case "request":
-		var params map[string]json.RawMessage
-		if json.Unmarshal(message.Params, &params) != nil {
-			// The server might still accept what can't be checked here, so don't forward it.
-			return message, &hookStatus{typeName: direction, method: method, name: guardrailsHookName, tool: name, status: "rejected", message: "Tool call blocked: its parameters could not be checked by guardrails."}, false
-		}
-		call.Arguments = params["arguments"]
-		decision = g.engine.CheckMCPToolCall(ctx, call)
-		if decision.Changed != nil {
-			params["arguments"] = decision.Changed
-			updated, err := json.Marshal(params)
-			if err != nil {
-				return message, &hookStatus{typeName: direction, method: method, name: guardrailsHookName, tool: name, status: "rejected", message: "Tool call blocked: redacted arguments could not be encoded."}, false
-			}
-			message.Params = updated
-		}
+		msg.Stage = guardrails.StageInput
+		msg.Params = message.Params
 	case "response":
 		if message.Error != nil || len(message.Result) == 0 {
-			return message, nil, false
+			return nil, nil
 		}
-		var params struct {
-			Arguments json.RawMessage `json:"arguments"`
-		}
-		_ = json.Unmarshal(requestParams, &params)
-		call.Arguments = params.Arguments
-		decision = g.engine.CheckMCPToolResult(ctx, call, message.Result)
-		if decision.Changed != nil {
-			message.Result = decision.Changed
-		}
+		msg.Stage = guardrails.StageOutput
+		msg.Params = requestParams
+		msg.Result = message.Result
 	default:
-		return message, nil, false
+		return nil, nil
 	}
 
-	if len(decision.Rules) == 0 {
-		return message, nil, false
+	decision := g.engine.CheckMCPFilter(ctx, guardrails.MCPFilter{
+		ID:     target.Guardrail.FilterName,
+		Name:   cmp.Or(target.Name, target.Guardrail.FilterName),
+		Config: target.Guardrail.Config,
+	}, msg)
+	if !decision.Applied {
+		return nil, nil
 	}
-	status := &hookStatus{typeName: direction, method: method, name: guardrailsHookName, tool: strings.Join(decision.Rules, ","), status: "ok"}
-	switch {
-	case decision.Blocked:
-		status.status = "rejected"
-		status.message = decision.Message
-	case decision.Changed != nil:
-		status.status = "mutated"
-		status.message = "redacted by guardrails"
+	if decision.Blocked {
+		return &mcp.SessionMessageHook{Accept: false, Message: &message, Reason: decision.Message}, nil
 	}
-	return message, status, decision.Changed != nil && !decision.Blocked
+	if decision.Params == nil && decision.Result == nil {
+		return &mcp.SessionMessageHook{Accept: true, Message: &message}, nil
+	}
+	if decision.Params != nil {
+		message.Params = decision.Params
+	}
+	if decision.Result != nil {
+		message.Result = decision.Result
+	}
+	return &mcp.SessionMessageHook{
+		Accept: true, Mutated: true, Message: &message,
+		Reason: "redacted by guardrail filter " + cmp.Or(target.Name, target.Guardrail.FilterName),
+	}, nil
 }

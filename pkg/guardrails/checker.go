@@ -1,18 +1,21 @@
-// Package guardrails checks LLM requests and responses, and MCP tool call arguments and
-// results, against administrator-defined rules. Rules decide which traffic is checked and
-// what happens on a finding (block, redact or log); profiles configure the checkers that do
-// the checking, from built-in regex, secrets detection and LLM-judge policies to external
-// services such as Presidio, AWS Bedrock Guardrails or Azure AI Content Safety.
+// Package guardrails checks LLM requests and responses against administrator-defined rules,
+// and MCP traffic with guardrail filters. Rules and guardrail filters decide which traffic
+// is checked and what happens on a finding (block, redact or log); profiles (detectors)
+// configure the checkers that do the checking, from built-in regex, secrets detection and
+// LLM-judge policies to external services such as Presidio, AWS Bedrock Guardrails or Azure
+// AI Content Safety.
 package guardrails
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"sync"
 
+	"github.com/obot-platform/obot/pkg/gateway/types"
 	"github.com/obot-platform/obot/pkg/messagepolicy"
 )
 
@@ -177,6 +180,35 @@ func Provider(typ string) (ProviderInfo, bool) {
 	defer registryLock.RUnlock()
 	r, ok := registry[typ]
 	return r.info, ok
+}
+
+// ProfileError explains why a profile can't be used, such as an unknown type or a missing
+// required setting. It is empty for a usable profile.
+func ProfileError(profile types.GuardrailProfile, secrets map[string]string) string {
+	info, ok := Provider(profile.Type)
+	if !ok {
+		return fmt.Sprintf("unknown profile type %q", profile.Type)
+	}
+	config := map[string]any{}
+	if len(profile.Config) > 0 && string(profile.Config) != "null" {
+		if err := json.Unmarshal(profile.Config, &config); err != nil {
+			return "invalid configuration: " + err.Error()
+		}
+	}
+	var problem string
+	for _, f := range info.Fields {
+		if !f.Required {
+			continue
+		}
+		if f.Sensitive {
+			if secrets[f.Name] == "" {
+				problem = f.Label + " is required"
+			}
+		} else if v, ok := config[f.Name]; !ok || v == nil || v == "" {
+			problem = f.Label + " is required"
+		}
+	}
+	return problem
 }
 
 func newChecker(typ string, config map[string]any, secrets map[string]string, deps Deps) (Checker, error) {

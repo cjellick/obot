@@ -186,6 +186,8 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/obot-platform/obot/apiclient/types.MCPConfig":                                 schema_obot_platform_obot_apiclient_types_MCPConfig(ref),
 		"github.com/obot-platform/obot/apiclient/types.MCPConfigurationOption":                    schema_obot_platform_obot_apiclient_types_MCPConfigurationOption(ref),
 		"github.com/obot-platform/obot/apiclient/types.MCPEnv":                                    schema_obot_platform_obot_apiclient_types_MCPEnv(ref),
+		"github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterConfig":                  schema_obot_platform_obot_apiclient_types_MCPGuardrailFilterConfig(ref),
+		"github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterSubject":                 schema_obot_platform_obot_apiclient_types_MCPGuardrailFilterSubject(ref),
 		"github.com/obot-platform/obot/apiclient/types.MCPHeader":                                 schema_obot_platform_obot_apiclient_types_MCPHeader(ref),
 		"github.com/obot-platform/obot/apiclient/types.MCPPromptReadStats":                        schema_obot_platform_obot_apiclient_types_MCPPromptReadStats(ref),
 		"github.com/obot-platform/obot/apiclient/types.MCPResourceReadStats":                      schema_obot_platform_obot_apiclient_types_MCPResourceReadStats(ref),
@@ -10005,6 +10007,119 @@ func schema_obot_platform_obot_apiclient_types_MCPEnv(ref common.ReferenceCallba
 	}
 }
 
+func schema_obot_platform_obot_apiclient_types_MCPGuardrailFilterConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "MCPGuardrailFilterConfig configures a guardrail filter.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"detectorIDs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DetectorIDs are the guardrail profiles (detectors) that check the traffic.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Type:   []string{"string"},
+										Format: "",
+									},
+								},
+							},
+						},
+					},
+					"action": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Action is block, redact or log.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"direction": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Direction is request, response or both. It defaults to both.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"failClosed": {
+						SchemaProps: spec.SchemaProps{
+							Description: "FailClosed blocks the message when a detector can't be evaluated.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+					"samplingRate": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SamplingRate is the percentage (1-100) of matching messages that are checked. It defaults to 100.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"subjects": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Subjects limits the filter to users and groups. Empty means everyone.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Ref: ref("github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterSubject"),
+									},
+								},
+							},
+						},
+					},
+					"condition": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Condition is an optional CEL expression that must be true for the filter to apply.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"blockMessage": {
+						SchemaProps: spec.SchemaProps{
+							Description: "BlockMessage replaces the default message returned when the filter blocks.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"detectorIDs", "action"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterSubject"},
+	}
+}
+
+func schema_obot_platform_obot_apiclient_types_MCPGuardrailFilterSubject(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "MCPGuardrailFilterSubject is a user, a group or everyone.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"type": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"id": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
+				},
+				Required: []string{"type"},
+			},
+		},
+	}
+}
+
 func schema_obot_platform_obot_apiclient_types_MCPHeader(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -12284,6 +12399,12 @@ func schema_obot_platform_obot_apiclient_types_MCPWebhookValidation(ref common.R
 							Format: "",
 						},
 					},
+					"guardrail": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Guardrail makes this a guardrail filter: Obot checks matching traffic in-process with guardrail detectors instead of calling a filter MCP server. It is mutually exclusive with URL, SystemMCPServerManifest and SystemMCPServerCatalogEntryID.",
+							Ref:         ref("github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterConfig"),
+						},
+					},
 					"hasSecret": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"boolean"},
@@ -12315,7 +12436,7 @@ func schema_obot_platform_obot_apiclient_types_MCPWebhookValidation(ref common.R
 			},
 		},
 		Dependencies: []string{
-			"github.com/obot-platform/obot/apiclient/types.MCPSelector", "github.com/obot-platform/obot/apiclient/types.Resource", "github.com/obot-platform/obot/apiclient/types.SystemMCPServerManifest", "github.com/obot-platform/obot/apiclient/types.Time"},
+			"github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterConfig", "github.com/obot-platform/obot/apiclient/types.MCPSelector", "github.com/obot-platform/obot/apiclient/types.Resource", "github.com/obot-platform/obot/apiclient/types.SystemMCPServerManifest", "github.com/obot-platform/obot/apiclient/types.Time"},
 	}
 }
 
@@ -12423,11 +12544,17 @@ func schema_obot_platform_obot_apiclient_types_MCPWebhookValidationManifest(ref 
 							Format: "",
 						},
 					},
+					"guardrail": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Guardrail makes this a guardrail filter: Obot checks matching traffic in-process with guardrail detectors instead of calling a filter MCP server. It is mutually exclusive with URL, SystemMCPServerManifest and SystemMCPServerCatalogEntryID.",
+							Ref:         ref("github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterConfig"),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"github.com/obot-platform/obot/apiclient/types.MCPSelector", "github.com/obot-platform/obot/apiclient/types.Resource", "github.com/obot-platform/obot/apiclient/types.SystemMCPServerManifest"},
+			"github.com/obot-platform/obot/apiclient/types.MCPGuardrailFilterConfig", "github.com/obot-platform/obot/apiclient/types.MCPSelector", "github.com/obot-platform/obot/apiclient/types.Resource", "github.com/obot-platform/obot/apiclient/types.SystemMCPServerManifest"},
 	}
 }
 

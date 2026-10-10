@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
 	gateway "github.com/obot-platform/obot/pkg/gateway/client"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
+	"github.com/obot-platform/obot/pkg/guardrails"
 	"github.com/obot-platform/obot/pkg/mcp"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
@@ -22,6 +24,11 @@ import (
 
 type MCPWebhookValidationHandler struct {
 	mcpSessionManager *mcp.SessionManager
+}
+
+// guardrailProfileGetter looks up guardrail profiles. *gateway.Client implements it.
+type guardrailProfileGetter interface {
+	GetGuardrailProfile(ctx context.Context, id string) (*gatewaytypes.GuardrailProfile, error)
 }
 
 func NewMCPWebhookValidationHandler(mcpLoader *mcp.SessionManager) *MCPWebhookValidationHandler {
@@ -71,6 +78,9 @@ func (m *MCPWebhookValidationHandler) Create(req api.Context) error {
 	}
 
 	if err := validateManifest(req.Context(), &manifest, validationOptions(m.mcpSessionManager.RemoteMCPURLValidationConfig())); err != nil {
+		return types.NewErrBadRequest("invalid manifest: %v", err)
+	}
+	if err := validateGuardrailFilter(req.Context(), req.GatewayClient, &manifest); err != nil {
 		return types.NewErrBadRequest("invalid manifest: %v", err)
 	}
 
@@ -124,6 +134,9 @@ func (m *MCPWebhookValidationHandler) Update(req api.Context) error {
 	}
 
 	if err := validateManifest(req.Context(), &manifest, validationOptions(m.mcpSessionManager.RemoteMCPURLValidationConfig())); err != nil {
+		return types.NewErrBadRequest("invalid manifest: %v", err)
+	}
+	if err := validateGuardrailFilter(req.Context(), req.GatewayClient, &manifest); err != nil {
 		return types.NewErrBadRequest("invalid manifest: %v", err)
 	}
 
@@ -190,6 +203,9 @@ func (m *MCPWebhookValidationHandler) Configure(req api.Context) error {
 	if err := req.Get(&webhookValidation, req.PathValue("mcp_webhook_validation_id")); err != nil {
 		return err
 	}
+	if err := rejectGuardrailFilter(webhookValidation, "configuration"); err != nil {
+		return err
+	}
 
 	if err := applyRemoteURLTemplateToWebhookValidation(req.Context(), &webhookValidation, envVars, validationOptions(m.mcpSessionManager.RemoteMCPURLValidationConfig())); err != nil {
 		return err
@@ -228,6 +244,9 @@ func (m *MCPWebhookValidationHandler) Deconfigure(req api.Context) error {
 	if err := req.Get(&webhookValidation, req.PathValue("mcp_webhook_validation_id")); err != nil {
 		return err
 	}
+	if err := rejectGuardrailFilter(webhookValidation, "configuration"); err != nil {
+		return err
+	}
 
 	if err := DeleteCredentialIfExists(req.Context(), req.GatewayClient, []string{system.MCPWebhookValidationCredentialContext}, webhookValidation.Name); err != nil {
 		return err
@@ -247,6 +266,9 @@ func (m *MCPWebhookValidationHandler) Deconfigure(req api.Context) error {
 func (m *MCPWebhookValidationHandler) Reveal(req api.Context) error {
 	var webhookValidation v1.MCPWebhookValidation
 	if err := req.Get(&webhookValidation, req.PathValue("mcp_webhook_validation_id")); err != nil {
+		return err
+	}
+	if err := rejectGuardrailFilter(webhookValidation, "configuration"); err != nil {
 		return err
 	}
 
@@ -292,7 +314,24 @@ func getCredentialsForWebhookValidation(ctx context.Context, gatewayClient *gate
 	return cred.Secrets, nil
 }
 
-func (m *MCPWebhookValidationHandler) getSystemServerForWebhookValidation(req api.Context) (v1.SystemMCPServer, error) {
+// rejectGuardrailFilter refuses an operation on a guardrail filter's server: guardrail
+// filters run in-process and have none.
+func rejectGuardrailFilter(webhookValidation v1.MCPWebhookValidation, operation string) error {
+	if webhookValidation.Spec.Manifest.Guardrail != nil {
+		return types.NewErrBadRequest("filter %s is a guardrail filter, which runs in Obot and has no server %s", webhookValidation.Name, operation)
+	}
+	return nil
+}
+
+func (m *MCPWebhookValidationHandler) getSystemServerForWebhookValidation(req api.Context, operation string) (v1.SystemMCPServer, error) {
+	var webhookValidation v1.MCPWebhookValidation
+	if err := req.Get(&webhookValidation, req.PathValue("mcp_webhook_validation_id")); err != nil {
+		return v1.SystemMCPServer{}, err
+	}
+	if err := rejectGuardrailFilter(webhookValidation, operation); err != nil {
+		return v1.SystemMCPServer{}, err
+	}
+
 	systemServer := &v1.SystemMCPServer{
 		Namespace: req.Namespace(),
 		Name:      system.SystemMCPServerPrefix + req.PathValue("mcp_webhook_validation_id"),
@@ -312,7 +351,7 @@ func (m *MCPWebhookValidationHandler) getSystemServerForWebhookValidation(req ap
 }
 
 func (m *MCPWebhookValidationHandler) Restart(req api.Context) error {
-	systemServer, err := m.getSystemServerForWebhookValidation(req)
+	systemServer, err := m.getSystemServerForWebhookValidation(req, "to restart")
 	if err != nil {
 		return err
 	}
@@ -342,7 +381,7 @@ func (m *MCPWebhookValidationHandler) Restart(req api.Context) error {
 }
 
 func (m *MCPWebhookValidationHandler) Launch(req api.Context) error {
-	systemServer, err := m.getSystemServerForWebhookValidation(req)
+	systemServer, err := m.getSystemServerForWebhookValidation(req, "to launch")
 	if err != nil {
 		return err
 	}
@@ -378,7 +417,7 @@ func (m *MCPWebhookValidationHandler) Launch(req api.Context) error {
 }
 
 func (m *MCPWebhookValidationHandler) Logs(req api.Context) error {
-	systemServer, err := m.getSystemServerForWebhookValidation(req)
+	systemServer, err := m.getSystemServerForWebhookValidation(req, "logs")
 	if err != nil {
 		return err
 	}
@@ -412,7 +451,7 @@ func (m *MCPWebhookValidationHandler) Logs(req api.Context) error {
 }
 
 func (m *MCPWebhookValidationHandler) GetDetails(req api.Context) error {
-	systemServer, err := m.getSystemServerForWebhookValidation(req)
+	systemServer, err := m.getSystemServerForWebhookValidation(req, "details")
 	if err != nil {
 		return err
 	}
@@ -538,6 +577,9 @@ func validateManifest(ctx context.Context, m *types.MCPWebhookValidationManifest
 	if m.URL != "" {
 		sources++
 	}
+	if m.Guardrail != nil {
+		sources++
+	}
 	if m.SystemMCPServerManifest != nil && m.SystemMCPServerCatalogEntryID == "" {
 		sources++
 	}
@@ -546,11 +588,11 @@ func validateManifest(ctx context.Context, m *types.MCPWebhookValidationManifest
 	}
 
 	if sources == 0 {
-		return fmt.Errorf("webhook URL, system MCP server manifest, or system MCP server catalog entry ID is required")
+		return fmt.Errorf("webhook URL, system MCP server manifest, system MCP server catalog entry ID, or guardrail is required")
 	}
 
 	if sources > 1 {
-		return fmt.Errorf("webhook URL, system MCP server manifest, and system MCP server catalog entry ID are mutually exclusive")
+		return fmt.Errorf("webhook URL, system MCP server manifest, system MCP server catalog entry ID, and guardrail are mutually exclusive")
 	}
 
 	if m.SystemMCPServerManifest != nil {
@@ -578,5 +620,73 @@ func validateManifest(ctx context.Context, m *types.MCPWebhookValidationManifest
 		}
 	}
 
+	return nil
+}
+
+// validateGuardrailFilter validates and normalizes a guardrail filter's configuration. A
+// guardrail filter has no server, so it has no secret or tool. Whether it may change messages
+// is decided by its action, so allowedToMutate is set to whether it redacts.
+func validateGuardrailFilter(ctx context.Context, profiles guardrailProfileGetter, m *types.MCPWebhookValidationManifest) error {
+	g := m.Guardrail
+	if g == nil {
+		return nil
+	}
+	if m.Secret != "" {
+		return fmt.Errorf("a guardrail filter has no secret")
+	}
+	m.ToolName = ""
+	m.AllowedToMutate = g.Action == types.MCPGuardrailActionRedact
+
+	switch g.Action {
+	case types.MCPGuardrailActionBlock, types.MCPGuardrailActionRedact, types.MCPGuardrailActionLog:
+	default:
+		return fmt.Errorf("guardrail action must be block, redact or log")
+	}
+	switch g.Direction {
+	case types.MCPGuardrailDirectionRequest, types.MCPGuardrailDirectionResponse, types.MCPGuardrailDirectionBoth:
+	case "":
+		g.Direction = types.MCPGuardrailDirectionBoth
+	default:
+		return fmt.Errorf("guardrail direction must be request, response or both")
+	}
+	if g.SamplingRate == 0 {
+		g.SamplingRate = 100
+	}
+	if g.SamplingRate < 1 || g.SamplingRate > 100 {
+		return fmt.Errorf("guardrail samplingRate must be between 1 and 100")
+	}
+	g.Condition = strings.TrimSpace(g.Condition)
+	if g.Condition != "" {
+		if _, err := guardrails.CompileCondition(gatewaytypes.GuardrailTargetMCP, g.Condition); err != nil {
+			return fmt.Errorf("invalid guardrail condition: %v", err)
+		}
+	}
+	for _, s := range g.Subjects {
+		switch s.Type {
+		case types.MCPGuardrailSubjectEveryone:
+		case types.MCPGuardrailSubjectUser, types.MCPGuardrailSubjectGroup:
+			if s.ID == "" {
+				return fmt.Errorf("guardrail %s subjects need an id", s.Type)
+			}
+		default:
+			return fmt.Errorf("guardrail subject type must be user, group or everyone")
+		}
+	}
+
+	if len(g.DetectorIDs) == 0 {
+		return fmt.Errorf("a guardrail filter needs at least one detector")
+	}
+	seen := make(map[string]struct{}, len(g.DetectorIDs))
+	for _, id := range g.DetectorIDs {
+		if _, dup := seen[id]; dup {
+			return fmt.Errorf("detector %s is listed more than once", id)
+		}
+		seen[id] = struct{}{}
+		if _, err := profiles.GetGuardrailProfile(ctx, id); gateway.ErrGuardrailNotFound(err) {
+			return fmt.Errorf("detector %s does not exist", id)
+		} else if err != nil {
+			return err
+		}
+	}
 	return nil
 }

@@ -3,6 +3,7 @@ package mcpgateway
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -33,17 +34,17 @@ type pendingRequest struct {
 
 // hookProcessor filters MCP messages for one proxied HTTP exchange.
 type hookProcessor struct {
-	ctx       context.Context
-	runner    mcp.HookRunner
-	hooks     mcp.Hooks
-	servers   mcp.HookServerConfigs
-	audit     *proxyAudit
-	store     *hookCorrelationStore
-	guard     *mcpGuard
-	sessionID string
-	request   *pendingRequest
-	requestID string
-	disabled  bool
+	ctx        context.Context
+	runner     mcp.HookRunner
+	hooks      mcp.Hooks
+	servers    mcp.HookServerConfigs
+	audit      *proxyAudit
+	store      *hookCorrelationStore
+	guardrails *mcpGuardrails
+	sessionID  string
+	request    *pendingRequest
+	requestID  string
+	disabled   bool
 
 	requestError    error
 	requestResponse []byte
@@ -98,26 +99,23 @@ type hookSSELine struct {
 	value, ending string
 }
 
-func newHookProcessor(req *http.Request, runner mcp.HookRunner, hooks mcp.Hooks, servers mcp.HookServerConfigs, audit *proxyAudit, store *hookCorrelationStore) (*hookProcessor, error) {
-	return newGuardedHookProcessor(req, nil, runner, hooks, servers, audit, store)
-}
-
-// newGuardedHookProcessor is newHookProcessor with guardrails applied to tool calls after
-// the configured hooks. guard may be nil.
-func newGuardedHookProcessor(req *http.Request, guard *mcpGuard, runner mcp.HookRunner, hooks mcp.Hooks, servers mcp.HookServerConfigs, audit *proxyAudit, store *hookCorrelationStore) (*hookProcessor, error) {
+// newHookProcessor filters the messages of one proxied exchange with hooks. Server-backed
+// hooks run on runner; guardrail filters run in-process with guardrails, which may be nil
+// when no hook is a guardrail filter.
+func newHookProcessor(req *http.Request, runner mcp.HookRunner, hooks mcp.Hooks, servers mcp.HookServerConfigs, audit *proxyAudit, store *hookCorrelationStore, guardrails *mcpGuardrails) (*hookProcessor, error) {
 	if runner == nil {
-		hooks = nil
+		hooks = hooks.GuardrailsOnly()
 	}
 	processor := &hookProcessor{
-		ctx:       req.Context(),
-		runner:    runner,
-		hooks:     hooks,
-		servers:   servers,
-		audit:     audit,
-		store:     store,
-		guard:     guard,
-		sessionID: mcpSessionID(req.Header, req.URL),
-		disabled:  len(hooks) == 0 && guard == nil,
+		ctx:        req.Context(),
+		runner:     runner,
+		hooks:      hooks,
+		servers:    servers,
+		audit:      audit,
+		store:      store,
+		guardrails: guardrails,
+		sessionID:  mcpSessionID(req.Header, req.URL),
+		disabled:   len(hooks) == 0,
 	}
 	if req.Method != http.MethodPost || req.Body == nil || (processor.disabled && processor.audit == nil) {
 		return processor, nil
@@ -140,9 +138,9 @@ func newGuardedHookProcessor(req *http.Request, guard *mcpGuard, runner mcp.Hook
 	}
 	setMCPRequestBody(req, body)
 
-	if processor.guard != nil && bytes.HasPrefix(bytes.TrimSpace(body), []byte("[")) {
-		// A batch would skip every check below, which inspects one message at a time.
-		processor.requestError = errors.New("JSON-RPC batches are not supported while guardrails apply")
+	if !processor.disabled && bytes.HasPrefix(bytes.TrimSpace(body), []byte("[")) {
+		// A batch would skip every filter below, which inspects one message at a time.
+		processor.requestError = errors.New("JSON-RPC batches are not supported while filters apply")
 		processor.requestResponse = mcpHookErrorResponse(mcp.Message{}, "request", processor.requestError)
 		return processor, nil
 	}
@@ -466,10 +464,11 @@ func (e *hookBlockedError) Error() string {
 	return fmt.Sprintf("MCP %s blocked by hook: %s", e.direction, strings.Join(e.reasons, "; "))
 }
 
-// run runs the matching hook chain and then guardrails. requestParams are the params of the
-// request a response answers.
+// run runs the matching hook chain. Server-backed filters run on the hook runner and
+// guardrail filters run in-process, in the chain's order. requestParams are the params of
+// the request a response answers.
 func (h *hookProcessor) run(message mcp.Message, method, name, direction string, priorMutations map[string]mcp.HookMutation, requestParams json.RawMessage) hookResult {
-	if len(h.hooks) == 0 && h.guard == nil {
+	if len(h.hooks) == 0 {
 		return hookResult{message: message, mutations: cloneMCPHookMutations(priorMutations)}
 	}
 
@@ -491,9 +490,19 @@ func (h *hookProcessor) run(message mcp.Message, method, name, direction string,
 			continue
 		}
 		for _, target := range hook.Targets {
-			output, hookErr := h.runner.RunHook(h.ctx, h.servers, hookResponse, target.Target)
+			var (
+				output  *mcp.SessionMessageHook
+				hookErr error
+				tool    = target.Target
+			)
+			if target.Guardrail != nil {
+				tool = guardrailHookTool
+				output, hookErr = h.guardrails.run(h.ctx, target, *hookResponse.Message, method, name, direction, requestParams)
+			} else {
+				output, hookErr = h.runner.RunHook(h.ctx, h.servers, hookResponse, target.Target)
+			}
 			if hookErr != nil {
-				errs = append(errs, fmt.Errorf("failed to run hook %s: %w", hook.Name, hookErr))
+				errs = append(errs, fmt.Errorf("failed to run hook %s: %w", cmp.Or(target.Name, target.Target), hookErr))
 				continue
 			}
 			if output == nil {
@@ -517,7 +526,7 @@ func (h *hookProcessor) run(message mcp.Message, method, name, direction string,
 				status = "mutated"
 			}
 			statuses = append(statuses, hookStatus{
-				typeName: direction, method: method, name: hook.Name, tool: target.Target, status: status, message: response.Reason,
+				typeName: direction, method: method, name: cmp.Or(target.Name, hook.Name), tool: tool, status: status, message: response.Reason,
 			})
 
 			if !response.Accept {
@@ -555,26 +564,6 @@ func (h *hookProcessor) run(message mcp.Message, method, name, direction string,
 
 	if hookResponse.Message == nil {
 		hookResponse.Message = &message
-	}
-	if len(rejections) == 0 && len(errs) == 0 {
-		if guarded, status, changed := h.guard.apply(h.ctx, *hookResponse.Message, method, name, direction, requestParams); status != nil {
-			statuses = append(statuses, *status)
-			switch {
-			case status.status == "rejected":
-				rejections = append(rejections, status.message)
-			case changed:
-				if mutations == nil {
-					mutations = make(map[string]mcp.HookMutation)
-				}
-				mutation := mutations[direction]
-				mutation.Mutated = true
-				mutation.Reasons = append(mutation.Reasons, status.message)
-				mutations[direction] = mutation
-				guarded.HookMutations = cloneMCPHookMutations(mutations)
-				hookResponse.Message = &guarded
-				mutated = true
-			}
-		}
 	}
 	if len(rejections) > 0 {
 		errs = append(errs, &hookBlockedError{direction: direction, reasons: rejections})
