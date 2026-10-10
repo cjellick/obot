@@ -63,6 +63,7 @@
 	let enabled = $state(true);
 	let perUser = $state(true);
 	let exemptAdmins = $state(false);
+	let userTokenLimits = $state(false);
 	let limits = $state<LimitRow[]>([]);
 	let selectedModels = $state<string[]>([]);
 	let modelSearch = $state('');
@@ -109,6 +110,7 @@
 			enabled = budget.enabled;
 			perUser = budget.perUser;
 			exemptAdmins = budget.exemptAdmins;
+			userTokenLimits = budget.userTokenLimits ?? false;
 			limits = budget.limits.map(toRow);
 			savedLimits = budget.limits;
 			selectedModels = budget.models ?? [];
@@ -143,6 +145,7 @@
 				enabled,
 				perUser,
 				exemptAdmins,
+				userTokenLimits: perUser && userTokenLimits,
 				limits: limits.map(toLimit),
 				models: selectedModels,
 				subjects: subjects.map((s) =>
@@ -258,6 +261,15 @@
 					disabled={readonly}
 					onChange={(v) => (exemptAdmins = v)}
 				/>
+				{#if perUser}
+					<Toggle
+						label="Users' personal daily token limits replace this budget's token limits"
+						labelInline
+						checked={userTokenLimits}
+						disabled={readonly}
+						onChange={(v) => (userTokenLimits = v)}
+					/>
+				{/if}
 			</section>
 
 			<section class="flex flex-col gap-2">

@@ -49,6 +49,8 @@ describe('LLM gateway budget page', () => {
 
 		await page.getByLabelText('Name').first().fill('Engineering');
 		await page.getByLabelText('Limit', { exact: true }).fill('25');
+		// The model list loads asynchronously.
+		await expect.element(page.getByText('anthropic/claude-opus-4-5')).toBeVisible();
 		await page.getByText('anthropic/claude-opus-4-5').click();
 		await page.getByRole('button', { name: 'Save', exact: true }).click();
 
@@ -63,7 +65,7 @@ describe('LLM gateway budget page', () => {
 				subjects: []
 			})
 		);
-		expect(goto).toHaveBeenCalledWith('/llm-gateway/budgets');
+		await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/llm-gateway/budgets'));
 	});
 
 	it('shows a shared budget with its assignments and current usage', async () => {

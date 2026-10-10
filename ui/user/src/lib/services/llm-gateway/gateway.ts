@@ -1,6 +1,6 @@
 // Client for Obot's LLM gateway API. Obot embeds Bifrost (https://github.com/maximhq/bifrost)
 // and exposes its management API under /api/llm-gateway/admin, alongside Obot-specific
-// endpoints for status, model sync, budget bindings and legacy provider import.
+// endpoints for status, model sync, budgets, guardrails and legacy provider import.
 import { doDelete, doGet, doPost, doPut, type Fetcher } from '../http';
 
 type Opts = { fetch?: Fetcher; signal?: AbortSignal; dontLogErrors?: boolean };
@@ -65,6 +65,8 @@ export interface Budget {
 	enabled: boolean;
 	perUser: boolean;
 	exemptAdmins: boolean;
+	// Users' personal daily token limits replace this per-user budget's token limits.
+	userTokenLimits?: boolean;
 	limits: BudgetLimit[];
 	models?: string[];
 	subjects: BudgetSubject[];
