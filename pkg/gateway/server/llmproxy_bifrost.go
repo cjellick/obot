@@ -198,15 +198,19 @@ func (t sanitizingTransport) RoundTrip(req *http.Request) (*http.Response, error
 	return resp, nil
 }
 
-// stripEngineFields removes the engine's own fields from a JSON response object.
+// stripEngineFields removes the engine's own fields from a JSON response object. Responses
+// API stream events carry the response object nested under "response", where the engine
+// adds its fields too.
 func stripEngineFields(body []byte) []byte {
 	if !gjson.ValidBytes(body) {
 		return body
 	}
-	for _, field := range []string{"extra_fields", "is_bifrost_error"} {
-		if gjson.GetBytes(body, field).Exists() {
-			if stripped, err := sjson.DeleteBytes(body, field); err == nil {
-				body = stripped
+	for _, parent := range []string{"", "response."} {
+		for _, field := range []string{"extra_fields", "is_bifrost_error"} {
+			if gjson.GetBytes(body, parent+field).Exists() {
+				if stripped, err := sjson.DeleteBytes(body, parent+field); err == nil {
+					body = stripped
+				}
 			}
 		}
 	}

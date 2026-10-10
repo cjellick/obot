@@ -165,6 +165,7 @@ func TestSanitizingTransport(t *testing.T) {
 
 	t.Run("stream", func(t *testing.T) {
 		stream := "data: {\"id\":\"c1\",\"extra_fields\":{\"routing_info\":{}},\"choices\":[]}\n\n" +
+			"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r1\",\"extra_fields\":{\"latency\":0}}}\n\n" +
 			"event: ping\ndata: [DONE]\n\n"
 		resp := &http.Response{
 			StatusCode: http.StatusOK,
@@ -176,7 +177,9 @@ func TestSanitizingTransport(t *testing.T) {
 			t.Fatal(err)
 		}
 		body, _ := io.ReadAll(out.Body)
-		want := "data: {\"id\":\"c1\",\"choices\":[]}\n\nevent: ping\ndata: [DONE]\n\n"
+		want := "data: {\"id\":\"c1\",\"choices\":[]}\n\n" +
+			"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r1\"}}\n\n" +
+			"event: ping\ndata: [DONE]\n\n"
 		if string(body) != want {
 			t.Fatalf("got %q, want %q", body, want)
 		}
