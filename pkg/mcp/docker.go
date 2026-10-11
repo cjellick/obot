@@ -144,7 +144,7 @@ func detectCurrentLocalIP() (string, error) {
 	if err != nil {
 		// Without a default route (e.g. an air-gapped host whose traffic goes through a
 		// proxy), fall back to the first non-loopback interface address.
-		if ip := firstInterfaceIP(net.InterfaceAddrs); ip != "" {
+		if ip := firstInterfaceIP(upInterfaceAddrs); ip != "" {
 			return ip, nil
 		}
 		return "", fmt.Errorf("failed to determine local IP: %w", err)
@@ -157,8 +157,30 @@ func detectCurrentLocalIP() (string, error) {
 	return ip, nil
 }
 
-// firstInterfaceIP returns the first IPv4 address of an up, non-loopback interface, or the
-// first such IPv6 address when there is no IPv4 one.
+// upInterfaceAddrs returns the addresses of the network interfaces that are up and aren't
+// loopback interfaces.
+func upInterfaceAddrs() ([]net.Addr, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	var addrs []net.Addr
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		ifaceAddrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		addrs = append(addrs, ifaceAddrs...)
+	}
+	return addrs, nil
+}
+
+// firstInterfaceIP returns the first non-loopback IPv4 address interfaceAddrs returns, or
+// the first such IPv6 address when there is no IPv4 one. Obot passes the addresses of the
+// interfaces that are up.
 func firstInterfaceIP(interfaceAddrs func() ([]net.Addr, error)) string {
 	addrs, err := interfaceAddrs()
 	if err != nil {
