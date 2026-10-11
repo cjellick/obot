@@ -74,6 +74,9 @@ func TestAdminAPISafety(t *testing.T) {
 			{"name": "k", "value": map[string]any{"type": "env", "env_var": "HOME", "value": ""}, "models": []string{"*"}, "weight": 1},
 			{"name": "k", "value": map[string]any{"value": "x", "from_env": true}, "models": []string{"*"}, "weight": 1},
 			{"name": "k", "value": "vault.secret/data/obot", "models": []string{"*"}, "weight": 1},
+			// Bifrost matches field names in any case.
+			{"name": "k", "value": map[string]any{"value": "", "ref": "HOME", "TYPE": "env"}, "models": []string{"*"}, "weight": 1},
+			{"name": "k", "value": map[string]any{"value": "", "env_var": "HOME", "FROM_ENV": true}, "models": []string{"*"}, "weight": 1},
 		} {
 			resp := admin.Do(t, http.MethodPost, "/api/llm-gateway/admin/providers/openai/keys", body)
 			if resp.Status != http.StatusBadRequest {

@@ -93,7 +93,7 @@ func TestAllowedBifrostAPIPath(t *testing.T) {
 	}
 }
 
-func TestRejectSecretReferences(t *testing.T) {
+func TestRejectUnsafeConfig(t *testing.T) {
 	tests := []struct {
 		name    string
 		body    string
@@ -129,13 +129,56 @@ func TestRejectSecretReferences(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "type in another case",
+			body:    `{"name":"k","value":{"value":"","ref":"OBOT_SERVER_DSN","TYPE":"env"}}`,
+			wantErr: true,
+		},
+		{
+			name:    "from_env in another case",
+			body:    `{"name":"k","value":{"value":"","env_var":"OBOT_SERVER_DSN","FROM_ENV":true}}`,
+			wantErr: true,
+		},
+		{
+			name:    "escaped env reference",
+			body:    `{"name":"k","value":"\u0065nv.OBOT_SERVER_DSN"}`,
+			wantErr: true,
+		},
+		{
+			name:    "vault reference by prefix",
+			body:    `{"keys":[{"value":{"value":"","ref":"vault.secret/path"}}]}`,
+			wantErr: true,
+		},
+		{
+			name:    "from_env without a variable",
+			body:    `{"name":"k","value":{"value":"x","From_Env":true}}`,
+			wantErr: true,
+		},
+		{
+			name: "a key as the gateway lists it",
+			body: `{"name":"k","value":{"value":"sk-p************************abcd","type":"plain_text"},"models":["*"]}`,
+		},
+		{
+			name: "region",
+			body: `{"vertex_key_config":{"project_id":"p","region":"us-central1"}}`,
+		},
+		{
+			name:    "region that changes the host",
+			body:    `{"vertex_key_config":{"project_id":"p","region":"attacker.example/x?"}}`,
+			wantErr: true,
+		},
+		{
+			name:    "region object that changes the host",
+			body:    `{"vertex_key_config":{"project_id":"p","Region":{"value":"attacker.example#"}}}`,
+			wantErr: true,
+		},
+		{
 			name: "not json",
 			body: `hello`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := rejectSecretReferences([]byte(tt.body))
+			err := rejectUnsafeConfig([]byte(tt.body))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}

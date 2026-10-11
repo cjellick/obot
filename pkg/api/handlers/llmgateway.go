@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/obot-platform/obot/apiclient/types"
@@ -118,7 +119,7 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 		return err
 	}
 	if len(body) > 0 {
-		if err := rejectSecretReferences(body); err != nil {
+		if err := rejectUnsafeConfig(body); err != nil {
 			return err
 		}
 	}
@@ -229,37 +230,64 @@ func allowedBifrostAPIPath(raw, escaped string) (string, bool) {
 	return "", false
 }
 
-// rejectSecretReferences refuses request bodies that ask Bifrost to resolve a value from the
-// Obot server's environment or a vault ("env.NAME", "vault.path", or the object forms of
-// those). Bifrost would substitute the referenced value and send it to the configured
-// provider URL, which would let an administrator exfiltrate the server's own secrets.
-func rejectSecretReferences(body []byte) error {
-	var doc any
-	if err := json.Unmarshal(body, &doc); err != nil {
+// gatewayRegion matches a cloud region, such as us-central1 or eu-west-2.
+var gatewayRegion = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
+
+// rejectUnsafeConfig refuses request bodies that would let an administrator obtain the Obot
+// server's own secrets through a provider:
+//   - A value Bifrost resolves from the server's environment or a vault ("env.NAME",
+//     "vault.path", or the object forms of those). Bifrost would substitute it and send it
+//     to the configured provider URL.
+//   - A region that isn't a plain region name. Some providers build their host from the
+//     region (Vertex: "<region>-aiplatform.googleapis.com") and, without credentials on the
+//     key, authenticate with the server's own cloud identity, so a region such as
+//     "attacker.example/x?" would send that identity's token elsewhere.
+//
+// Every string and object in the body is decoded the way Bifrost decodes a secret, from the
+// original bytes, and field names are matched in any case as Bifrost matches them, so a
+// spelling Bifrost accepts (such as "TYPE" for "type") can't slip past.
+func rejectUnsafeConfig(body []byte) error {
+	if !json.Valid(body) {
 		// Not JSON; Bifrost will reject it on its own.
 		return nil
 	}
-	var walk func(v any) error
-	walk = func(v any) error {
-		switch v := v.(type) {
-		case string:
-			if strings.HasPrefix(v, "env.") || strings.HasPrefix(v, "vault.") {
-				return types.NewErrBadRequest("environment and vault references (%q) are not supported; enter the value itself", v)
+	var walk func(raw json.RawMessage) error
+	walk = func(raw json.RawMessage) error {
+		if bifrost.IsSecretReference(raw) {
+			return types.NewErrBadRequest("environment and vault references are not supported; enter the value itself")
+		}
+		switch trimmed := bytes.TrimSpace(raw); {
+		case len(trimmed) > 0 && trimmed[0] == '{':
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(trimmed, &fields); err != nil {
+				return nil
 			}
-		case map[string]any:
-			if t, _ := v["type"].(string); t == "env" || t == "vault" {
-				return types.NewErrBadRequest("environment and vault references are not supported; enter the value itself")
-			}
-			if fromEnv, _ := v["from_env"].(bool); fromEnv {
-				return types.NewErrBadRequest("environment references are not supported; enter the value itself")
-			}
-			for _, child := range v {
+			for name, child := range fields {
+				// Also refuse anything that asks for a reference at all, even in a form
+				// Bifrost would read as a plain value.
+				var v any
+				_ = json.Unmarshal(child, &v)
+				if strings.EqualFold(name, "from_env") && v == true {
+					return types.NewErrBadRequest("environment references are not supported; enter the value itself")
+				}
+				if t, _ := v.(string); strings.EqualFold(name, "type") && (strings.EqualFold(t, "env") || strings.EqualFold(t, "vault")) {
+					return types.NewErrBadRequest("environment and vault references are not supported; enter the value itself")
+				}
+				if strings.EqualFold(name, "region") {
+					if region := bifrost.SecretValue(child); region != "" && !gatewayRegion.MatchString(region) {
+						return types.NewErrBadRequest("region %q is not a region name, such as us-central1", region)
+					}
+				}
 				if err := walk(child); err != nil {
 					return err
 				}
 			}
-		case []any:
-			for _, child := range v {
+		case len(trimmed) > 0 && trimmed[0] == '[':
+			var items []json.RawMessage
+			if err := json.Unmarshal(trimmed, &items); err != nil {
+				return nil
+			}
+			for _, child := range items {
 				if err := walk(child); err != nil {
 					return err
 				}
@@ -267,7 +295,7 @@ func rejectSecretReferences(body []byte) error {
 		}
 		return nil
 	}
-	return walk(doc)
+	return walk(body)
 }
 
 // afterMutation keeps Obot in step with changes made through the proxy.
