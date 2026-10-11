@@ -140,8 +140,8 @@ describe('Layout.svelte', () => {
 	});
 
 	describe('message policy navigation', () => {
-		it('is replaced by guardrails, even when message policies are enabled', async () => {
-			await renderLayout([Group.ADMIN], { messagePoliciesEnabled: true });
+		it('is replaced by guardrails', async () => {
+			await renderLayout([Group.ADMIN]);
 
 			await expandSection('ai-resources', '/models');
 			await expandSection('operations', '/audit-logs');

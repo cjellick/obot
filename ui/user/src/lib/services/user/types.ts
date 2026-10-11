@@ -1050,7 +1050,6 @@ export interface Version {
 	engine?: 'docker' | 'kubernetes' | 'local';
 	mcpNetworkPolicyEnabled?: boolean;
 	mcpDefaultDenyAllEgress?: boolean;
-	messagePoliciesEnabled?: boolean;
 	agentsEnabled?: boolean;
 	hostedAgentsEnabled?: boolean;
 	hideK8sDetails?: boolean;

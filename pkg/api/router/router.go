@@ -45,7 +45,6 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 		MCPNetworkPolicyEnabled: services.MCPNetworkPolicyEnabled,
 		MCPDefaultDenyAllEgress: services.MCPDefaultDenyAllEgress,
 		AuthEnabled:             services.AuthEnabled,
-		MessagePoliciesEnabled:  services.MessagePoliciesEnabled,
 		AgentsEnabled:           agentsEnabled,
 		HostedAgentsEnabled:     services.HostedAgentsEnabled,
 		HideK8sDetails:          services.HideK8sDetails,
@@ -104,10 +103,8 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	availableModels := handlers.NewAvailableModelsHandler(services.ProviderDispatcher, services.LicenseProvider)
 	modelProviders := handlers.NewModelProviderHandler(services.ProviderDispatcher, services.LicenseProvider)
 	modelAccessPolicies := handlers.NewModelAccessPolicyHandler()
-	messagePolicies := handlers.NewMessagePolicyHandler()
 	vmcps := handlers.NewVMCPHandler(services.AccessControlRuleHelper)
 	vmcpInstances := handlers.NewVMCPInstanceHandler()
-	policyViolations := handlers.NewMessagePolicyViolationHandler()
 	deviceScans := handlers.NewDeviceScansHandler()
 	mdmAssetSources := handlers.NewMDMAssetSourceHandler()
 	mdmAssets := handlers.NewMDMAssetHandler()
@@ -646,7 +643,6 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("GET /api/llm-gateway/status", llmGateway.Status)
 	mux.HandleFunc("GET /api/llm-gateway/metrics", llmGateway.Metrics)
 	mux.HandleFunc("POST /api/llm-gateway/sync-models", llmGateway.SyncModels)
-	mux.HandleFunc("POST /api/llm-gateway/import-legacy-providers", llmGateway.ImportLegacyProviders)
 	mux.HandleFunc("GET /api/llm-gateway/settings", llmGateway.GetSettings)
 	mux.HandleFunc("PUT /api/llm-gateway/settings", llmGateway.UpdateSettings)
 	mux.HandleFunc("GET /api/llm-gateway/budgets", llmGateway.ListBudgets)
@@ -728,21 +724,6 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("POST /api/model-access-policies", modelAccessPolicies.Create)
 	mux.HandleFunc("PUT /api/model-access-policies/{id}", modelAccessPolicies.Update)
 	mux.HandleFunc("DELETE /api/model-access-policies/{id}", modelAccessPolicies.Delete)
-
-	// Message Policies
-	if services.MessagePoliciesEnabled {
-		mux.HandleFunc("GET /api/message-policies", messagePolicies.List)
-		mux.HandleFunc("GET /api/message-policies/{id}", messagePolicies.Get)
-		mux.HandleFunc("POST /api/message-policies", messagePolicies.Create)
-		mux.HandleFunc("PUT /api/message-policies/{id}", messagePolicies.Update)
-		mux.HandleFunc("DELETE /api/message-policies/{id}", messagePolicies.Delete)
-
-		// Message Policy Violations
-		mux.HandleFunc("GET /api/message-policy-violations", policyViolations.List)
-		mux.HandleFunc("GET /api/message-policy-violations/filter-options/{filter}", policyViolations.ListFilterOptions)
-		mux.HandleFunc("GET /api/message-policy-violations/{id}", policyViolations.Get)
-		mux.HandleFunc("GET /api/message-policy-violation-stats", policyViolations.GetStats)
-	}
 
 	// Device Scans
 	mux.HandleFunc("POST /api/devices/scans", deviceScans.Submit)

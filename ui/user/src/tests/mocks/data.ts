@@ -515,7 +515,6 @@ export const getVersionResponse = {
 	licenseEntitlements: undefined,
 	mcpDefaultDenyAllEgress: false,
 	mcpNetworkPolicyEnabled: false,
-	messagePoliciesEnabled: false,
 	missingLicenseEntitlements: [],
 	obot: 'v0.0.0-dev',
 	sessionStore: 'cookie',
