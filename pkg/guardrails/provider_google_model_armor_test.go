@@ -176,3 +176,82 @@ func TestModelArmorChecker(t *testing.T) {
 		})
 	}
 }
+
+// Application default credentials are the Obot server's own identity, so they are only
+// sent to Google: a profile without a service account key can't name another host, through
+// the endpoint or through the location the default endpoint is built from.
+func TestModelArmorKeepsDefaultCredentialsOnGoogle(t *testing.T) {
+	tests := []struct {
+		name     string
+		location string
+		endpoint string
+		key      string
+		wantErr  bool
+	}{
+		{
+			name:     "default endpoint",
+			location: "us-central1",
+		},
+		{
+			name:     "regional googleapis.com endpoint",
+			location: "us-central1",
+			endpoint: "https://modelarmor.us-central1.rep.googleapis.com",
+		},
+		{
+			name:     "Private Service Connect endpoint",
+			location: "us-central1",
+			endpoint: "https://modelarmor-psc.p.googleapis.com",
+		},
+		{
+			name:     "another host",
+			location: "us-central1",
+			endpoint: "https://attacker.example",
+			wantErr:  true,
+		},
+		{
+			name:     "a host that only ends like Google's",
+			location: "us-central1",
+			endpoint: "https://evilgoogleapis.com",
+			wantErr:  true,
+		},
+		{
+			name:     "plain http",
+			location: "us-central1",
+			endpoint: "http://modelarmor.us-central1.rep.googleapis.com",
+			wantErr:  true,
+		},
+		{
+			name:     "user info hiding the host",
+			location: "us-central1",
+			endpoint: "https://googleapis.com@attacker.example",
+			wantErr:  true,
+		},
+		{
+			name:     "location that changes the default host",
+			location: "x@attacker.example/",
+			wantErr:  true,
+		},
+		{
+			name:     "another host with a service account key",
+			location: "us-central1",
+			endpoint: "https://modelarmor.internal.example",
+			key:      `{"type":"service_account"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := map[string]any{"project": "proj", "location": tt.location, "template": "tmpl"}
+			if tt.endpoint != "" {
+				config["endpoint"] = tt.endpoint
+			}
+			secrets := map[string]string{}
+			if tt.key != "" {
+				secrets["serviceAccountJSON"] = tt.key
+			}
+			_, err := newChecker("google-model-armor", config, secrets, Deps{})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

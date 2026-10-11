@@ -631,12 +631,19 @@ The Helm chart's persistence note now also covers the gateway data dir.
   Obot's authenticated proxy and admin API.
 - **Admin pass-through.** The engine's management API is exposed only through
   an allowlist. It rejects path traversal, including encoded forms, and secret
-  references that would read the host's environment or vault.
+  references that would read the host's environment or vault. Bodies are
+  checked by decoding each value the way the engine decodes a secret, with field
+  names in any case, so the check can't disagree with the engine. Regions must
+  be plain region names, because some providers build their host from the
+  region and authenticate with the server's own cloud identity.
 - **Credentials at rest.** Provider keys are encrypted in the gateway store.
   Guardrail profile secrets are in Obot's encrypted credential store and never
   returned. Changing a profile's destination (endpoint, base URL or region)
   requires re-entering its credentials, so a stored credential can't be
-  redirected to another host and read back through a test.
+  redirected to another host and read back through a test. A secret that
+  isn't a string is refused, not read as omitted. A Model Armor profile
+  without a service account key uses the server's own Google credentials, so
+  it only sends them to `googleapis.com` endpoints.
 - **Guardrail identity can't be spoofed** (see identity binding above).
 - **Routing can't widen access.** Each model the engine tries is checked
   against the caller's access, so a routing rule, even one that matches a
