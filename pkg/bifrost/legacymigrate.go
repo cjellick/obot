@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
@@ -62,7 +63,7 @@ func MigrateLegacyModels(ctx context.Context, c kclient.Client, importDone bool)
 		}
 	}
 
-	referenced, err := repointModelReferences(ctx, c, migrated)
+	referenced, err := repointModelReferences(ctx, c, migrated, legacy)
 	if err != nil {
 		return err
 	}
@@ -108,8 +109,11 @@ func carryModelEdits(ctx context.Context, c kclient.Client, legacy, target *v1.M
 }
 
 // repointModelReferences re-points default model aliases and model access policies from
-// migrated legacy models to their gateway models. It returns the models still referred to.
-func repointModelReferences(ctx context.Context, c kclient.Client, migrated map[string]string) (map[string]bool, error) {
+// migrated legacy models to their gateway models. Wildcard suffix patterns written for legacy
+// models' provider-native names, such as "claude-haiku-4-5*", get the gateway's provider
+// prefix, such as "anthropic/claude-haiku-4-5*", for each provider whose legacy models they
+// matched. It returns the models still referred to.
+func repointModelReferences(ctx context.Context, c kclient.Client, migrated map[string]string, legacy []*v1.Model) (map[string]bool, error) {
 	referenced := map[string]bool{}
 
 	var aliases v1.DefaultModelAliasList
@@ -140,15 +144,26 @@ func repointModelReferences(ctx context.Context, c kclient.Client, migrated map[
 			models  []types.ModelResource
 			changed bool
 		)
-		for _, m := range p.Spec.Manifest.Models {
-			if target, ok := migrated[m.ID]; ok {
-				m.ID, changed = target, true
-			} else {
-				referenced[m.ID] = true
-			}
+		add := func(m types.ModelResource) {
 			if !slices.ContainsFunc(models, func(existing types.ModelResource) bool { return existing.ID == m.ID }) {
 				models = append(models, m)
 			}
+		}
+		for _, m := range p.Spec.Manifest.Models {
+			if target, ok := migrated[m.ID]; ok {
+				m.ID, changed = target, true
+				add(m)
+				continue
+			}
+			if qualified := qualifyLegacyPattern(m, legacy); len(qualified) > 0 {
+				for _, q := range qualified {
+					add(q)
+				}
+				changed = true
+				continue
+			}
+			referenced[m.ID] = true
+			add(m)
 		}
 		if !changed {
 			continue
@@ -160,6 +175,29 @@ func repointModelReferences(ctx context.Context, c kclient.Client, migrated map[
 		}
 	}
 	return referenced, nil
+}
+
+// qualifyLegacyPattern returns the gateway forms of a wildcard suffix pattern written for
+// legacy models' provider-native names: the pattern with the gateway provider's prefix, for
+// each provider whose legacy models it matches. It returns nothing for other model resources,
+// and for patterns that match no legacy model.
+func qualifyLegacyPattern(m types.ModelResource, legacy []*v1.Model) []types.ModelResource {
+	prefix, ok := m.IsWildcardSuffix()
+	if !ok || strings.Contains(prefix, "/") {
+		return nil
+	}
+	var qualified []types.ModelResource
+	for _, l := range legacy {
+		plan, ok := legacyImportPlans[l.Spec.Manifest.ModelProvider]
+		if !ok || !m.MatchesTargetModel(l.Spec.Manifest.TargetModel) {
+			continue
+		}
+		q := types.ModelResource{ID: plan.provider + "/" + prefix + "*"}
+		if !slices.Contains(qualified, q) {
+			qualified = append(qualified, q)
+		}
+	}
+	return qualified
 }
 
 // deleteEmptyLegacyProviders deletes legacy model providers that have no models left, once

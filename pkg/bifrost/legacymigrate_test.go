@@ -53,7 +53,12 @@ func TestMigrateLegacyModels(t *testing.T) {
 		alias("llm-mini", "legacy-mini"),
 		alias("vision", "legacy-sonnet"),
 		&v1.ModelAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "map1"}, Spec: v1.ModelAccessPolicySpec{Manifest: types.ModelAccessPolicyManifest{
-			Models: []types.ModelResource{{ID: "legacy-gpt5"}, {ID: "gw-gpt5"}, {ID: "legacy-mini"}, {ID: "obot://llm"}},
+			Models: []types.ModelResource{
+				{ID: "legacy-gpt5"}, {ID: "gw-gpt5"}, {ID: "legacy-mini"}, {ID: "obot://llm"},
+				// Patterns for provider-native names: one that matched OpenAI models, one for a
+				// provider without an import plan, and one already in gateway form.
+				{ID: "gpt-5*"}, {ID: "llama*"}, {ID: "anthropic/claude*"},
+			},
 		}}},
 	}
 	c := kfake.NewClientBuilder().WithScheme(storagescheme.Scheme).WithObjects(objects...).
@@ -101,7 +106,7 @@ func TestMigrateLegacyModels(t *testing.T) {
 	for _, m := range policy.Spec.Manifest.Models {
 		ids = append(ids, m.ID)
 	}
-	if want := []string{"gw-gpt5", "gw-mini", "obot://llm"}; !slices.Equal(ids, want) {
+	if want := []string{"gw-gpt5", "gw-mini", "obot://llm", "openai/gpt-5*", "llama*", "anthropic/claude*"}; !slices.Equal(ids, want) {
 		t.Errorf("policy models = %v, want %v", ids, want)
 	}
 	var gpt5 v1.Model
