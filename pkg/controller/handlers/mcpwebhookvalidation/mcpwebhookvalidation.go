@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/obot-platform/nah/pkg/router"
+	"github.com/obot-platform/nah/pkg/untriggered"
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/controller/handlers/systemmcpserver"
 	gateway "github.com/obot-platform/obot/pkg/gateway/client"
@@ -17,6 +18,7 @@ import (
 	"github.com/obot-platform/obot/pkg/system"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -61,9 +63,9 @@ func (h *Handler) CleanupResources(req router.Request, _ router.Response) error 
 			newResources = append(newResources, resource)
 		case types.ResourceTypeMCPServer:
 			if system.IsVMCPID(resource.ID) {
-				err = req.Get(&v1.VMCP{}, req.Namespace, resource.ID)
+				err = getConfirmingNotFound(req, &v1.VMCP{}, resource.ID)
 			} else {
-				err = req.Get(&mcpServer, req.Namespace, resource.ID)
+				err = getConfirmingNotFound(req, &mcpServer, resource.ID)
 			}
 			if err == nil {
 				newResources = append(newResources, resource)
@@ -71,13 +73,13 @@ func (h *Handler) CleanupResources(req router.Request, _ router.Response) error 
 				return fmt.Errorf("failed to get mcp server %s: %w", resource.ID, err)
 			}
 		case types.ResourceTypeMCPServerCatalogEntry:
-			if err = req.Get(&catalogEntry, req.Namespace, resource.ID); err == nil {
+			if err = getConfirmingNotFound(req, &catalogEntry, resource.ID); err == nil {
 				newResources = append(newResources, resource)
 			} else if !apierrors.IsNotFound(err) {
 				return fmt.Errorf("failed to get mcp server catalog entry %s: %w", resource.ID, err)
 			}
 		case types.ResourceTypeMcpCatalog:
-			if err = req.Get(&mcpCatalog, req.Namespace, resource.ID); err == nil {
+			if err = getConfirmingNotFound(req, &mcpCatalog, resource.ID); err == nil {
 				newResources = append(newResources, resource)
 			} else if !apierrors.IsNotFound(err) {
 				return fmt.Errorf("failed to get mcp catalog %s: %w", resource.ID, err)
@@ -91,6 +93,18 @@ func (h *Handler) CleanupResources(req router.Request, _ router.Response) error 
 	}
 
 	return nil
+}
+
+// getConfirmingNotFound gets a resource from the cache, and confirms with storage when the
+// cache doesn't have it. A server, catalog entry or catalog created moments before the filter
+// that targets it may not have reached the cache yet, and must not be pruned from the filter
+// as if it were deleted: the filter would silently stop applying to it.
+func getConfirmingNotFound(req router.Request, obj kclient.Object, name string) error {
+	err := req.Get(obj, req.Namespace, name)
+	if apierrors.IsNotFound(err) {
+		err = req.Get(untriggered.UncachedGet(obj), req.Namespace, name)
+	}
+	return err
 }
 
 func (h *Handler) EnsureSystemServer(req router.Request, resp router.Response) error {
