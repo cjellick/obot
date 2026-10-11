@@ -320,16 +320,19 @@ type gatewayAttempts struct {
 	lock     sync.Mutex
 	budgets  map[string][]string
 	exceeded *client.LLMGatewayBudgetExceeded
+	// admitted is the last attempt admitted: the model ("provider/model") that served the
+	// request when it succeeded, since the gateway tries models one at a time.
+	admitted string
+}
+
+// served returns the model the last admitted attempt tried and the budgets that admitted it.
+func (a *gatewayAttempts) served() (string, []string) {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	return a.admitted, a.budgets[a.admitted]
 }
 
 func (a *gatewayAttempts) release() { a.unbind() }
-
-// budgetIDs are the budgets that admitted the attempt on model ("provider/model").
-func (a *gatewayAttempts) budgetIDs(model string) []string {
-	a.lock.Lock()
-	defer a.lock.Unlock()
-	return a.budgets[model]
-}
 
 // budgetExceeded is the budget that refused the last attempt, if one did.
 func (a *gatewayAttempts) budgetExceeded() *client.LLMGatewayBudgetExceeded {
@@ -367,6 +370,7 @@ func (a *gatewayAttempts) check(b *bifrostProviderBackend, l *llmProviderProxy, 
 		}
 		a.lock.Lock()
 		a.budgets[reference] = ids
+		a.admitted = reference
 		a.lock.Unlock()
 		return nil
 	}

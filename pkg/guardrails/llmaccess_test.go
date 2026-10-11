@@ -46,7 +46,7 @@ func TestGatewayChecksRoutedModelAccess(t *testing.T) {
 		if strings.HasPrefix(model, "openai/") {
 			return nil
 		}
-		return fmt.Errorf("user does not have permission to use model %q", model)
+		return &AttemptError{Status: http.StatusForbidden, Type: "permission_denied", Message: fmt.Sprintf("user does not have permission to use model %q", model)}
 	}
 	body := `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
 
@@ -130,6 +130,16 @@ func budgetSpentFor(prefix string) AttemptCheck {
 			return &AttemptError{Status: http.StatusTooManyRequests, Type: "budget_exceeded", Message: "budget \"Opus\" exhausted"}
 		}
 		return nil
+	}
+}
+
+// An unexpected failure while checking an attempt is an internal error, not a refusal.
+func TestGatewayAttemptCheckFailure(t *testing.T) {
+	gw, _ := startGateway(t, &fakeStore{})
+	failing := func(context.Context, string) error { return fmt.Errorf("informer not synced: secret detail") }
+	code, out := callWithAccess(t, gw, `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`, "", failing)
+	if code != http.StatusInternalServerError || strings.Contains(out, "secret detail") {
+		t.Fatalf("got %d %s, want a 500 without the internal error", code, out)
 	}
 }
 

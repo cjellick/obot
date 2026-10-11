@@ -106,8 +106,9 @@ type extraModelAuthorizingBackend interface {
 type gatewayRequest interface {
 	// release ends the request once its response has been delivered.
 	release()
-	// budgetIDs are the budgets a response served by model ("provider/model") counts against.
-	budgetIDs(model string) []string
+	// served returns the model ("provider/model") of the last attempt the gateway made, which
+	// served the request if it succeeded, and the budgets its usage counts against.
+	served() (model string, budgetIDs []string)
 	// budgetExceeded is the budget that refused the last attempt, if one did.
 	budgetExceeded() *client.LLMGatewayBudgetExceeded
 }
@@ -223,7 +224,19 @@ func (r *responseModifier) applyServedModel(resp *http.Response) {
 	if r.modelProvider != system.LLMGatewayModelProvider || resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return
 	}
-	m := servedModelChange(resp.Header, r.model, func(served string) (*v1.Model, error) {
+	// The last attempt the gateway admitted names the serving model reliably; the response
+	// headers carry the engine's wire name, which differs when a key maps model aliases.
+	header := resp.Header
+	if r.gateway != nil {
+		if served, _ := r.gateway.served(); served != "" {
+			if provider, model, ok := strings.Cut(served, "/"); ok {
+				header = http.Header{}
+				header.Set(headerServedProvider, provider)
+				header.Set(headerServedModel, model)
+			}
+		}
+	}
+	m := servedModelChange(header, r.model, func(served string) (*v1.Model, error) {
 		return r.mapHelper.ResolveTargetModel(system.LLMGatewayModelProvider, served)
 	})
 	if m == nil {
@@ -463,7 +476,8 @@ func (r *responseModifier) Close() error {
 			slog.Warn("failed to save token usage for user", "userID", r.user.GetUID(), "error", err)
 		}
 		if r.gateway != nil {
-			if err := r.client.RecordLLMGatewayBudgetUsage(context.Background(), r.gateway.budgetIDs(r.model), activity.UserID, r.modelID, usage); err != nil {
+			_, budgetIDs := r.gateway.served()
+			if err := r.client.RecordLLMGatewayBudgetUsage(context.Background(), budgetIDs, activity.UserID, r.modelID, usage); err != nil {
 				slog.Warn("failed to record LLM gateway budget usage", "userID", activity.UserID, "error", err)
 			}
 		}

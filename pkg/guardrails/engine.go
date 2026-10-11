@@ -535,8 +535,6 @@ func (e *Engine) Flush() {
 	time.Sleep(1200 * time.Millisecond)
 }
 
-// TestProfile runs a profile's checker against sample text without recording events, so
-// admins can try a profile before relying on it.
 // FieldOptions loads a field's choices from the service a profile's settings point at.
 func (e *Engine) FieldOptions(ctx context.Context, typ, field string, config map[string]any, secrets map[string]string) ([]string, error) {
 	loader, ok := optionsLoader(typ, field)
@@ -546,6 +544,8 @@ func (e *Engine) FieldOptions(ctx context.Context, typ, field string, config map
 	return loader(ctx, config, secrets, e.deps)
 }
 
+// TestProfile runs a profile's checker against sample text without recording events, so
+// admins can try a profile before relying on it.
 func (e *Engine) TestProfile(ctx context.Context, profile types.GuardrailProfile, secrets map[string]string, target, stage, text string) (Result, []Segment, error) {
 	var config map[string]any
 	if len(profile.Config) > 0 {

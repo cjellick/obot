@@ -57,8 +57,9 @@ type OutputPlugin struct {
 }
 
 // AttemptCheck reports whether a request may be served by a model, named "provider/model":
-// whether the caller may use it and has budget left for it. An *AttemptError sets the
-// status and error type of a refusal; other errors refuse it as forbidden.
+// whether the caller may use it and has budget left for it. An *AttemptError refuses the
+// attempt with its status, error type and message; any other error is an internal failure,
+// reported to the caller as a 500 without its details.
 type AttemptCheck func(ctx context.Context, model string) error
 
 // AttemptError refuses an attempt, such as with 429 budget_exceeded.
@@ -140,16 +141,18 @@ func identityFromContext(ctx *schemas.BifrostContext) (Identity, map[string]stri
 // attemptError refuses an attempt. Fallbacks stay allowed, so the gateway goes on to the
 // next model, which is checked the same way.
 func attemptError(err error) *schemas.BifrostError {
-	status, errType := http.StatusForbidden, "permission_denied"
+	status, errType, message := http.StatusInternalServerError, "api_error", "failed to check whether the request may use this model"
 	if refusal := (*AttemptError)(nil); errors.As(err, &refusal) {
-		status, errType = refusal.Status, refusal.Type
+		status, errType, message = refusal.Status, refusal.Type, refusal.Message
+	} else {
+		slog.Error("failed to check an LLM gateway attempt", "error", err)
 	}
 	allowFallbacks := true
 	return &schemas.BifrostError{
 		Type:           &errType,
 		StatusCode:     &status,
 		AllowFallbacks: &allowFallbacks,
-		Error:          &schemas.ErrorField{Type: &errType, Message: err.Error()},
+		Error:          &schemas.ErrorField{Type: &errType, Message: message},
 	}
 }
 

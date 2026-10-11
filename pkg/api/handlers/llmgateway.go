@@ -161,7 +161,7 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 			return true, false
 		}
 	}); err != nil {
-		return types.NewErrHTTP(http.StatusInternalServerError, err.Error())
+		return types.NewErrHTTP(http.StatusInternalServerError, bifrost.ScrubEngineName(err.Error()))
 	}
 
 	if rec.Code >= http.StatusBadRequest {
@@ -283,8 +283,6 @@ func (h *LLMGatewayHandler) afterMutation(ctx context.Context, req api.Context, 
 	}
 }
 
-// announceLLMGatewayChange advances the gateway's configuration revision, so the other
-// replicas reload their gateways from the shared stores.
 // change makes a change to the gateway's configuration and announces it to the other
 // replicas. It holds a lock every replica shares, and first reloads what other replicas
 // announced, so the change is never made to a stale copy of the configuration and doesn't
@@ -302,6 +300,8 @@ func (h *LLMGatewayHandler) change(ctx context.Context, req api.Context, fn func
 	})
 }
 
+// announceLLMGatewayChange advances the gateway's configuration revision, so the other
+// replicas reload their gateways from the shared stores.
 func announceLLMGatewayChange(storage kclient.Client) func(context.Context) (int64, error) {
 	return func(ctx context.Context) (int64, error) {
 		return providerconfigurationchange.AdvanceLLMGatewayRevision(ctx, storage)
