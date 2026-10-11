@@ -519,14 +519,36 @@ func checkDestinationChange(existing *gatewaytypes.GuardrailProfile, updated *ga
 		switch {
 		case f.Destination && configString(oldConfig[f.Name]) != configString(newConfig[f.Name]):
 			changed = append(changed, f.Label)
-		case f.Sensitive && current[f.Name] != "" && configString(newConfig[f.Name]) == "":
-			kept = append(kept, f.Label)
+		case f.Sensitive && current[f.Name] != "":
+			entered, err := enteredSecret(newConfig, f)
+			if err != nil {
+				return err
+			}
+			if entered == "" {
+				kept = append(kept, f.Label)
+			}
 		}
 	}
 	if len(changed) == 0 || len(kept) == 0 {
 		return nil
 	}
 	return types.NewErrBadRequest("changing %s requires re-entering %s", strings.Join(changed, " and "), strings.Join(kept, " and "))
+}
+
+// enteredSecret returns the value given for a sensitive setting, or "" when it was omitted,
+// which keeps the saved value. Checking whether a stored credential is kept and keeping it
+// must agree, so both use this: a value that isn't a string is refused rather than read as
+// omitted.
+func enteredSecret(config map[string]any, f guardrails.Field) (string, error) {
+	v, ok := config[f.Name]
+	if !ok || v == nil {
+		return "", nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", types.NewErrBadRequest("%s must be a string", f.Label)
+	}
+	return strings.TrimSpace(s), nil
 }
 
 func configString(v any) string {
@@ -558,7 +580,10 @@ func splitProfileSecrets(profile *gatewaytypes.GuardrailProfile, current map[str
 		if !f.Sensitive {
 			continue
 		}
-		value, _ := config[f.Name].(string)
+		value, err := enteredSecret(config, f)
+		if err != nil {
+			return nil, err
+		}
 		delete(config, f.Name)
 		if value == "" {
 			value = current[f.Name]
