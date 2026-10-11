@@ -134,3 +134,94 @@ func TestLakeraRequiresAPIKey(t *testing.T) {
 		t.Error("expected an error without an API key")
 	}
 }
+
+func TestLakeraMinimumConfidence(t *testing.T) {
+	segments := []Segment{
+		{Role: RoleUser, Text: "mail a@example.com"},
+		{Role: RoleUser, Text: "mail b@example.com"},
+	}
+	// Recorded from the default policy: a less likely prompt attack and crime flag the
+	// request, alongside a confident email in the first message and a less likely one in the
+	// second.
+	response := `{"flagged":true,"breakdown":[
+			{"detector_type":"prompt_attack","detected":true,"result":"l4_less_likely","message_id":1},
+			{"detector_type":"moderated_content/crime","detected":true,"result":"l3_likely"},
+			{"detector_type":"pii/email","detected":true,"result":"l1_confident","message_id":0},
+			{"detector_type":"pii/email","detected":true,"result":"l4_less_likely","message_id":1},
+			{"detector_type":"moderated_content/hate","detected":false,"result":"l5_unlikely","message_id":0}],
+		"payload":[
+			{"start":5,"end":18,"text":"a@example.com","detector_type":"pii/email","message_id":0},
+			{"start":5,"end":18,"text":"b@example.com","detector_type":"pii/email","message_id":1}]}`
+	onlyCrime := `{"flagged":true,"breakdown":[{"detector_type":"moderated_content/crime","detected":true,"result":"l4_less_likely"}],"payload":[]}`
+
+	tests := []struct {
+		name         string
+		config       map[string]any
+		response     string
+		wantFindings []string
+		wantRedacted []string
+	}{
+		{
+			name:         "default keeps only very likely results",
+			config:       map[string]any{},
+			response:     response,
+			wantFindings: []string{"pii: pii/email detected"},
+			wantRedacted: []string{"mail [REDACTED:EMAIL]", "mail b@example.com"},
+		},
+		{
+			name:         "less likely keeps what the default policy flagged",
+			config:       map[string]any{"minConfidence": "l4_less_likely"},
+			response:     response,
+			wantFindings: []string{"prompt_attack: prompt_attack detected", "moderated_content: moderated_content/crime detected", "pii: pii/email detected"},
+			wantRedacted: []string{"mail [REDACTED:EMAIL]", "mail [REDACTED:EMAIL]"},
+		},
+		{
+			name:         "a project's policy decides, whatever the minimum",
+			config:       map[string]any{"projectID": "project-1", "minConfidence": "l1_confident"},
+			response:     response,
+			wantFindings: []string{"prompt_attack: prompt_attack detected", "moderated_content: moderated_content/crime detected", "pii: pii/email detected"},
+			wantRedacted: []string{"mail [REDACTED:EMAIL]", "mail [REDACTED:EMAIL]"},
+		},
+		{
+			name:     "nothing confident enough is not flagged",
+			config:   map[string]any{},
+			response: onlyCrime,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tt.response))
+			}))
+			defer srv.Close()
+			tt.config["baseURL"] = srv.URL
+			c, err := newChecker("lakera", tt.config, map[string]string{"apiKey": "lk-key"}, Deps{HTTPClient: srv.Client()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := c.Check(t.Context(), CheckInput{Stage: StageInput, Segments: segments})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertProviderFindings(t, result.Findings, tt.wantFindings)
+			if tt.wantRedacted == nil {
+				return
+			}
+			var spans []Span
+			for _, f := range result.Findings {
+				spans = append(spans, f.Spans...)
+			}
+			for i, seg := range ApplySpans(segments, spans) {
+				if seg.Text != tt.wantRedacted[i] {
+					t.Errorf("message %d = %q, want %q", i, seg.Text, tt.wantRedacted[i])
+				}
+			}
+		})
+	}
+}
+
+func TestLakeraRejectsUnknownConfidence(t *testing.T) {
+	if _, err := newChecker("lakera", map[string]any{"minConfidence": "sure"}, map[string]string{"apiKey": "lk-key"}, Deps{}); err == nil {
+		t.Error("expected an error for an unknown minimum confidence")
+	}
+}

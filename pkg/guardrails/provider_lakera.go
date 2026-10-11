@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -15,7 +16,18 @@ type lakeraChecker struct {
 	baseURL   string
 	projectID string
 	apiKey    string
+	// minLevel is the least confident result level that counts, from 1 (l1_confident) to
+	// 5 (l5_unlikely). It applies only without a project; a project's policy decides itself.
+	minLevel int
 }
+
+// lakeraLevels are Check Point's result levels, most confident first.
+var lakeraLevels = []string{"l1_confident", "l2_very_likely", "l3_likely", "l4_less_likely"}
+
+// lakeraDefaultLevel is the least confident result that counts without a project. Check
+// Point's default policy flags results down to l4_less_likely, which catches ordinary prompts
+// such as "Write a fictional name and email address for a test account".
+const lakeraDefaultLevel = "l2_very_likely"
 
 type lakeraRequest struct {
 	Messages  []lakeraMessage `json:"messages"`
@@ -34,6 +46,7 @@ type lakeraResponse struct {
 	Breakdown []struct {
 		DetectorType string `json:"detector_type"`
 		Detected     bool   `json:"detected"`
+		Result       string `json:"result"`
 		MessageID    *int   `json:"message_id"`
 	} `json:"breakdown"`
 	Payload []struct {
@@ -55,15 +68,21 @@ func init() {
 		Redacts:     true,
 		Fields: []Field{
 			{Name: "apiKey", Label: "API key", Type: FieldPassword, Required: true, Sensitive: true},
-			{Name: "projectID", Label: "Project ID", Type: FieldText, Description: "Project whose policy screens the content. Leave empty for the default policy."},
+			{Name: "projectID", Label: "Project ID", Type: FieldText, Description: "The Check Point project whose policy screens the content, deciding which detectors run and how confident they must be. Leave empty to use the default policy with the minimum confidence below."},
+			{Name: "minConfidence", Label: "Minimum confidence", Type: FieldSelect, Options: lakeraLevels, Default: lakeraDefaultLevel, Description: "Without a project, the least confident result that counts. Check Point's default policy flags results down to l4_less_likely, which includes some ordinary prompts. Ignored when a project is set."},
 			{Name: "baseURL", Label: "Base URL", Type: FieldText, Destination: true, Default: "https://api.lakera.ai", Description: "Change for a regional or self-hosted deployment."},
 		},
 	}, func(config map[string]any, secrets map[string]string, deps Deps) (Checker, error) {
+		minLevel := lakeraLevel(ConfigString(config, "minConfidence", lakeraDefaultLevel))
+		if minLevel == 0 {
+			return nil, fmt.Errorf("minimum confidence must be one of %s", strings.Join(lakeraLevels, ", "))
+		}
 		return &lakeraChecker{
 			client:    providerHTTPClient(deps),
 			baseURL:   strings.TrimRight(ConfigString(config, "baseURL", "https://api.lakera.ai"), "/"),
 			projectID: ConfigString(config, "projectID", ""),
 			apiKey:    secrets["apiKey"],
+			minLevel:  minLevel,
 		}, nil
 	})
 }
@@ -93,7 +112,72 @@ func (c *lakeraChecker) Check(ctx context.Context, in CheckInput) (Result, error
 	if err := providerDo(c.client, req, "Lakera Guard", &resp); err != nil {
 		return Result{}, err
 	}
+	if c.projectID == "" {
+		resp = filterLakeraConfidence(resp, c.minLevel)
+	}
 	return lakeraResult(in.Segments, indexes, resp), nil
+}
+
+// lakeraLevel is a result level's rank, from 1 for l1_confident to 5 for l5_unlikely, or 0
+// when it isn't one.
+func lakeraLevel(result string) int {
+	if len(result) < 2 || result[0] != 'l' || result[1] < '1' || result[1] > '5' {
+		return 0
+	}
+	return int(result[1] - '0')
+}
+
+// filterLakeraConfidence drops detections less confident than minLevel, with the matches
+// they located. It replaces Check Point's overall verdict, which follows the default policy,
+// with one that follows the remaining detections.
+func filterLakeraConfidence(resp lakeraResponse, minLevel int) lakeraResponse {
+	if len(resp.Breakdown) == 0 {
+		// Nothing to judge confidence by; keep Check Point's verdict.
+		return resp
+	}
+	// Detections are per detector, and per message when they name one.
+	type key struct {
+		detector string
+		message  int
+	}
+	var (
+		keptMessage = map[key]bool{}
+		// keptAll holds detectors confident without naming a message, which covers them all.
+		keptAll  = map[string]bool{}
+		keptAny  = map[string]bool{}
+		reported = map[string]bool{}
+	)
+	breakdown := resp.Breakdown[:0:0]
+	for _, b := range resp.Breakdown {
+		reported[b.DetectorType] = true
+		level := lakeraLevel(b.Result)
+		if b.Detected && (level == 0 || level <= minLevel) {
+			keptAny[b.DetectorType] = true
+			if b.MessageID == nil {
+				keptAll[b.DetectorType] = true
+			} else {
+				keptMessage[key{b.DetectorType, *b.MessageID}] = true
+			}
+		} else {
+			b.Detected = false
+		}
+		breakdown = append(breakdown, b)
+	}
+	payload := resp.Payload[:0:0]
+	for _, p := range resp.Payload {
+		dt := p.DetectorType
+		switch {
+		case !reported[dt], keptAll[dt]:
+			// A match from a detector the breakdown doesn't mention is kept, to be safe.
+		case p.MessageID == nil && keptAny[dt]:
+		case p.MessageID != nil && keptMessage[key{dt, *p.MessageID}]:
+		default:
+			continue
+		}
+		payload = append(payload, p)
+	}
+	resp.Breakdown, resp.Payload, resp.Flagged = breakdown, payload, len(keptAny) > 0
+	return resp
 }
 
 // lakeraResult converts a guard response. Payload items locate matches by message_id, the

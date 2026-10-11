@@ -38,7 +38,7 @@ Where to find them:
 | **Azure AI Content Safety** | Hate, sexual, violence and self-harm content above a severity threshold; optionally prompt injection with Prompt Shields. | No |
 | **AWS Bedrock Guardrails** | Whatever the Bedrock guardrail is configured for: denied topics, content and word filters, sensitive information and contextual grounding. | Anonymized content |
 | **Google Cloud Model Armor** | Responsible AI filters, prompt injection and jailbreaks, malicious URLs, CSAM and Sensitive Data Protection, per the Model Armor template. | Sensitive data |
-| **Check Point AI Agent Security (Lakera Guard)** | Prompt attacks, PII, content violations, unknown links and custom detectors. | PII, profanity, custom regex |
+| **Check Point AI Agent Security (Lakera Guard)** | Prompt attacks, PII, content violations, unknown links and custom detectors. With a **Project ID**, that project's policy decides what is flagged. Without one, Check Point's default policy screens the content and only results at or above **Minimum confidence** (by default `l2_very_likely`) count, since the default policy also flags some ordinary prompts. | PII, profanity, custom regex |
 | **Patronus AI** | Results of Patronus evaluators, such as toxicity and PII detectors or LLM judges with your criteria. | No |
 | **CrowdStrike Falcon AIDR** | Malicious prompts, PII, secrets, malicious entities, topics and more, per the collector's policy. | Content AI Guard redacts |
 
