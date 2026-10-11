@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -145,7 +146,7 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	rec := httptest.NewRecorder()
 	if req.Method == http.MethodGet {
 		h.engine.ServeHTTP(rec, out)
-	} else if err := h.engine.Change(ctx, func() (bool, bool) {
+	} else if err := h.change(ctx, req, func() (bool, bool) {
 		h.engine.ServeHTTP(rec, out)
 		switch {
 		case rec.Code < 300:
@@ -159,7 +160,7 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 			// both, so every replica, this one included, reloads to be safe.
 			return true, false
 		}
-	}, announceLLMGatewayChange(req.Storage)); err != nil {
+	}); err != nil {
 		return types.NewErrHTTP(http.StatusInternalServerError, err.Error())
 	}
 
@@ -284,6 +285,23 @@ func (h *LLMGatewayHandler) afterMutation(ctx context.Context, req api.Context, 
 
 // announceLLMGatewayChange advances the gateway's configuration revision, so the other
 // replicas reload their gateways from the shared stores.
+// change makes a change to the gateway's configuration and announces it to the other
+// replicas. It holds a lock every replica shares, and first reloads what other replicas
+// announced, so the change is never made to a stale copy of the configuration and doesn't
+// overwrite theirs.
+func (h *LLMGatewayHandler) change(ctx context.Context, req api.Context, fn func() (changed, applied bool)) error {
+	return req.GatewayClient.WithLLMGatewayLock(ctx, func() error {
+		revision, err := providerconfigurationchange.CurrentLLMGatewayRevision(ctx, req.Storage)
+		if err != nil {
+			return fmt.Errorf("failed to read the LLM gateway configuration revision: %w", err)
+		}
+		if _, err := h.engine.Reload(revision); err != nil {
+			return fmt.Errorf("failed to reload the LLM gateway configuration: %w", err)
+		}
+		return h.engine.Change(ctx, fn, announceLLMGatewayChange(req.Storage))
+	})
+}
+
 func announceLLMGatewayChange(storage kclient.Client) func(context.Context) (int64, error) {
 	return func(ctx context.Context) (int64, error) {
 		return providerconfigurationchange.AdvanceLLMGatewayRevision(ctx, storage)
@@ -423,34 +441,4 @@ func (h *LLMGatewayHandler) BudgetUsage(req api.Context) error {
 		return err
 	}
 	return req.Write(map[string]any{"items": entries})
-}
-
-// ImportLegacyProviders copies the credentials of configured legacy model providers into
-// the gateway, so an existing installation can switch over without re-entering keys.
-func (h *LLMGatewayHandler) ImportLegacyProviders(req api.Context) error {
-	if err := h.requireEngine(); err != nil {
-		return err
-	}
-	var (
-		results   []bifrost.LegacyImportResult
-		importErr error
-	)
-	if err := h.engine.Change(req.Context(), func() (bool, bool) {
-		results, importErr = h.engine.ImportLegacyModelProviders(req.Context(), req.Storage, req.GatewayClient)
-		if importErr != nil {
-			// Some providers may have been imported before the error; reload everywhere.
-			return true, false
-		}
-		h.engine.ApplyEgressProxy(req.Context())
-		return true, true
-	}, announceLLMGatewayChange(req.Storage)); err != nil {
-		return types.NewErrHTTP(http.StatusInternalServerError, err.Error())
-	}
-	if importErr != nil {
-		return importErr
-	}
-	if err := bifrost.TriggerModelSync(req.Context(), req.Storage); err != nil {
-		slog.Warn("failed to trigger LLM gateway model sync", "error", err)
-	}
-	return req.Write(map[string]any{"items": results})
 }

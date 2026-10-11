@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -122,9 +123,13 @@ func LegacyImportDone(mp *v1.ModelProvider) bool {
 }
 
 // RunStartupTasks waits for the engine to start, imports legacy model provider credentials
-// once, and then keeps Obot's model list in step with Bifrost's. announce tells the other replicas when it changed the
-// gateway's configuration, so they reload it.
-func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayClient *gateway.Client, announce func(context.Context) (int64, error)) {
+// once, and then keeps Obot's model list in step with Bifrost's. announce tells the other
+// replicas when it changed the gateway's configuration, so they reload it.
+//
+// Replicas that start together take turns: each holds a lock every replica shares while it
+// makes its changes, and first reloads the configuration the others announced
+// (currentRevision returns the latest), so it never writes back a stale copy of it.
+func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayClient *gateway.Client, currentRevision, announce func(context.Context) (int64, error)) {
 	if err := e.Wait(ctx); err != nil {
 		return
 	}
@@ -142,42 +147,19 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 		}
 	}
 
-	if err := e.Change(ctx, func() (bool, bool) {
-		changed := false
-		if !LegacyImportDone(&mp) {
-			results, err := e.ImportLegacyModelProviders(ctx, c, gatewayClient)
-			changed = slices.ContainsFunc(results, func(r LegacyImportResult) bool { return r.Status == "imported" })
-			failed := err != nil
-			if err != nil {
-				slog.Warn("failed to import legacy model providers into the LLM gateway", "error", err)
-			}
-			for _, r := range results {
-				slog.Info("LLM gateway legacy provider import", "modelProvider", r.ModelProvider, "gatewayProvider", r.GatewayProvider, "status", r.Status, "message", r.Message)
-				failed = failed || r.Status == "error"
-			}
-			// Only record the import once it fully succeeded, so a failure is retried next start.
-			if !failed {
-				if err := c.Get(ctx, kclient.ObjectKeyFromObject(&mp), &mp); err == nil {
-					if mp.Annotations == nil {
-						mp.Annotations = map[string]string{}
-					}
-					mp.Annotations[legacyImportAnnotation] = "true"
-					if err := c.Update(ctx, &mp); err != nil {
-						slog.Warn("failed to record LLM gateway legacy import", "error", err)
-					}
-				}
-			}
+	if err := gatewayClient.WithLLMGatewayLock(ctx, func() error {
+		if revision, err := currentRevision(ctx); err != nil {
+			return fmt.Errorf("failed to read the LLM gateway configuration revision: %w", err)
+		} else if _, err := e.Reload(revision); err != nil {
+			return fmt.Errorf("failed to reload the LLM gateway configuration: %w", err)
 		}
-
-		if e.importEnvProviders(ctx, c, &mp) {
-			changed = true
+		// Another replica may have imported legacy providers while this one waited.
+		if err := c.Get(ctx, kclient.ObjectKeyFromObject(&mp), &mp); err != nil {
+			return err
 		}
-		if e.ApplyEgressProxy(ctx) {
-			changed = true
-		}
-		return changed, true
-	}, announce); err != nil {
-		slog.Warn("LLM gateway startup changes were not announced to other replicas", "error", err)
+		return e.Change(ctx, e.startupChanges(ctx, c, gatewayClient, &mp), announce)
+	}); err != nil {
+		slog.Warn("LLM gateway startup changes failed or were not announced to other replicas", "error", err)
 	}
 
 	// Bifrost refreshes provider model lists on its own schedule, so resync periodically.
@@ -192,5 +174,45 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// startupChanges imports legacy provider credentials once, configures providers from the
+// environment and applies the egress proxy. mp is the gateway's ModelProvider.
+func (e *Engine) startupChanges(ctx context.Context, c kclient.Client, gatewayClient *gateway.Client, mp *v1.ModelProvider) func() (bool, bool) {
+	return func() (bool, bool) {
+		changed := false
+		if !LegacyImportDone(mp) {
+			results, err := e.ImportLegacyModelProviders(ctx, c, gatewayClient)
+			changed = slices.ContainsFunc(results, func(r LegacyImportResult) bool { return r.Status == "imported" })
+			failed := err != nil
+			if err != nil {
+				slog.Warn("failed to import legacy model providers into the LLM gateway", "error", err)
+			}
+			for _, r := range results {
+				slog.Info("LLM gateway legacy provider import", "modelProvider", r.ModelProvider, "gatewayProvider", r.GatewayProvider, "status", r.Status, "message", r.Message)
+				failed = failed || r.Status == "error"
+			}
+			// Only record the import once it fully succeeded, so a failure is retried next start.
+			if !failed {
+				if err := c.Get(ctx, kclient.ObjectKeyFromObject(mp), mp); err == nil {
+					if mp.Annotations == nil {
+						mp.Annotations = map[string]string{}
+					}
+					mp.Annotations[legacyImportAnnotation] = "true"
+					if err := c.Update(ctx, mp); err != nil {
+						slog.Warn("failed to record LLM gateway legacy import", "error", err)
+					}
+				}
+			}
+		}
+
+		if e.importEnvProviders(ctx, c, mp) {
+			changed = true
+		}
+		if e.ApplyEgressProxy(ctx) {
+			changed = true
+		}
+		return changed, true
 	}
 }
