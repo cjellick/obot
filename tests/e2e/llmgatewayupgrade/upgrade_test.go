@@ -433,14 +433,32 @@ func TestUpgradeFromMain(t *testing.T) {
 				"model": "anthropic/claude-upgrade", "messages": []any{map[string]any{"role": "user", "content": "hi"}},
 			})
 		}
-		harness.Eventually(t, time.Minute, "the first gateway request", func() error {
-			if resp := call(replicas[0]); resp.Status != http.StatusOK {
+		// The policy converted for everyone fails closed, as message policies did, and no
+		// judge model is configured here, so it blocks.
+		harness.Eventually(t, time.Minute, "the converted message policy to block", func() error {
+			resp := call(replicas[0])
+			if resp.Status != http.StatusBadRequest || !strings.Contains(string(resp.Body), "guardrail_intervention") ||
+				!strings.Contains(string(resp.Body), "No travel booking") {
 				return fmt.Errorf("%s", resp)
 			}
 			return nil
 		})
-		if resp := call(replicas[1]); resp.Status != http.StatusOK {
-			t.Fatalf("second request: %s", resp)
+		// Disable the converted rules to reach the budget.
+		var rules struct {
+			Items []map[string]any `json:"items"`
+		}
+		a.Get(t, "/api/llm-gateway/guardrails/rules", &rules)
+		for _, r := range rules.Items {
+			r["enabled"] = false
+			a.Put(t, "/api/llm-gateway/guardrails/rules/"+fmt.Sprint(r["id"]), r, nil)
+		}
+		for _, r := range replicas {
+			harness.Eventually(t, time.Minute, "a gateway request on "+r.Config.Name, func() error {
+				if resp := call(r); resp.Status != http.StatusOK {
+					return fmt.Errorf("%s", resp)
+				}
+				return nil
+			})
 		}
 		// Two requests of 10 input tokens use up the personal limit of 15.
 		resp := call(replicas[0])
