@@ -91,7 +91,7 @@ test-integration:
 	go test -count=1 -v -tags=integration -timeout=10m ./tests/integration/...
 
 # End-to-end tests of the LLM gateway, budgets, guardrails and guardrail filters. They run
-# two real obot processes (bin/obot, or OBOT_E2E_BINARY) on Postgres and Redis in Docker.
+# two real obot processes (bin/obot, or OBOT_E2E_BINARY) on Postgres in Docker.
 # Set OBOT_E2E_DIR to keep replica logs and data in a known place. bin/obot is rebuilt unless
 # OBOT_E2E_BINARY is set.
 test-e2e-llm-gateway:

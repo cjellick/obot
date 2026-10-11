@@ -123,16 +123,6 @@ describe('Gateway usage view', () => {
 		await expect.element(page.getByRole('cell', { name: /gpt-4o/ })).not.toBeInTheDocument();
 		expect(statsQueries).not.toHaveBeenCalled();
 	});
-
-	it('shows the disabled banner when the gateway is turned off', async () => {
-		mockGateway({ status: { ...readyStatus, enabled: false, ready: false } });
-		await renderGatewayUsage();
-
-		await expect
-			.element(page.getByText('The LLM gateway is disabled on this Obot server', { exact: false }))
-			.toBeInTheDocument();
-	});
-
 	it('prompts to add a provider when none are configured', async () => {
 		mockGateway({ status: { ...readyStatus, hasProviders: false }, rankings: [] });
 		await renderGatewayUsage();

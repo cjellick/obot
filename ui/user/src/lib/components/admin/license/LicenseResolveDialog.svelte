@@ -28,8 +28,6 @@
 			(arr, violation) => {
 				if (violation.type === 'authProvider') {
 					arr.authProvider = true;
-				} else if (violation.type === 'modelProvider') {
-					arr.modelProvider = true;
 				} else if (violation.type === 'userLimit') {
 					arr.userLimit = true;
 				}
@@ -37,7 +35,6 @@
 			},
 			{
 				authProvider: false,
-				modelProvider: false,
 				userLimit: false
 			}
 		)

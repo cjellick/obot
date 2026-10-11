@@ -11,7 +11,6 @@ const readyStatus = {
 	proxyPath: '/api/llm-proxy'
 };
 
-const disabledText = 'The LLM gateway is disabled on this Obot server';
 const startingText = 'The LLM gateway is starting…';
 const noProvidersText = 'No upstream providers are configured yet.';
 
@@ -19,7 +18,6 @@ describe('GatewayStatusBanner', () => {
 	it('renders nothing while the status is unknown', async () => {
 		render(GatewayStatusBanner, {});
 
-		await expect.element(page.getByText(disabledText, { exact: false })).not.toBeInTheDocument();
 		await expect.element(page.getByText(startingText)).not.toBeInTheDocument();
 		await expect.element(page.getByText(noProvidersText, { exact: false })).not.toBeInTheDocument();
 	});
@@ -27,19 +25,8 @@ describe('GatewayStatusBanner', () => {
 	it('renders nothing when the gateway is ready with providers', async () => {
 		render(GatewayStatusBanner, { status: readyStatus });
 
-		await expect.element(page.getByText(disabledText, { exact: false })).not.toBeInTheDocument();
 		await expect.element(page.getByText(startingText)).not.toBeInTheDocument();
 		await expect.element(page.getByText(noProvidersText, { exact: false })).not.toBeInTheDocument();
-	});
-
-	it('reports a disabled gateway ahead of any other state', async () => {
-		render(GatewayStatusBanner, {
-			status: { ...readyStatus, enabled: false, ready: false, error: 'ignored' }
-		});
-
-		await expect.element(page.getByText(disabledText, { exact: false })).toBeInTheDocument();
-		await expect.element(page.getByText('--disable-llm-gateway')).toBeInTheDocument();
-		await expect.element(page.getByText('ignored', { exact: false })).not.toBeInTheDocument();
 	});
 
 	it('shows the startup error', async () => {

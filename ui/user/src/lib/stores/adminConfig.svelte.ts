@@ -45,7 +45,16 @@ const createAdminConfigStore = () => {
 				AdminService.getEula()
 			]);
 
-			const modelProviderConfigured = gatewayStatus.hasProviders;
+			// While the gateway is starting or reloading it can't say whether it has providers.
+			// Keep the last known answer (or assume it has, rather than send an admin through
+			// setup), and don't cache it, so the next load asks again.
+			const previous = get({ subscribe });
+			const known = gatewayStatus.ready;
+			const modelProviderConfigured = known
+				? gatewayStatus.hasProviders
+				: previous.lastFetched
+					? previous.modelProviderConfigured
+					: true;
 			const authProviderConfigured = authProviders.some((provider) => provider.configured);
 			const eulaAccepted = eula.accepted;
 
@@ -55,7 +64,7 @@ const createAdminConfigStore = () => {
 				authProviders,
 				eulaAccepted,
 				loading: false,
-				lastFetched: now
+				lastFetched: known ? now : null
 			});
 
 			isInitialized = true;

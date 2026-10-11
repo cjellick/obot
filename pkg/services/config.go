@@ -137,10 +137,9 @@ type Config struct {
 	DisableUpdateCheck                   bool   `usage:"Disable Obot server update checks"`
 	HideK8sDetails                       bool   `usage:"Hide Kubernetes configuration details such as the Server Scheduling page from the UI" default:"false"`
 	EnableRegistryAuth                   bool   `usage:"Enable authentication for the MCP registry API" default:"false" env:"OBOT_SERVER_ENABLE_REGISTRY_AUTH"`
-	EnableMessagePolicies                bool   `usage:"Enable message policies for LLM proxy content enforcement" default:"false"`
+	EnableMessagePolicies                bool   `usage:"Deprecated: whether message policies were enforced; message policies converted to guardrails on upgrade start enabled only when this is set" default:"false"`
 	LLMAuditLogRetentionDays             int    `usage:"Number of days to retain LLM audit logs (0 to disable cleanup)." default:"90"`
 	DisableLLMAuditLog                   bool   `usage:"Disable LLM gateway audit logging" default:"false"`
-	DisableLLMGateway                    bool   `usage:"Disable the embedded Bifrost LLM gateway" name:"disable-llm-gateway" default:"false" env:"OBOT_SERVER_DISABLE_LLM_GATEWAY"`
 	LLMGatewayDataDir                    string `usage:"Directory for the embedded LLM gateway's configuration and, without a Postgres DSN, its SQLite stores (default: $XDG_DATA_HOME/obot/llm-gateway)" name:"llm-gateway-data-dir" env:"OBOT_SERVER_LLM_GATEWAY_DATA_DIR"`
 	LLMGatewayPostgresDSN                string `usage:"Postgres DSN for the embedded LLM gateway's config and log stores. Must be a different database from Obot's. When Obot uses Postgres and this is unset, a <database>_llm_gateway database is created on the same server" name:"llm-gateway-postgres-dsn" env:"OBOT_SERVER_LLM_GATEWAY_POSTGRES_DSN"`
 	LLMGatewayEncryptionKey              string `usage:"Key used by the embedded LLM gateway to encrypt provider keys at rest (default: generated and stored in the data dir)" name:"llm-gateway-encryption-key" env:"OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY"`
@@ -288,7 +287,6 @@ type Services struct {
 	MCPRuntimeBackend       string
 	MCPImagePullSecrets     []string
 	MCPHTTPWebhookBaseImage string
-	MessagePoliciesEnabled  bool
 	EnableAgents            *bool
 	HostedAgentsEnabled     bool
 	AgentBackend            agentbackend.Backend
@@ -1493,7 +1491,6 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		SingleUserIdleServerShutdownInterval: time.Duration(config.SingleUserIdleServerShutdownHours) * time.Hour,
 		MultiUserIdleServerShutdownInterval:  time.Duration(config.MultiUserIdleServerShutdownHours) * time.Hour,
 		AgentIdleServerShutdownInterval:      time.Duration(config.IdleAgentShutdownHours) * time.Hour,
-		MessagePoliciesEnabled:               config.EnableMessagePolicies,
 		EnableAgents:                         config.EnableAgents,
 		HostedAgentsEnabled:                  config.EnableHostedAgents,
 		AgentBackend:                         agentBackend,

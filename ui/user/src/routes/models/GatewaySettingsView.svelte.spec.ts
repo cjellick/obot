@@ -165,16 +165,4 @@ describe('Models gateway settings tab', () => {
 			.element(page.getByRole('button', { name: 'Save', exact: true }))
 			.not.toBeInTheDocument();
 	});
-
-	it('shows only the disabled banner when the gateway is disabled', async () => {
-		mockGateway({ status: { ...readyStatus, enabled: false, ready: false } });
-		await renderSettingsPage();
-
-		await expect
-			.element(page.getByText('The LLM gateway is disabled on this Obot server', { exact: false }))
-			.toBeInTheDocument();
-		await expect
-			.element(page.getByRole('switch', { name: 'Log requests' }))
-			.not.toBeInTheDocument();
-	});
 });

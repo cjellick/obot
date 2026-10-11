@@ -11,12 +11,7 @@
 	let { status, showNoProviders = true }: Props = $props();
 </script>
 
-{#if status && !status.enabled}
-	<div class="notification-alert flex items-center gap-2 rounded-md p-3 text-sm">
-		<CircleAlert class="size-4 shrink-0" />
-		The LLM gateway is disabled on this Obot server (<code>--disable-llm-gateway</code>).
-	</div>
-{:else if status?.error}
+{#if status?.error}
 	<div class="notification-error flex items-center gap-2 rounded-md p-3 text-sm">
 		<CircleAlert class="size-4 shrink-0" />
 		The LLM gateway failed to start: {status.error}

@@ -8,6 +8,7 @@ import { getGatewayStatusResponse, getVersionResponse } from '../../../tests/moc
 import { worker } from '../../../tests/mocks/worker';
 import SetupSplashDialog from './SetupSplashDialog.svelte';
 import { http, HttpResponse } from 'msw';
+import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
@@ -161,5 +162,22 @@ describe('SetupSplashDialog product analytics consent', () => {
 
 		await expect.element(page.getByRole('dialog')).toBeVisible();
 		expect(document.querySelector('#share-product-usage')).toBeNull();
+	});
+
+	it('does not treat a gateway that is still starting as having no providers', async () => {
+		adminConfigStore.setModelProviderConfigured(true);
+		worker.use(
+			http.get('/api/auth-providers', () => HttpResponse.json({ items: [{ configured: true }] })),
+			http.get('/api/llm-gateway/status', () =>
+				HttpResponse.json({ ...getGatewayStatusResponse, ready: false, hasProviders: false })
+			),
+			http.get('/api/eula', () => HttpResponse.json({ accepted: true }))
+		);
+		await adminConfigStore.fetchData(true);
+
+		const state = get(adminConfigStore);
+		expect(state.modelProviderConfigured).toBe(true);
+		// Not cached, so the next load asks the gateway again.
+		expect(state.lastFetched).toBeNull();
 	});
 });
