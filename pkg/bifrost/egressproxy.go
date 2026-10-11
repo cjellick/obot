@@ -48,7 +48,7 @@ func (e *Engine) ApplyEgressProxy(ctx context.Context) (changed bool) {
 	}
 	for _, p := range resp.Providers {
 		name, _ := p["name"].(string)
-		if name == "" || p["proxy_config"] != nil {
+		if name == "" {
 			continue
 		}
 		network, _ := p["network_config"].(map[string]any)
@@ -64,6 +64,23 @@ func (e *Engine) ApplyEgressProxy(ctx context.Context) (changed bool) {
 			continue
 		}
 		proxyURL, err := proxyFor(u)
+		if hasProxy(p["proxy_config"]) {
+			// A provider moved to an endpoint the proxy doesn't apply to (localhost, NO_PROXY)
+			// stops using the egress proxy Obot gave it; any other proxy is the admin's.
+			if (err != nil || proxyURL == nil) && isEgressProxy(p["proxy_config"], cfg) {
+				body := maps.Clone(p)
+				delete(body, "keys")
+				// An omitted proxy configuration is kept, so turn it off explicitly.
+				body["proxy_config"] = map[string]any{"type": "none"}
+				if err := e.Do(ctx, http.MethodPut, "/api/providers/"+url.PathEscape(name), body, nil); err != nil {
+					slog.Warn("failed to remove the egress proxy from an LLM gateway provider", "provider", name, "error", err)
+					continue
+				}
+				slog.Info("LLM gateway provider no longer uses the egress proxy", "provider", name)
+				changed = true
+			}
+			continue
+		}
 		if err != nil || proxyURL == nil {
 			continue
 		}
@@ -84,6 +101,42 @@ func (e *Engine) ApplyEgressProxy(ctx context.Context) (changed bool) {
 		changed = true
 	}
 	return changed
+}
+
+// hasProxy reports whether a provider's proxy configuration routes through a proxy.
+func hasProxy(proxyConfig any) bool {
+	pc, ok := proxyConfig.(map[string]any)
+	return ok && pc["type"] != "none"
+}
+
+// isEgressProxy reports whether a provider's proxy configuration is the environment's
+// egress proxy, which Obot applies, as opposed to one an administrator configured. The engine
+// returns the proxy URL redacted, so a redacted URL matches the environment's proxy redacted
+// the same way.
+func isEgressProxy(proxyConfig any, cfg *httpproxy.Config) bool {
+	pc, _ := proxyConfig.(map[string]any)
+	var configured string
+	switch v := pc["url"].(type) {
+	case string:
+		configured = v
+	case map[string]any:
+		configured, _ = v["value"].(string)
+	}
+	if configured == "" {
+		return false
+	}
+	for _, env := range []string{cfg.HTTPSProxy, cfg.HTTPProxy} {
+		if env != "" && (configured == env || matchesRedacted(configured, env)) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesRedacted reports whether redacted is value as the engine redacts secrets: its first
+// and last four characters with 24 asterisks between.
+func matchesRedacted(redacted, value string) bool {
+	return len(value) > 8 && redacted == value[:4]+strings.Repeat("*", 24)+value[len(value)-4:]
 }
 
 func proxyType(u *url.URL) string {
