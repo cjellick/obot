@@ -118,6 +118,9 @@ type Field struct {
 	// endpoint URL or a region that is part of a host name. Changing one requires
 	// re-entering the credentials, so stored credentials can't be redirected to another host.
 	Destination bool `json:"destination,omitempty"`
+	// OptionsFromService reports that the field's choices can be loaded from the configured
+	// service, with Engine.FieldOptions.
+	OptionsFromService bool `json:"optionsFromService,omitempty"`
 }
 
 // ProviderInfo describes a checker type.
@@ -142,9 +145,13 @@ type Deps struct {
 // Factory builds a checker from a profile's settings.
 type Factory func(config map[string]any, secrets map[string]string, deps Deps) (Checker, error)
 
+// OptionsLoader loads a field's choices from the service a profile's settings point at.
+type OptionsLoader func(ctx context.Context, config map[string]any, secrets map[string]string, deps Deps) ([]string, error)
+
 type registration struct {
 	info    ProviderInfo
 	factory Factory
+	options map[string]OptionsLoader
 }
 
 // Register adds a checker type. It is called from init functions.
@@ -155,6 +162,29 @@ func Register(info ProviderInfo, factory Factory) {
 		panic("guardrail checker type registered twice: " + info.Type)
 	}
 	registry[info.Type] = registration{info: info, factory: factory}
+}
+
+// RegisterOptions adds the loader of a field's choices to a registered checker type. It is
+// called from init functions.
+func RegisterOptions(typ, field string, loader OptionsLoader) {
+	registryLock.Lock()
+	defer registryLock.Unlock()
+	r, ok := registry[typ]
+	if !ok {
+		panic("guardrail checker type not registered: " + typ)
+	}
+	if r.options == nil {
+		r.options = map[string]OptionsLoader{}
+	}
+	r.options[field] = loader
+	registry[typ] = r
+}
+
+func optionsLoader(typ, field string) (OptionsLoader, bool) {
+	registryLock.RLock()
+	defer registryLock.RUnlock()
+	loader, ok := registry[typ].options[field]
+	return loader, ok
 }
 
 // Providers returns every registered checker type, sorted by label.

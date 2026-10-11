@@ -7,15 +7,36 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
 const (
+	presidioService = "Presidio"
+
 	// integrationErrorBodyLimit bounds how much of a failed response is quoted in errors.
 	integrationErrorBodyLimit = 512
 )
+
+// presidioDefaultEntities are the entity types a Presidio detector looks for when none are
+// chosen: personal data that is rarely legitimate in prompts. The Analyzer's other built-in
+// types (PERSON, LOCATION, DATE_TIME, NRP, URL) match ordinary text, such as names of public
+// figures, cities, "Friday" and links, and redacting them by default breaks conversations.
+var presidioDefaultEntities = []string{
+	"EMAIL_ADDRESS",
+	"PHONE_NUMBER",
+	"CREDIT_CARD",
+	"US_SSN",
+	"US_ITIN",
+	"US_PASSPORT",
+	"US_DRIVER_LICENSE",
+	"US_BANK_NUMBER",
+	"IBAN_CODE",
+	"IP_ADDRESS",
+}
 
 type presidioChecker struct {
 	client         *http.Client
@@ -66,20 +87,62 @@ func init() {
 		Fields: []Field{
 			{Name: "analyzerURL", Label: "Analyzer URL", Type: FieldText, Destination: true, Required: true, Description: "Base URL of the Presidio Analyzer service, e.g. http://presidio-analyzer:3000."},
 			{Name: "language", Label: "Language", Type: FieldText, Default: "en", Description: "Language code of the analyzed text."},
-			{Name: "entities", Label: "Entities", Type: FieldList, Description: "Entity types to detect, e.g. EMAIL_ADDRESS or US_SSN. Leave empty to detect every supported type."},
+			{Name: "entities", Label: "Entities", Type: FieldList, Default: presidioDefaultEntities, OptionsFromService: true, Description: "Entity types to detect. With none chosen, the default personal data types are used."},
 			{Name: "scoreThreshold", Label: "Minimum score", Type: FieldNumber, Default: 0.5, Description: "Confidence from 0 to 1 an entity needs to count as a finding."},
 			{Name: "apiKey", Label: "API key", Type: FieldPassword, Sensitive: true, Description: "Sent as a bearer token, for analyzers behind an authenticating proxy."},
 		},
 	}, func(config map[string]any, secrets map[string]string, deps Deps) (Checker, error) {
+		entities := ConfigStrings(config, "entities")
+		if len(entities) == 0 {
+			entities = presidioDefaultEntities
+		}
 		return &presidioChecker{
 			client:         integrationClient(deps),
 			url:            strings.TrimRight(ConfigString(config, "analyzerURL", ""), "/") + "/analyze",
 			apiKey:         secrets["apiKey"],
 			language:       ConfigString(config, "language", "en"),
-			entities:       ConfigStrings(config, "entities"),
+			entities:       entities,
 			scoreThreshold: ConfigFloat(config, "scoreThreshold", 0.5),
 		}, nil
 	})
+	RegisterOptions("presidio", "entities", presidioSupportedEntities)
+}
+
+// presidioSupportedEntities lists the entity types the Analyzer supports for the configured
+// language, including its custom recognizers.
+func presidioSupportedEntities(ctx context.Context, config map[string]any, secrets map[string]string, deps Deps) ([]string, error) {
+	base := strings.TrimRight(ConfigString(config, "analyzerURL", ""), "/")
+	if base == "" {
+		return nil, fmt.Errorf("analyzer URL is required")
+	}
+	u, err := url.Parse(base + "/supportedentities")
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s URL: %w", presidioService, err)
+	}
+	u.RawQuery = url.Values{"language": {ConfigString(config, "language", "en")}}.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s URL: %w", presidioService, err)
+	}
+	req.Header.Set("Accept", "application/json")
+	if key := secrets["apiKey"]; key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := integrationClient(deps).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s request failed: %w", presidioService, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, integrationErrorBodyLimit))
+		return nil, fmt.Errorf("%s returned %s: %s", presidioService, resp.Status, strings.TrimSpace(strings.ToValidUTF8(string(msg), "")))
+	}
+	var entities []string
+	if err := json.NewDecoder(resp.Body).Decode(&entities); err != nil {
+		return nil, fmt.Errorf("invalid %s response: %w", presidioService, err)
+	}
+	slices.Sort(entities)
+	return slices.Compact(entities), nil
 }
 
 func (c *presidioChecker) Check(ctx context.Context, in CheckInput) (Result, error) {
@@ -93,7 +156,7 @@ func (c *presidioChecker) Check(ctx context.Context, in CheckInput) (Result, err
 			continue
 		}
 		var entities []presidioEntity
-		if err := integrationPost(ctx, c.client, "Presidio", c.url, headers, presidioRequest{
+		if err := integrationPost(ctx, c.client, presidioService, c.url, headers, presidioRequest{
 			Text:           seg.Text,
 			Language:       c.language,
 			Entities:       c.entities,

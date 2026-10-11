@@ -33,6 +33,9 @@ export interface GuardrailField {
 	default?: unknown;
 	required?: boolean;
 	sensitive?: boolean;
+	destination?: boolean;
+	/** The field's choices can be loaded from the configured service. */
+	optionsFromService?: boolean;
 }
 
 export interface GuardrailProvider {
@@ -220,6 +223,24 @@ export async function updateGuardrailProfile(
 
 export async function deleteGuardrailProfile(id: string, opts?: Opts): Promise<void> {
 	await doDelete(`${B}/profiles/${encodeURIComponent(id)}`, opts);
+}
+
+/**
+ * Loads a detector field's choices from the service its settings point at. Sensitive
+ * settings left empty use the saved detector's when profileID names one.
+ */
+export async function loadGuardrailFieldOptions(
+	type: string,
+	field: string,
+	body: { profileID?: string; config: Record<string, unknown> },
+	opts?: Opts
+): Promise<string[]> {
+	const res = (await doPost(
+		`${B}/providers/${encodeURIComponent(type)}/fields/${encodeURIComponent(field)}/options`,
+		body,
+		opts
+	)) as { items?: string[] };
+	return res.items ?? [];
 }
 
 export async function testGuardrailProfile(

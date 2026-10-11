@@ -72,6 +72,65 @@ func (h *GuardrailsHandler) Providers(req api.Context) error {
 	return req.Write(map[string]any{"items": guardrails.Providers()})
 }
 
+// guardrailFieldOptionsRequest asks for a field's choices with a detector's settings as
+// entered in its form. Sensitive settings left empty use the saved detector's, when
+// ProfileID names one and its destination hasn't changed.
+type guardrailFieldOptionsRequest struct {
+	ProfileID string          `json:"profileID,omitempty"`
+	Config    json.RawMessage `json:"config"`
+}
+
+// FieldOptions loads a detector field's choices from the service its settings point at,
+// such as the entity types a Presidio Analyzer supports.
+func (h *GuardrailsHandler) FieldOptions(req api.Context) error {
+	if h.engine == nil {
+		return types.NewErrHTTP(http.StatusServiceUnavailable, "guardrails are not available")
+	}
+	typ, field := req.PathValue("type"), req.PathValue("field")
+	info, ok := guardrails.Provider(typ)
+	if !ok {
+		return types.NewErrNotFound("unknown detector type %q", typ)
+	}
+	if !slices.ContainsFunc(info.Fields, func(f guardrails.Field) bool { return f.Name == field && f.OptionsFromService }) {
+		return types.NewErrNotFound("%s detectors can't load choices for %q", info.Label, field)
+	}
+	var in guardrailFieldOptionsRequest
+	if err := req.Read(&in); err != nil {
+		return types.NewErrBadRequest("invalid request: %v", err)
+	}
+	candidate := gatewaytypes.GuardrailProfile{Name: info.Label, Type: typ, Config: in.Config}
+	current := map[string]string{}
+	if in.ProfileID != "" {
+		existing, err := req.GatewayClient.GetGuardrailProfile(req.Context(), in.ProfileID)
+		if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && existing.Type != typ) {
+			return types.NewErrNotFound("detector %q not found", in.ProfileID)
+		} else if err != nil {
+			return err
+		}
+		if current, err = req.GatewayClient.GuardrailProfileSecrets(req.Context(), existing.ID); err != nil {
+			return err
+		}
+		// Saved credentials are only sent where the saved detector sends them.
+		if err := checkDestinationChange(existing, &candidate, current); err != nil {
+			return err
+		}
+	}
+	secrets, err := splitProfileSecrets(&candidate, current)
+	if err != nil {
+		return err
+	}
+	config := map[string]any{}
+	_ = json.Unmarshal(candidate.Config, &config)
+	options, err := h.engine.FieldOptions(req.Context(), typ, field, config, secrets)
+	if err != nil {
+		return types.NewErrHTTP(http.StatusBadGateway, err.Error())
+	}
+	if options == nil {
+		options = []string{}
+	}
+	return req.Write(map[string]any{"items": options})
+}
+
 func (h *GuardrailsHandler) ListRules(req api.Context) error {
 	rules, err := req.GatewayClient.ListGuardrailRules(req.Context())
 	if err != nil {

@@ -27,6 +27,23 @@ const presidio = {
 	]
 };
 
+// Presidio as the server describes it: entity types default to personal data and can be
+// loaded from the Analyzer.
+const presidioWithChoices = {
+	...presidio,
+	fields: [
+		{ name: 'analyzerURL', label: 'Analyzer URL', type: 'text', required: true, destination: true },
+		{
+			name: 'entities',
+			label: 'Entities',
+			type: 'list',
+			default: ['EMAIL_ADDRESS', 'US_SSN'],
+			optionsFromService: true
+		},
+		{ name: 'apiKey', label: 'API key', type: 'password', sensitive: true }
+	]
+};
+
 function mockProviders() {
 	worker.use(
 		http.get('/api/llm-gateway/guardrails/providers', () =>
@@ -146,6 +163,101 @@ describe('Guardrail detector editor', () => {
 		await expect.element(page.getByText('1 finding')).toBeInTheDocument();
 		await expect
 			.element(page.getByText('Mail [EMAIL_ADDRESS] or [EMAIL_ADDRESS]'))
+			.toBeInTheDocument();
+	});
+
+	it('starts with the default entity types and saves the chosen ones', async () => {
+		worker.use(
+			http.get('/api/llm-gateway/guardrails/providers', () =>
+				HttpResponse.json({ items: [presidioWithChoices] })
+			)
+		);
+		appPage.url.searchParams.set('type', 'presidio');
+		const created = vi.fn();
+		worker.use(
+			http.post('/api/llm-gateway/guardrails/profiles', async ({ request }) => {
+				const body = (await request.json()) as Record<string, unknown>;
+				created(body);
+				return HttpResponse.json({ ...body, id: 'p1', configuredSecrets: [] });
+			})
+		);
+		await preparePageData();
+		render(DetectorPage);
+
+		await expect.element(page.getByRole('checkbox', { name: 'EMAIL_ADDRESS' })).toBeChecked();
+		await expect.element(page.getByRole('checkbox', { name: 'US_SSN' })).toBeChecked();
+		await page.getByLabelText(/^Analyzer URL/).fill('http://presidio:3000');
+		await page.getByRole('checkbox', { name: 'US_SSN' }).click();
+		await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+		await vi.waitFor(() => expect(created).toHaveBeenCalledOnce());
+		expect(created).toHaveBeenCalledWith(
+			expect.objectContaining({
+				config: { analyzerURL: 'http://presidio:3000', entities: ['EMAIL_ADDRESS'] }
+			})
+		);
+	});
+
+	it('loads the entity types the service supports with the form settings', async () => {
+		worker.use(
+			http.get('/api/llm-gateway/guardrails/providers', () =>
+				HttpResponse.json({ items: [presidioWithChoices] })
+			),
+			http.get('/api/llm-gateway/guardrails/profiles/p1', () =>
+				HttpResponse.json({
+					id: 'p1',
+					name: 'PII',
+					type: 'presidio',
+					config: { analyzerURL: 'http://presidio:3000', entities: ['US_SSN'] },
+					configuredSecrets: ['apiKey']
+				})
+			)
+		);
+		(appPage.params as Record<string, string>).id = 'p1';
+		const requested = vi.fn();
+		worker.use(
+			http.post(
+				'/api/llm-gateway/guardrails/providers/presidio/fields/entities/options',
+				async ({ request }) => {
+					requested(await request.json());
+					return HttpResponse.json({ items: ['EMAIL_ADDRESS', 'EMPLOYEE_ID', 'US_SSN'] });
+				}
+			)
+		);
+		await preparePageData();
+		render(DetectorPage);
+
+		await expect.element(page.getByRole('checkbox', { name: 'US_SSN' })).toBeChecked();
+		await expect
+			.element(page.getByRole('checkbox', { name: 'EMPLOYEE_ID' }))
+			.not.toBeInTheDocument();
+		await page.getByRole('button', { name: 'Load all types from the service' }).click();
+
+		await expect.element(page.getByRole('checkbox', { name: 'EMPLOYEE_ID' })).not.toBeChecked();
+		await expect.element(page.getByRole('checkbox', { name: 'US_SSN' })).toBeChecked();
+		// The saved API key isn't in the form; the server uses it for the saved detector.
+		expect(requested).toHaveBeenCalledWith({
+			profileID: 'p1',
+			config: { analyzerURL: 'http://presidio:3000', entities: ['US_SSN'] }
+		});
+	});
+
+	it('shows why the entity types could not be loaded', async () => {
+		worker.use(
+			http.get('/api/llm-gateway/guardrails/providers', () =>
+				HttpResponse.json({ items: [presidioWithChoices] })
+			),
+			http.post('/api/llm-gateway/guardrails/providers/presidio/fields/entities/options', () =>
+				HttpResponse.text('Presidio request failed: connection refused', { status: 502 })
+			)
+		);
+		appPage.url.searchParams.set('type', 'presidio');
+		await preparePageData();
+		render(DetectorPage);
+
+		await page.getByRole('button', { name: 'Load all types from the service' }).click();
+		await expect
+			.element(page.getByText('Presidio request failed: connection refused'))
 			.toBeInTheDocument();
 	});
 

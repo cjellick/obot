@@ -33,7 +33,7 @@ Where to find them:
 | **Secrets Detection** (built-in) | API keys and tokens for AWS, GitHub, GitLab, Slack, Stripe, Google, OpenAI, Anthropic, Azure, Twilio, SendGrid, npm, Hugging Face and Obot; private keys, JWTs, database URLs; optionally generic high-entropy secrets. | Yes |
 | **Custom Regex** (built-in) | Your RE2 patterns, plus ready-made patterns for email addresses, phone numbers, US SSNs, credit cards (checksum-verified), IP addresses and IBANs. | Yes |
 | **LLM Judge Policy** (built-in) | Anything you can describe in plain language, e.g. "Do not help book travel above economy class". Screened by the `Chat - Fast` default model, with a second review by the `Chat` default model before blocking. This is what [message policies](./message-policies.md) became. | No |
-| **Microsoft Presidio** | Personal data, using your self-hosted Presidio Analyzer. | Yes |
+| **Microsoft Presidio** | Personal data, using your self-hosted Presidio Analyzer. By default: email addresses, phone numbers, credit cards, US SSNs, ITINs, passports, driver's licenses and bank numbers, IBANs and IP addresses. | Yes |
 | **Azure AI Language PII** | Personal and health data. | Yes |
 | **Azure AI Content Safety** | Hate, sexual, violence and self-harm content above a severity threshold; optionally prompt injection with Prompt Shields. | No |
 | **AWS Bedrock Guardrails** | Whatever the Bedrock guardrail is configured for: denied topics, content and word filters, sensitive information and contextual grounding. | Anonymized content |
@@ -43,6 +43,8 @@ Where to find them:
 | **CrowdStrike Falcon AIDR** | Malicious prompts, PII, secrets, malicious entities, topics and more, per the collector's policy. | Content AI Guard redacts |
 
 Credentials such as API keys are stored encrypted and are never shown again after they are saved. Leave a credential blank when editing a profile to keep the current value. Changing where a profile's credentials are sent (its endpoint, base URL or region) requires entering them again, so stored credentials can't be redirected to another server.
+
+For a Presidio detector, **Load all types from the service** lists every entity type your Analyzer supports, including its custom recognizers. Types such as `PERSON`, `LOCATION`, `DATE_TIME` and `URL` aren't checked by default, because they match ordinary text, like the names of public figures, cities, "Friday" and links.
 
 Use **Test** on a saved detector to run it against sample text and see what it finds and how the text would be redacted.
 

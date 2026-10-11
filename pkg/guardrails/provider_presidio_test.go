@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -86,6 +87,66 @@ func TestPresidioNoFindingsAndErrors(t *testing.T) {
 	}
 	if _, err := newChecker("presidio", nil, nil, Deps{}); err == nil {
 		t.Fatal("the analyzer URL should be required")
+	}
+}
+
+func TestPresidioDefaultEntities(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req presidioRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Error(err)
+		}
+		got = req.Entities
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	// Without chosen entities, the analyzer is asked for the default personal data types
+	// rather than everything it supports, which includes dates, places and links.
+	for _, entities := range []any{nil, []any{}} {
+		config := map[string]any{"analyzerURL": srv.URL}
+		if entities != nil {
+			config["entities"] = entities
+		}
+		c, err := newChecker("presidio", config, nil, Deps{HTTPClient: srv.Client()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Check(t.Context(), CheckInput{Stage: StageInput, Segments: []Segment{{Role: RoleUser, Text: "hi"}}}); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(got, presidioDefaultEntities) {
+			t.Fatalf("entities %v: analyzer asked for %v, want the defaults", entities, got)
+		}
+		if slices.Contains(got, "DATE_TIME") || slices.Contains(got, "PERSON") {
+			t.Fatalf("defaults must not include types that match ordinary text: %v", got)
+		}
+	}
+}
+
+func TestPresidioSupportedEntities(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/supportedentities" || r.URL.Query().Get("language") != "es" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+			t.Errorf("unexpected authorization %q", got)
+		}
+		_, _ = w.Write([]byte(`["US_SSN","EMAIL_ADDRESS","EMPLOYEE_ID","EMAIL_ADDRESS"]`))
+	}))
+	defer srv.Close()
+
+	e := &Engine{deps: Deps{HTTPClient: srv.Client()}}
+	got, err := e.FieldOptions(t.Context(), "presidio", "entities", map[string]any{"analyzerURL": srv.URL + "/", "language": "es"}, map[string]string{"apiKey": "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"EMAIL_ADDRESS", "EMPLOYEE_ID", "US_SSN"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if _, err := e.FieldOptions(t.Context(), "presidio", "language", nil, nil); err == nil {
+		t.Fatal("a field without a loader should be refused")
 	}
 }
 

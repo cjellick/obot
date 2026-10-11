@@ -660,6 +660,7 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	// Guardrails, for LLM gateway traffic and MCP tool calls
 	guardrailsHandler := handlers.NewGuardrailsHandler(services.GuardrailEngine)
 	mux.HandleFunc("GET /api/llm-gateway/guardrails/providers", guardrailsHandler.Providers)
+	mux.HandleFunc("POST /api/llm-gateway/guardrails/providers/{type}/fields/{field}/options", guardrailsHandler.FieldOptions)
 	mux.HandleFunc("POST /api/llm-gateway/guardrails/validate-condition", guardrailsHandler.ValidateCondition)
 	mux.HandleFunc("GET /api/llm-gateway/guardrails/rules", guardrailsHandler.ListRules)
 	mux.HandleFunc("POST /api/llm-gateway/guardrails/rules", guardrailsHandler.CreateRule)

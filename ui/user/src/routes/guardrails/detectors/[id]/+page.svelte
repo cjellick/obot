@@ -11,6 +11,7 @@
 		createGuardrailProfile,
 		getGuardrailProfile,
 		listGuardrailProviders,
+		loadGuardrailFieldOptions,
 		testGuardrailProfile,
 		updateGuardrailProfile,
 		type GuardrailField,
@@ -43,6 +44,10 @@
 	let listText = $state<Record<string, string>>({});
 	let secrets = $state<Record<string, string>>({});
 	let configuredSecrets = $state<string[]>([]);
+	// Choices loaded from the configured service, by field.
+	let serviceOptions = $state<Record<string, string[]>>({});
+	let loadingOptions = $state<string>();
+	let optionsError = $state<Record<string, string>>({});
 	let profileError = $state('');
 
 	let testTarget = $state<GuardrailTarget>('llm');
@@ -56,13 +61,50 @@
 	// Testing needs a saved detector, and auditors can't run tests.
 	let testDisabled = $derived(isNew || !!readonly);
 
+	// List fields without known choices are edited as text, one entry per line.
+	function isTextList(f: GuardrailField) {
+		return f.type === 'list' && !f.options?.length && !f.optionsFromService;
+	}
+
+	// The choices shown for a list field: its fixed options, its defaults, what is selected,
+	// and what was loaded from the service.
+	function listChoices(f: GuardrailField) {
+		const defaults = Array.isArray(f.default) ? (f.default as string[]) : [];
+		return [
+			...new Set([
+				...(f.options ?? []),
+				...defaults,
+				...((values[f.name] as string[]) ?? []),
+				...(serviceOptions[f.name] ?? [])
+			])
+		];
+	}
+
+	async function loadOptions(f: GuardrailField) {
+		if (!provider) return;
+		loadingOptions = f.name;
+		optionsError[f.name] = '';
+		try {
+			serviceOptions[f.name] = await loadGuardrailFieldOptions(
+				provider.type,
+				f.name,
+				{ profileID, config: buildConfig() },
+				{ dontLogErrors: true }
+			);
+		} catch (e) {
+			optionsError[f.name] = parseErrorContent(e).message;
+		} finally {
+			loadingOptions = undefined;
+		}
+	}
+
 	function applyConfig(fields: GuardrailField[], config: Record<string, unknown>) {
 		const next: Record<string, unknown> = {};
 		const nextLists: Record<string, string> = {};
 		for (const f of fields) {
 			if (f.sensitive) continue;
 			const v = config[f.name] ?? f.default;
-			if (f.type === 'list' && !f.options?.length) {
+			if (isTextList(f)) {
 				nextLists[f.name] = Array.isArray(v) ? v.join('\n') : typeof v === 'string' ? v : '';
 			} else if (f.type === 'list') {
 				next[f.name] = Array.isArray(v) ? v : [];
@@ -111,9 +153,7 @@
 			if (!f.required) return false;
 			if (f.sensitive) return !secrets[f.name]?.trim() && !configuredSecrets.includes(f.name);
 			if (f.type === 'list') {
-				return f.options?.length
-					? !(values[f.name] as string[])?.length
-					: !listText[f.name]?.trim();
+				return isTextList(f) ? !listText[f.name]?.trim() : !(values[f.name] as string[])?.length;
 			}
 			const v = values[f.name];
 			return v === undefined || v === null || v === '';
@@ -130,7 +170,7 @@
 				if (v) config[f.name] = v;
 				continue;
 			}
-			if (f.type === 'list' && !f.options?.length) {
+			if (isTextList(f)) {
 				const items = (listText[f.name] ?? '')
 					.split('\n')
 					.map((s) => s.trim())
@@ -320,9 +360,9 @@
 										(values[field.name] = option.id === DEFAULT_OPTION ? '' : option.id)}
 									disabled={readonly}
 								/>
-							{:else if field.type === 'list' && field.options?.length}
+							{:else if field.type === 'list' && !isTextList(field)}
 								<div id={inputID} class="flex flex-wrap gap-x-4 gap-y-1">
-									{#each field.options as option (option)}
+									{#each listChoices(field) as option (option)}
 										<label class="flex items-center gap-2 text-sm">
 											<input
 												type="checkbox"
@@ -336,6 +376,21 @@
 										</label>
 									{/each}
 								</div>
+								{#if field.optionsFromService && !readonly}
+									<button
+										class="btn btn-secondary btn-sm mt-1 w-fit text-xs"
+										disabled={loadingOptions === field.name}
+										onclick={() => loadOptions(field)}
+									>
+										{#if loadingOptions === field.name}<Loading class="size-4" />{:else}Load all
+											types from the service{/if}
+									</button>
+								{/if}
+								{#if optionsError[field.name]}
+									<div class="notification-error rounded-md p-2 text-xs">
+										{optionsError[field.name]}
+									</div>
+								{/if}
 							{:else if field.type === 'list'}
 								<textarea
 									id={inputID}
