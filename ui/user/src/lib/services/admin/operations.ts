@@ -1554,55 +1554,6 @@ export async function listModelProviders(opts?: { fetch?: Fetcher }): Promise<Mo
 	return response.items ?? [];
 }
 
-export async function getModelProvider(
-	providerID: string,
-	opts?: { fetch?: Fetcher }
-): Promise<ModelProvider> {
-	const response = (await doGet(`/model-providers/${providerID}`, opts)) as ModelProvider;
-	return response;
-}
-
-export async function configureModelProvider(
-	providerID: string,
-	envs: Record<string, string>,
-	opts?: { fetch?: Fetcher }
-): Promise<void> {
-	await doPost(`/model-providers/${providerID}/configure`, envs, opts);
-}
-
-export async function deconfigureModelProvider(
-	providerID: string,
-	opts?: { fetch?: Fetcher }
-): Promise<void> {
-	await doPost(`/model-providers/${providerID}/deconfigure`, {}, opts);
-}
-
-export async function revealModelProvider(
-	providerID: string,
-	opts?: { fetch?: Fetcher }
-): Promise<Record<string, string> | undefined> {
-	const response = (await doPost(
-		`/model-providers/${providerID}/reveal`,
-		{},
-		{
-			...opts,
-			dontLogErrors: true
-		}
-	)) as Record<string, string> | undefined;
-	return response;
-}
-
-export async function validateModelProvider(
-	providerID: string,
-	envs: Record<string, string>,
-	opts?: { fetch?: Fetcher }
-): Promise<void> {
-	await doPost(`/model-providers/${providerID}/validate`, envs, {
-		...opts,
-		dontLogErrors: true
-	});
-}
-
 // Models
 
 export async function listModels(opts?: { fetch?: Fetcher; all?: boolean }): Promise<Model[]> {

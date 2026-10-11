@@ -55,7 +55,7 @@ async function renderModelsView(models: Model[]) {
 
 describe('ModelsView', () => {
 	it('shows an LLM gateway section with its models and client setup', async () => {
-		await renderModelsView([...gatewayModels, legacyAnthropicModel]);
+		await renderModelsView(gatewayModels);
 
 		await expect.element(page.getByRole('heading', { name: 'LLM Gateway' })).toBeInTheDocument();
 		await expect
@@ -66,14 +66,25 @@ describe('ModelsView', () => {
 		await expect
 			.element(page.getByText('ANTHROPIC_MODEL="anthropic/claude-opus-4-5"', { exact: false }))
 			.toBeInTheDocument();
-		// Legacy provider sections still render beside it.
-		await expect.element(page.getByText('Anthropic', { exact: true }).first()).toBeInTheDocument();
+	});
+
+	it('ignores models from providers other than the gateway', async () => {
+		await renderModelsView([...gatewayModels, legacyAnthropicModel]);
+
+		await expect
+			.element(page.getByText('2 models across every configured provider', { exact: false }))
+			.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('heading', { name: 'Anthropic', exact: true }))
+			.not.toBeInTheDocument();
+		await expect
+			.element(page.getByText('3 models across every configured provider', { exact: false }))
+			.not.toBeInTheDocument();
 	});
 
 	it('omits the LLM gateway section without gateway models', async () => {
 		await renderModelsView([legacyAnthropicModel]);
 
-		await expect.element(page.getByText('Anthropic', { exact: true }).first()).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('heading', { name: 'LLM Gateway' }))
 			.not.toBeInTheDocument();

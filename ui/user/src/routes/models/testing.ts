@@ -22,7 +22,6 @@ export async function renderModelsTab(view: string, groups: string[] = [Group.AD
 	const data = await preparePageData<PageData>({
 		profile: createMockProfile(groups),
 		models: [],
-		modelProviders: [],
 		modelAccessPolicies: [],
 		hasAdminAccess: groups.includes(Group.ADMIN) || groups.includes(Group.AUDITOR)
 	});

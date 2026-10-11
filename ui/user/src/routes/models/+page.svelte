@@ -27,7 +27,6 @@
 
 	initModels([]);
 	const adminModels = getAdminModels();
-	let defaultModelsDialog = $state<ReturnType<typeof DefaultModels>>();
 	let providersView = $state<ReturnType<typeof ProvidersView>>();
 	let routingView = $state<ReturnType<typeof RoutingView>>();
 	let gatewayReady = $state(false);
@@ -71,10 +70,6 @@
 	function showCreate() {
 		goto(`${page.url.pathname}?view=access-policies&new=true`);
 	}
-
-	function handleFirstConfigure(required: boolean) {
-		defaultModelsDialog?.open(required);
-	}
 </script>
 
 <svelte:head>
@@ -100,11 +95,7 @@
 {#snippet navActions(view: string)}
 	{#if view === 'providers'}
 		<div class="flex items-center gap-2">
-			<DefaultModels
-				bind:this={defaultModelsDialog}
-				availableModels={adminModels.items}
-				readonly={isAdminReadonly}
-			/>
+			<DefaultModels availableModels={adminModels.items} readonly={isAdminReadonly} />
 			{#if !isAdminReadonly && gatewayReady}
 				<button
 					class="btn btn-primary flex items-center gap-1 text-sm"
@@ -147,12 +138,7 @@
 {/snippet}
 
 {#snippet providers()}
-	<ProvidersView
-		bind:this={providersView}
-		onReadyChange={(ready) => (gatewayReady = ready)}
-		modelProviders={data.modelProviders}
-		onFirstConfigure={handleFirstConfigure}
-	/>
+	<ProvidersView bind:this={providersView} onReadyChange={(ready) => (gatewayReady = ready)} />
 {/snippet}
 
 {#snippet routing()}

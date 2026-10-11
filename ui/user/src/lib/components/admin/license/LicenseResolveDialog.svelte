@@ -2,12 +2,7 @@
 	import ResponsiveDialog from '$lib/components/ResponsiveDialog.svelte';
 	import ProviderDeconfigureConfirm from '$lib/components/admin/ProviderDeconfigureConfirm.svelte';
 	import { reloadPage } from '$lib/navigation';
-	import {
-		AdminService,
-		type AuthProvider,
-		type LicenseEntitlementViolation,
-		type ModelProvider
-	} from '$lib/services';
+	import { AdminService, type AuthProvider } from '$lib/services';
 	import { version, license, darkMode } from '$lib/stores';
 	import { adminConfigStore } from '$lib/stores/adminConfig.svelte';
 	import LicenseProviderDialog from './LicenseProviderDialog.svelte';
@@ -22,7 +17,7 @@
 
 	let licenseViolationDialog = $state<ReturnType<typeof ResponsiveDialog>>();
 	let confirmDowngradeDialog = $state<ReturnType<typeof ProviderDeconfigureConfirm>>();
-	let providersToDeconfigure = $state<(AuthProvider | ModelProvider)[]>([]);
+	let providersToDeconfigure = $state<AuthProvider[]>([]);
 
 	let licenseRequiredProvider = $state<AuthProvider>();
 
@@ -63,25 +58,11 @@
 
 		downgrading = true;
 		try {
-			// do model provider deconfigures first, then auth provider deconfigures
-			const { modelProviderViolations, authProviderViolations } =
-				version.current.licenseEntitlementViolations.reduce<{
-					modelProviderViolations: LicenseEntitlementViolation[];
-					authProviderViolations: LicenseEntitlementViolation[];
-				}>(
-					(acc, provider) => {
-						if (provider.type === 'modelProvider') {
-							acc.modelProviderViolations.push(provider);
-						} else if (provider.type === 'authProvider') {
-							acc.authProviderViolations.push(provider);
-						}
-						return acc;
-					},
-					{ modelProviderViolations: [], authProviderViolations: [] }
-				);
-			for (const modelProvider of modelProviderViolations) {
-				await AdminService.deconfigureModelProvider(modelProvider.name);
-			}
+			// Model providers are served by the LLM gateway and can't be deconfigured here, so only
+			// auth providers are downgraded.
+			const authProviderViolations = version.current.licenseEntitlementViolations.filter(
+				(violation) => violation.type === 'authProvider'
+			);
 			for (const authProvider of authProviderViolations) {
 				await AdminService.deconfigureAuthProvider(authProvider.name);
 			}
@@ -143,14 +124,11 @@
 				Contact Support
 			</a>
 		</div>
-		{#if !warnUserLimit && (violations.authProvider || violations.modelProvider)}
+		{#if !warnUserLimit && violations.authProvider}
 			<div class="divider">OR</div>
 			<div class="flex flex-col gap-4">
-				{#each version.current.licenseEntitlementViolations as violation (violation.name)}
-					{@const provider =
-						violation.type === 'authProvider'
-							? $adminConfigStore.authProviders.find((p) => p.id === violation.name)
-							: $adminConfigStore.modelProviders.find((p) => p.id === violation.name)}
+				{#each (version.current.licenseEntitlementViolations ?? []).filter((v) => v.type === 'authProvider') as violation (violation.name)}
+					{@const provider = $adminConfigStore.authProviders.find((p) => p.id === violation.name)}
 					{#if provider}
 						<div class="flex justify-between gap-4">
 							<div class="dark:bg-base-400 p-1 rounded-md shrink-0">
@@ -168,14 +146,8 @@
 							<div class="flex grow flex-col gap-0.5">
 								<p class="font-semibold">Deconfigure {provider.name}</p>
 								<p class="text-xs text-muted-content">
-									{#if violation.type === 'authProvider'}
-										Users logged in via {provider.name} will need to sign in via a different accessible
-										provider.
-									{:else}
-										Deconfiguring this model provider will cause loss of access to the models
-										provided by
-										{provider.name}.
-									{/if}
+									Users logged in via {provider.name} will need to sign in via a different accessible
+									provider.
 								</p>
 							</div>
 						</div>
@@ -195,14 +167,11 @@
 					onclick={() => {
 						licenseViolationDialog?.close();
 						providersToDeconfigure = (version.current.licenseEntitlementViolations || [])
-							.map((violation) => {
-								if (violation.type === 'authProvider') {
-									return $adminConfigStore.authProviders.find((p) => p.id === violation.name);
-								} else {
-									return $adminConfigStore.modelProviders.find((p) => p.id === violation.name);
-								}
-							})
-							.filter((p): p is AuthProvider | ModelProvider => p !== undefined);
+							.filter((violation) => violation.type === 'authProvider')
+							.map((violation) =>
+								$adminConfigStore.authProviders.find((p) => p.id === violation.name)
+							)
+							.filter((p): p is AuthProvider => p !== undefined);
 						confirmDowngradeDialog?.open();
 					}}
 				>

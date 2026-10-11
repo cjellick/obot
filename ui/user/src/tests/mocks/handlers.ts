@@ -56,6 +56,7 @@ export const handlers = [
 		HttpResponse.json({ items: data.listSingleOrRemoteMcpServersResponse })
 	),
 	http.get('/api/me', () => HttpResponse.json(data.getProfileResponse)),
+	http.get('/api/llm-gateway/status', () => HttpResponse.json(data.getGatewayStatusResponse)),
 	http.get('/api/model-providers', () => HttpResponse.json({ items: [] })),
 	http.get('/api/models', () => HttpResponse.json({ items: data.listModelsResponse })),
 	http.get('/api/product-telemetry-consent', () => HttpResponse.json({})),

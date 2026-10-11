@@ -63,18 +63,17 @@ describe('Models providers tab', () => {
 		expect(goto).toHaveBeenCalledWith('/models/providers/openai');
 	});
 
-	it('shows the legacy providers in their own section', async () => {
+	it('does not offer legacy providers or a legacy import', async () => {
 		mockGateway();
 		await renderProvidersPage();
 
+		await expect.element(page.getByRole('heading', { name: 'OpenAI' })).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('heading', { name: 'Legacy providers' }))
-			.toBeInTheDocument();
+			.not.toBeInTheDocument();
 		await expect
-			.element(
-				page.getByText('Per-provider integrations Obot used before the gateway', { exact: false })
-			)
-			.toBeInTheDocument();
+			.element(page.getByRole('button', { name: /Import legacy providers/ }))
+			.not.toBeInTheDocument();
 	});
 
 	it('shows an empty state when no providers are configured', async () => {
@@ -103,35 +102,6 @@ describe('Models providers tab', () => {
 		await expect
 			.element(page.getByRole('button', { name: 'Add Provider' }))
 			.not.toBeInTheDocument();
-		await expect
-			.element(page.getByRole('button', { name: /Import legacy providers/ }))
-			.not.toBeInTheDocument();
-	});
-
-	it('imports legacy providers and reports the results', async () => {
-		mockGateway();
-		const importLegacy = vi.fn();
-		worker.use(
-			http.post('/api/llm-gateway/import-legacy-providers', () => {
-				importLegacy();
-				return HttpResponse.json({
-					items: [
-						{
-							modelProvider: 'anthropic-model-provider',
-							gatewayProvider: 'anthropic',
-							status: 'imported'
-						}
-					]
-				});
-			})
-		);
-		await renderProvidersPage();
-
-		await page.getByRole('button', { name: /Import legacy providers/ }).click();
-
-		await vi.waitFor(() => expect(importLegacy).toHaveBeenCalledOnce());
-		await expect.element(page.getByText('anthropic-model-provider')).toBeInTheDocument();
-		await expect.element(page.getByText('imported', { exact: true })).toBeInTheDocument();
 	});
 
 	it('adds a provider with its first key', async () => {

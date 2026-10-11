@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { handleRouteError } from '$lib/errors';
-import { AdminService, UserService, type Model, type ModelProvider } from '$lib/services';
+import { AdminService, UserService, type Model } from '$lib/services';
 import type { ModelAccessPolicy } from '$lib/services/admin/types';
 import accessibleModels, { filterAccessibleModels } from '$lib/stores/accessibleModels.svelte';
 import type { PageLoad } from './$types';
@@ -16,7 +16,7 @@ const views = new Set([
 	'settings'
 ]);
 
-// Older links point at the legacy model providers tab, which now lives on the Providers tab.
+// Older links point at the model providers tab, which is now the Providers tab.
 const viewAliases: Record<string, string> = { 'model-providers': 'providers' };
 
 export const load: PageLoad = async ({ fetch, parent, url }) => {
@@ -36,7 +36,6 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 			: 'models';
 
 	let models: Model[] = [];
-	let modelProviders: ModelProvider[] = [];
 	let modelAccessPolicies: ModelAccessPolicy[] = [];
 
 	if (view === 'models') {
@@ -54,28 +53,16 @@ export const load: PageLoad = async ({ fetch, parent, url }) => {
 		} catch (err) {
 			handleRouteError(err, '/models', profile);
 		}
-	} else if (hasAdminAccess) {
-		switch (view) {
-			case 'providers':
-				try {
-					modelProviders = await AdminService.listModelProviders({ fetch });
-				} catch (err) {
-					handleRouteError(err, '/models', profile);
-				}
-				break;
-			case 'access-policies':
-				try {
-					modelAccessPolicies = await AdminService.listModelAccessPolicies({ fetch });
-				} catch (err) {
-					handleRouteError(err, '/models', profile);
-				}
-				break;
+	} else if (hasAdminAccess && view === 'access-policies') {
+		try {
+			modelAccessPolicies = await AdminService.listModelAccessPolicies({ fetch });
+		} catch (err) {
+			handleRouteError(err, '/models', profile);
 		}
 	}
 
 	return {
 		models,
-		modelProviders,
 		modelAccessPolicies,
 		hasAdminAccess
 	};

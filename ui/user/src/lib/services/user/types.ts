@@ -880,9 +880,6 @@ export interface ModelProvider {
 	dialect?: string;
 	type: 'modelprovider';
 }
-export interface ModelProviderList {
-	items: ModelProvider[];
-}
 export interface Model {
 	id: string;
 	active: boolean;

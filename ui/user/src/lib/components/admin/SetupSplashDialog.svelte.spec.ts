@@ -4,7 +4,7 @@ import { productTelemetryConsent, profile, version } from '$lib/stores';
 import { adminConfigStore } from '$lib/stores/adminConfig.svelte';
 import { isProductAnalyticsConsentDeferred } from '$lib/stores/productTelemetryConsent.svelte';
 import { createMockProfile } from '../../../tests/helpers/pageData';
-import { getVersionResponse } from '../../../tests/mocks/data';
+import { getGatewayStatusResponse, getVersionResponse } from '../../../tests/mocks/data';
 import { worker } from '../../../tests/mocks/worker';
 import SetupSplashDialog from './SetupSplashDialog.svelte';
 import { http, HttpResponse } from 'msw';
@@ -24,7 +24,9 @@ function setUrl(path = '/') {
 async function configureCompletedWelcome() {
 	worker.use(
 		http.get('/api/auth-providers', () => HttpResponse.json({ items: [{ configured: true }] })),
-		http.get('/api/model-providers', () => HttpResponse.json({ items: [{ configured: true }] })),
+		http.get('/api/llm-gateway/status', () =>
+			HttpResponse.json({ ...getGatewayStatusResponse, hasProviders: true })
+		),
 		http.get('/api/eula', () => HttpResponse.json({ accepted: true }))
 	);
 	await adminConfigStore.fetchData(true);
@@ -53,9 +55,7 @@ describe('SetupSplashDialog product analytics consent', () => {
 		adminConfigStore.updateAuthProviders([
 			{ configured: true } as Awaited<ReturnType<typeof AdminService.listAuthProviders>>[number]
 		]);
-		adminConfigStore.updateModelProviders([
-			{ configured: true } as Awaited<ReturnType<typeof AdminService.listModelProviders>>[number]
-		]);
+		adminConfigStore.setModelProviderConfigured(true);
 		adminConfigStore.updateEula(true);
 	});
 
@@ -149,7 +149,7 @@ describe('SetupSplashDialog product analytics consent', () => {
 	it('preserves the existing setup trigger when consent is already recorded', async () => {
 		worker.use(
 			http.get('/api/auth-providers', () => HttpResponse.json({ items: [] })),
-			http.get('/api/model-providers', () => HttpResponse.json({ items: [] })),
+			http.get('/api/llm-gateway/status', () => HttpResponse.json(getGatewayStatusResponse)),
 			http.get('/api/eula', () => HttpResponse.json({ accepted: false }))
 		);
 		profile.initialize(createMockProfile([Group.OWNER, Group.ADMIN]));

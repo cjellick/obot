@@ -44,19 +44,28 @@ describe('Models page loader', () => {
 		expect(location.startsWith('/models?view=providers')).toBe(true);
 	});
 
-	it('loads the legacy model providers for admins on the Providers tab', async () => {
-		const list = vi.spyOn(AdminService, 'listModelProviders').mockResolvedValue([]);
+	it('loads model access policies for admins on the Access Policies tab', async () => {
+		const list = vi.spyOn(AdminService, 'listModelAccessPolicies').mockResolvedValue([]);
+
+		const result = await loadModels('?view=access-policies');
+
+		expect(list).toHaveBeenCalledOnce();
+		expect(result).toMatchObject({ modelAccessPolicies: [], hasAdminAccess: true });
+	});
+
+	it('does not load model providers on the Providers tab', async () => {
+		const list = vi.spyOn(AdminService, 'listModelProviders');
 
 		const result = await loadModels('?view=providers');
 
-		expect(list).toHaveBeenCalledOnce();
-		expect(result).toMatchObject({ modelProviders: [], hasAdminAccess: true });
+		expect(list).not.toHaveBeenCalled();
+		expect(result).toMatchObject({ hasAdminAccess: true });
 	});
 
 	it('does not load admin data for users on admin tabs', async () => {
-		const list = vi.spyOn(AdminService, 'listModelProviders');
+		const list = vi.spyOn(AdminService, 'listModelAccessPolicies');
 
-		const result = await loadModels('?view=providers', [Group.USER]);
+		const result = await loadModels('?view=access-policies', [Group.USER]);
 
 		expect(list).not.toHaveBeenCalled();
 		expect(result).toMatchObject({ hasAdminAccess: false });

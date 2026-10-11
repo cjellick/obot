@@ -1,11 +1,12 @@
-import { AdminService, type AuthProvider, type ModelProvider } from '$lib/services';
+import { AdminService, type AuthProvider } from '$lib/services';
+import { getStatus } from '$lib/services/llm-gateway/gateway';
 import { writable, get } from 'svelte/store';
 
 interface AdminConfig {
+	// Whether the LLM gateway has at least one provider configured.
 	modelProviderConfigured: boolean;
 	authProviderConfigured: boolean;
 	authProviders: AuthProvider[];
-	modelProviders: ModelProvider[];
 	eulaAccepted: boolean;
 	loading: boolean;
 	lastFetched: number | null;
@@ -16,7 +17,6 @@ const createAdminConfigStore = () => {
 		modelProviderConfigured: false,
 		authProviderConfigured: false,
 		authProviders: [],
-		modelProviders: [],
 		eulaAccepted: false,
 		loading: false,
 		lastFetched: null
@@ -39,13 +39,13 @@ const createAdminConfigStore = () => {
 		update((state) => ({ ...state, loading: true }));
 
 		try {
-			const [modelProviders, authProviders, eula] = await Promise.all([
-				AdminService.listModelProviders(),
+			const [gatewayStatus, authProviders, eula] = await Promise.all([
+				getStatus(),
 				AdminService.listAuthProviders(),
 				AdminService.getEula()
 			]);
 
-			const modelProviderConfigured = modelProviders.some((provider) => provider.configured);
+			const modelProviderConfigured = gatewayStatus.hasProviders;
 			const authProviderConfigured = authProviders.some((provider) => provider.configured);
 			const eulaAccepted = eula.accepted;
 
@@ -53,7 +53,6 @@ const createAdminConfigStore = () => {
 				modelProviderConfigured,
 				authProviderConfigured,
 				authProviders,
-				modelProviders,
 				eulaAccepted,
 				loading: false,
 				lastFetched: now
@@ -82,12 +81,8 @@ const createAdminConfigStore = () => {
 		}));
 	};
 
-	const updateModelProviders = (modelProviders: ModelProvider[]) => {
-		update((state) => ({
-			...state,
-			modelProviders,
-			modelProviderConfigured: modelProviders.some((provider) => provider.configured)
-		}));
+	const setModelProviderConfigured = (modelProviderConfigured: boolean) => {
+		update((state) => ({ ...state, modelProviderConfigured }));
 	};
 
 	const updateEula = (eulaAccepted: boolean) => {
@@ -103,7 +98,7 @@ const createAdminConfigStore = () => {
 		initialize,
 		fetchData,
 		updateAuthProviders,
-		updateModelProviders,
+		setModelProviderConfigured,
 		updateEula
 	};
 };

@@ -1,6 +1,6 @@
 // Client for Obot's LLM gateway API. Obot embeds Bifrost (https://github.com/maximhq/bifrost)
 // and exposes its management API under /api/llm-gateway/admin, alongside Obot-specific
-// endpoints for status, model sync, budgets, guardrails and legacy provider import.
+// endpoints for status, model sync, budgets and guardrails.
 import { doDelete, doGet, doPost, doPut, type Fetcher } from '../http';
 
 type Opts = { fetch?: Fetcher; signal?: AbortSignal; dontLogErrors?: boolean };
@@ -24,20 +24,6 @@ export async function getStatus(opts?: Opts): Promise<GatewayStatus> {
 
 export async function syncModels(opts?: Opts): Promise<void> {
 	await doPost('/llm-gateway/sync-models', {}, opts);
-}
-
-export interface LegacyImportResult {
-	modelProvider: string;
-	gatewayProvider?: string;
-	status: 'imported' | 'skipped' | 'error';
-	message?: string;
-}
-
-export async function importLegacyProviders(opts?: Opts): Promise<LegacyImportResult[]> {
-	const resp = (await doPost('/llm-gateway/import-legacy-providers', {}, opts)) as {
-		items: LegacyImportResult[] | null;
-	};
-	return resp.items ?? [];
 }
 
 // ---------- Budgets (enforced by Obot) ----------

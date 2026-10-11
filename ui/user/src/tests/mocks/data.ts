@@ -1,5 +1,6 @@
 import type { AdminService, UserService } from '$lib/services';
 import type { MCPCatalogEntryFieldManifest, ServerK8sSettings } from '$lib/services/admin/types';
+import type { GatewayStatus } from '$lib/services/llm-gateway/gateway';
 import type { K8sServerDetail, MCPServerInstance } from '$lib/services/user/types';
 import { createMCPCatalogEntry, createMCPCatalogServer } from '../helpers/mcp';
 import { faker } from '@faker-js/faker';
@@ -350,6 +351,16 @@ export const listMcpServerInstancesResponse = [] satisfies Awaited<
 export const listSingleOrRemoteMcpServersResponse = [] satisfies Awaited<
 	ReturnType<typeof UserService.listSingleOrRemoteMcpServers>
 >;
+
+// LLM gateway
+
+export const getGatewayStatusResponse = {
+	enabled: true,
+	ready: true,
+	hasProviders: false,
+	modelProviderName: 'llm-gateway-model-provider',
+	proxyPath: '/api/llm-proxy'
+} satisfies GatewayStatus;
 
 // Models
 

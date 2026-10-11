@@ -10,11 +10,7 @@
 	import ProviderDeconfigureConfirm from '$lib/components/admin/ProviderDeconfigureConfirm.svelte';
 	import LicenseProviderDialog from '$lib/components/admin/license/LicenseProviderDialog.svelte';
 	import IconButton from '$lib/components/primitives/IconButton.svelte';
-	import {
-		CommonAuthProviderIds,
-		PAGE_TRANSITION_DURATION,
-		RecommendedModelProviders
-	} from '$lib/constants';
+	import { CommonAuthProviderIds, PAGE_TRANSITION_DURATION } from '$lib/constants';
 	import { HttpError, parseErrorContent } from '$lib/errors.js';
 	import { reloadPage } from '$lib/navigation';
 	import { AdminService, UserService } from '$lib/services';
@@ -546,7 +542,6 @@
 						: undefined}
 					provider={authProvider}
 					staged={authProvider.staged}
-					recommended={RecommendedModelProviders.includes(authProvider.id)}
 					onConfigure={() => handleClickConfigure(authProvider)}
 					onDeconfigure={activeProvider?.id === authProvider.id
 						? undefined
