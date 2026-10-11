@@ -14,6 +14,7 @@ import (
 type tokenUsageTracker interface {
 	addTokenUsage(line []byte)
 	getTokenUsage() types.TokenUsage
+	setCost(cost types2.ModelCost)
 }
 
 // threadSafeTokenUsageTracker serializes access to a nil-safe usage tracker.
@@ -74,6 +75,21 @@ func newTokenUsageTrackerForDialect(model v1.Model, dialect llmtypes.Dialect) *t
 	return &threadSafeTokenUsageTracker{
 		inner: inner,
 	}
+}
+
+func (t *messageTokenUsageTracker) setCost(cost types2.ModelCost)         { t.cost = cost }
+func (t *responseTokenUsageTracker) setCost(cost types2.ModelCost)        { t.cost = cost }
+func (t *chatCompletionsTokenUsageTracker) setCost(cost types2.ModelCost) { t.cost = cost }
+
+// setCost changes the prices usage is costed at, for a response served by another model than
+// the requested one.
+func (c *threadSafeTokenUsageTracker) setCost(cost types2.ModelCost) {
+	if c == nil || c.inner == nil {
+		return
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.inner.setCost(cost)
 }
 
 func (c *threadSafeTokenUsageTracker) addTokenUsage(line []byte) {

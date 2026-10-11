@@ -143,7 +143,7 @@ func callPath(t *testing.T, gw *bifrost.Engine, path, body string, bind bool, he
 		req.Header.Set(k, v)
 	}
 	if bind {
-		token, release := BindRequest(Identity{UserID: "alice"})
+		token, release := BindRequest(Identity{UserID: "alice"}, nil)
 		defer release()
 		req.Header.Set(HeaderRequestToken, token)
 	}

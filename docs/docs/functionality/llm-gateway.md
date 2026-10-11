@@ -25,7 +25,7 @@ https://<your-obot-host>/api/llm-proxy
 
 - **Any model, any API format.** Every model is available in the OpenAI Chat Completions (`/v1/chat/completions`), OpenAI Responses (`/v1/responses`) and Anthropic Messages (`/v1/messages`) formats, so Claude Code can use GPT models and the OpenAI SDK can use Claude.
 - **Model names** are `provider/model`, for example `openai/gpt-4.1` or `anthropic/claude-sonnet-4-5`. Bare provider model IDs such as `claude-sonnet-4-5` also work, which is what Claude Code sends by default.
-- **Fallbacks.** Add `"fallbacks": ["anthropic/claude-sonnet-4-5"]` to a request to fail over to other models when the primary one errors. Each fallback must also be a model you have access to.
+- **Fallbacks.** Add `"fallbacks": ["anthropic/claude-sonnet-4-5"]` to a request to fail over to other models when the primary one errors. Each fallback must also be a model you have access to. See [Routing rules and fallbacks](#routing-rules-and-fallbacks).
 - **Endpoints.** `/v1/chat/completions`, `/v1/responses`, `/v1/responses/input_tokens`, `/v1/messages`, `/v1/messages/count_tokens`, `/v1/embeddings` and `/v1/models`.
 - **Authentication and access** work exactly as for the rest of the gateway: use an Obot API key (`obot login --scope llm --print-token`), and you can call only the models granted to you by [Model Access Policies](./model-access-policies.md). [Guardrails](./guardrails.md), the LLM audit log and usage reporting all apply.
 - **Budgets.** Gateway usage is limited by the budgets on the **Budgets & Limits** tab of the **Models** page instead of the server's daily token limits. When the gateway first starts, the configured daily limits become a *Daily token limit* budget for everyone (administrators exempt), which you can edit or remove. A request that would exceed a budget gets `429` with the budget's name and when more becomes available.
@@ -43,7 +43,7 @@ Administrators manage the gateway from these pages:
 | **Models** → **Budgets & Limits** | Caps on spend (USD), total/input/output tokens or requests over a rolling window (e.g. the last 6 hours) or a calendar window (this hour, day, week or month, UTC). A budget either gives each assigned user their own allowance or is one pool shared by everyone assigned, can be limited to specific models, and can exempt administrators. Assign budgets to users, groups or everyone; every budget that applies to a request must have room. Obot enforces budgets from the usage it records in its own database, so they are exact across Obot replicas. |
 | **Models** → **Guardrails** | Rules that block, redact or log sensitive or unwanted content in model requests and responses (including streams), using the detectors configured under **Guardrails**. |
 | **Guardrails** | **Detectors** configure the checks that guardrails run, for model rules and for [guardrail filters](./filters.md#guardrail-filters) on MCP traffic, with built-in secrets, PII and LLM-judge checks and integrations with Presidio, Azure AI Language and Content Safety, AWS Bedrock Guardrails, Google Model Armor, Check Point (Lakera), Patronus and CrowdStrike AIDR; **Events** lists what guardrails blocked, redacted or logged in model and MCP traffic. See [Guardrails](./guardrails.md). |
-| **Models** → **Routing** | Rules that match requests with a [CEL](https://github.com/google/cel-spec) expression (over `model`, `provider`, `headers`, ...) and send them to other providers or models, split traffic by weight, or define fallback chains. |
+| **Models** → **Routing** | Rules that match requests with a [CEL](https://github.com/google/cel-spec) expression (over `model`, `provider`, `headers`, ...) and send them to other providers or models, split traffic by weight, or define fallback chains. See [Routing rules and fallbacks](#routing-rules-and-fallbacks). |
 | **Audit Logs** → **Gateway Requests** | Every routed request with its user, provider, key, retries, fallbacks, tokens, cost, latency and content. |
 | **Models** → **Settings** | Request logging and retention, content logging, queueing behavior, and response caching. |
 
@@ -63,6 +63,25 @@ Models from gateway providers are listed on the **Models** page under the *LLM G
 | `--llm-gateway-log-level` / `OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL` | Log level for the embedded gateway (default `warn`). |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Obot routes gateway providers through the environment's egress proxy, except endpoints `NO_PROXY` excludes or that are on localhost. A proxy set on a provider explicitly takes precedence. |
 | `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` / `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_ADDR`, `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_PASSWORD` | Redis or Valkey server used for response caching. Cached responses are kept per user; clients can send `X-Obot-Cache-TTL` or `X-Obot-Cache-No-Store` to tune a request. |
+
+## Routing rules and fallbacks
+
+A request can be served by a different model from the one the client asked for:
+
+- A **routing rule** (**Models** → **Routing**) whose condition matches sends the request to its targets, splitting traffic between them by weight. Rules are checked in priority order, lowest number first, and the first match applies. A rule can also list fallbacks.
+- A **fallback** is tried when the model before it fails. Fallbacks come from the request's `fallbacks` field or from the routing rule that matched. They aren't tried when the provider rejects the request as invalid (HTTP 400), since the fallback would reject it too.
+
+Whichever model ends up serving a request:
+
+- **The caller must be allowed to use it.** [Model access policies](./model-access-policies.md) (or, for a hosted agent, its configured models) are checked for the requested model, for each fallback in the request before it is sent, and for every model the gateway then tries, including routing rule targets and fallbacks. An attempt on a model the caller may not use is refused with HTTP 403 and isn't sent to the provider. If the request has a fallback the caller may use, it is tried next. Otherwise the caller gets the 403, for example `user does not have permission to use model "anthropic/claude-opus-4-8"`.
+
+  A routing rule therefore can't give anyone a model their access policy doesn't include. To route requests for one model to another, grant the target model to the same users and groups. This also covers rules that match a request header: a client can set any header, but the header can only route it to models it may already use.
+
+- **Usage is recorded against the model that served it.** The LLM audit log, usage reports and budgets record that model and price the request at its rates. A request that was refused is recorded against the model that was requested.
+
+The gateway's request log (**Audit Logs** → **Gateway Requests**) shows the routing rule that matched and the fallback that served each request.
+
+Budgets limited to specific models are chosen by the requested model when the request is admitted.
 
 ## Per-provider routes
 

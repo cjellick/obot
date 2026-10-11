@@ -481,6 +481,28 @@ func authGroupSet(user kuser.Info) map[string]struct{} {
 	return set
 }
 
+// ResolveTargetModel finds the model of a provider whose target model is exactly target,
+// such as the LLM gateway's "anthropic/claude-sonnet-4-5". When several match, the most
+// recently created one wins.
+func (h *Helper) ResolveTargetModel(provider, target string) (*v1.Model, error) {
+	objs, err := h.modelIndexer.ByIndex(modelProviderIndex, provider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get models for provider %q: %w", provider, err)
+	}
+	var newest *v1.Model
+	for _, obj := range objs {
+		if m, ok := obj.(*v1.Model); ok && m.Spec.Manifest.TargetModel == target {
+			if newest == nil || m.CreationTimestamp.After(newest.CreationTimestamp.Time) {
+				newest = m
+			}
+		}
+	}
+	if newest == nil {
+		return nil, apierrors.NewNotFound(schema.GroupResource{Group: v1.SchemeGroupVersion.Group, Resource: "model"}, target)
+	}
+	return newest, nil
+}
+
 // ResolveProviderQualifiedModel resolves a bare model ID against a provider whose target
 // models are qualified with an upstream provider prefix ("openai/gpt-4o"). This lets
 // clients that only know provider-native IDs, such as Claude Code sending

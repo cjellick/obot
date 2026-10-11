@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/gateway/client"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
@@ -283,5 +285,67 @@ func TestStripCallerCredentials(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestServedModelChange(t *testing.T) {
+	opus := &v1.Model{}
+	opus.Name = "m1-opus"
+	opus.Spec.Manifest.TargetModel = "anthropic/claude-opus-4-8"
+	resolve := func(served string) (*v1.Model, error) {
+		if served == opus.Spec.Manifest.TargetModel {
+			return opus, nil
+		}
+		return nil, fmt.Errorf("model %q not found", served)
+	}
+	served := func(provider, model string) http.Header {
+		h := http.Header{}
+		h.Set(headerServedProvider, provider)
+		h.Set(headerServedModel, model)
+		return h
+	}
+
+	tests := []struct {
+		name   string
+		header http.Header
+		want   *v1.Model
+	}{
+		{
+			name:   "served by the requested model",
+			header: served("openai", "gpt-5-mini"),
+		},
+		{
+			name:   "routed to another model",
+			header: served("anthropic", "claude-opus-4-8"),
+			want:   opus,
+		},
+		{
+			name:   "served by a model Obot doesn't know",
+			header: served("anthropic", "claude-unknown"),
+		},
+		{
+			name:   "no served model reported",
+			header: http.Header{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := servedModelChange(tt.header, "openai/gpt-5-mini", resolve); got != tt.want {
+				t.Errorf("servedModelChange = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTokenUsageTrackerSetCost(t *testing.T) {
+	cheap := types.ModelCost{TokenUsageCost: types.TokenUsageCost{Input: 0.25, Output: 2}}
+	expensive := types.ModelCost{TokenUsageCost: types.TokenUsageCost{Input: 5, Output: 25}}
+	tracker := &threadSafeTokenUsageTracker{inner: &chatCompletionsTokenUsageTracker{cost: cheap}}
+	tracker.addTokenUsage([]byte(`{"usage":{"prompt_tokens":1000000,"completion_tokens":1000000}}`))
+
+	// A response served by another model is costed at that model's prices.
+	tracker.setCost(expensive)
+	if got := tracker.getTokenUsage().TotalSpend; got != 30 {
+		t.Errorf("spend = %v, want 30 at the serving model's prices", got)
 	}
 }

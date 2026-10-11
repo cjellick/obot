@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -85,6 +86,13 @@ type bifrostRoute struct {
 	// dialect is the API shape of the request and response.
 	dialect llmtypes.Dialect
 }
+
+const (
+	// headerServedProvider and headerServedModel name the provider and model that served a
+	// gateway response, which routing rules and fallbacks can make differ from the request's.
+	headerServedProvider = "X-Obot-LLM-Provider"
+	headerServedModel    = "X-Obot-LLM-Model"
+)
 
 // sanitizingTransport strips implementation details from gateway responses before they
 // reach clients: engine-specific headers (which include upstream key names), the engine's
@@ -206,10 +214,10 @@ func (t sanitizingTransport) RoundTrip(req *http.Request) (*http.Response, error
 		}
 	}
 	if provider != "" {
-		resp.Header.Set("X-Obot-LLM-Provider", provider)
+		resp.Header.Set(headerServedProvider, provider)
 	}
 	if model != "" {
-		resp.Header.Set("X-Obot-LLM-Model", model)
+		resp.Header.Set(headerServedModel, model)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -297,6 +305,47 @@ func (b *bifrostProviderBackend) resolveModel(l *llmProviderProxy, reference str
 	return l.mapHelper.ResolveProviderQualifiedModel(system.LLMGatewayModelProvider, reference)
 }
 
+// authorizeModel resolves a model the gateway may serve a request with and checks that the
+// caller may use it. what names the model in errors, such as "fallback model".
+func (b *bifrostProviderBackend) authorizeModel(l *llmProviderProxy, req api.Context, reference, what string) (*v1.Model, error) {
+	model, err := l.mapHelper.ResolveModelReference(req.Context(), req.Storage, system.DefaultNamespace, system.LLMGatewayModelProvider, reference)
+	if apierrors.IsNotFound(err) {
+		model, err = b.resolveModel(l, reference)
+	}
+	if err != nil || model == nil || model.Spec.Manifest.ModelProvider != system.LLMGatewayModelProvider {
+		return nil, types2.NewErrBadRequest("%s %q is not available through this endpoint", what, reference)
+	}
+	if agentModels, isAgent := principal.AuthorizedModelIDs(req.User); isAgent {
+		if !modelAllowedForAgent(agentModels, model.Name) {
+			return nil, types2.NewErrForbidden("agent is not configured to use %s %q", what, reference)
+		}
+	} else if ok, err := l.mapHelper.UserHasAccessToModel(req.User, model.Name); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, types2.NewErrForbidden("user does not have permission to use %s %q", what, reference)
+	}
+	return model, nil
+}
+
+// modelAccess checks the models the gateway tries for a request. Its routing rules and
+// fallbacks can serve a request with a model other than the requested one, and a caller
+// may only be served by models they may use, whatever routed them there.
+func (b *bifrostProviderBackend) modelAccess(l *llmProviderProxy, req api.Context, requested *v1.Model) guardrails.ModelAccess {
+	return func(_ context.Context, reference string) error {
+		if requested != nil && reference == requested.Spec.Manifest.TargetModel {
+			// Already checked before the request was sent.
+			return nil
+		}
+		_, err := b.authorizeModel(l, req, reference, "model")
+		var httpErr *types2.ErrHTTP
+		if errors.As(err, &httpErr) {
+			// The gateway reports the message with its own status.
+			return errors.New(httpErr.Message)
+		}
+		return err
+	}
+}
+
 // authorizeExtraModels checks every fallback model the request names. Bifrost tries
 // fallbacks when the primary model fails, so an unchecked fallback would let a caller reach
 // a model their access policy doesn't allow.
@@ -309,28 +358,15 @@ func (b *bifrostProviderBackend) authorizeExtraModels(l *llmProviderProxy, req a
 		return nil, types2.NewErrBadRequest("fallbacks must be an array of model names")
 	}
 
-	agentModels, isAgent := principal.AuthorizedModelIDs(req.User)
 	var resolved []string
 	for _, f := range fallbacks.Array() {
 		reference := f.String()
 		if f.IsObject() {
 			reference = f.Get("provider").String() + "/" + f.Get("model").String()
 		}
-		model, err := l.mapHelper.ResolveModelReference(req.Context(), req.Storage, system.DefaultNamespace, system.LLMGatewayModelProvider, reference)
-		if apierrors.IsNotFound(err) {
-			model, err = b.resolveModel(l, reference)
-		}
-		if err != nil || model == nil || model.Spec.Manifest.ModelProvider != system.LLMGatewayModelProvider {
-			return nil, types2.NewErrBadRequest("fallback model %q is not available through this endpoint", reference)
-		}
-		if isAgent {
-			if !modelAllowedForAgent(agentModels, model.Name) {
-				return nil, types2.NewErrForbidden("agent is not configured to use fallback model %q", reference)
-			}
-		} else if ok, err := l.mapHelper.UserHasAccessToModel(req.User, model.Name); err != nil {
+		model, err := b.authorizeModel(l, req, reference, "fallback model")
+		if err != nil {
 			return nil, err
-		} else if !ok {
-			return nil, types2.NewErrForbidden("user does not have permission to use fallback model %q", reference)
 		}
 		resolved = append(resolved, model.Spec.Manifest.TargetModel)
 	}
@@ -369,7 +405,8 @@ func stripCallerCredentials(req *http.Request, model *v1.Model, subscriptionPass
 
 // decorateRequest removes the caller's Obot credential and adds the identity headers
 // Bifrost uses for request logs and caching, and the guardrails token.
-func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (func(), error) {
+func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api.Context, model *v1.Model) (func(), error) {
+	ctx, gatewayClient, req, user := apiReq.Context(), apiReq.GatewayClient, apiReq.Request, apiReq.User
 	stripCallerCredentials(req, model, b.settings.get(ctx, gatewayClient).SubscriptionPassthrough)
 	for client, engine := range clientGatewayHeaders {
 		if v := req.Header.Get(client); v != "" {
@@ -398,7 +435,7 @@ func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayCli
 	if err != nil {
 		return nil, err
 	}
-	token, release := guardrails.BindRequest(guardrails.Identity{UserID: userID, Groups: groups})
+	token, release := guardrails.BindRequest(guardrails.Identity{UserID: userID, Groups: groups}, b.modelAccess(l, apiReq, model))
 	req.Header.Set(guardrails.HeaderRequestToken, token)
 	return release, nil
 }

@@ -1,6 +1,7 @@
 package guardrails
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -29,7 +30,7 @@ const (
 )
 
 var (
-	requestIdentities sync.Map // token -> Identity
+	requestBindings sync.Map // token -> requestBinding
 
 	outputStateKey = schemas.BifrostContextKey("obot-guardrails-output")
 
@@ -54,15 +55,27 @@ type OutputPlugin struct {
 	engine *Engine
 }
 
+// ModelAccess reports whether the caller of a request may use a model, named
+// "provider/model", returning an error that explains why not.
+type ModelAccess func(ctx context.Context, model string) error
+
+// requestBinding is what Obot knows about a request it sent to the gateway.
+type requestBinding struct {
+	identity    Identity
+	modelAccess ModelAccess
+}
+
 // BindRequest registers the identity of a request that is about to be sent to the gateway
-// and returns the token to send in HeaderRequestToken. Call release once the response has
-// been fully delivered.
-func BindRequest(identity Identity) (token string, release func()) {
+// and returns the token to send in HeaderRequestToken. modelAccess, when set, is checked
+// for every model the gateway tries: the gateway's routing rules and fallbacks can serve a
+// request with a model other than the one the caller asked for. Call release once the
+// response has been fully delivered.
+func BindRequest(identity Identity, modelAccess ModelAccess) (token string, release func()) {
 	buf := make([]byte, 16)
 	_, _ = rand.Read(buf)
 	token = hex.EncodeToString(buf)
-	requestIdentities.Store(token, identity)
-	return token, func() { requestIdentities.Delete(token) }
+	requestBindings.Store(token, requestBinding{identity: identity, modelAccess: modelAccess})
+	return token, func() { requestBindings.Delete(token) }
 }
 
 // Plugins returns the gateway plugins that enforce guardrails.
@@ -75,23 +88,33 @@ func requestHeaders(ctx *schemas.BifrostContext) map[string]string {
 	return headers
 }
 
-// identityFromContext finds the identity Obot bound to the request. Requests Obot didn't
-// bind, such as model listing or the LLM judge's own calls, aren't guarded.
-func identityFromContext(ctx *schemas.BifrostContext) (Identity, map[string]string, bool) {
-	headers := requestHeaders(ctx)
+// bindingFromContext finds what Obot bound to the request. Requests Obot didn't bind, such
+// as model listing or the LLM judge's own calls, aren't guarded.
+func bindingFromContext(ctx *schemas.BifrostContext) (requestBinding, bool) {
 	token := ""
-	for k, v := range headers {
+	for k, v := range requestHeaders(ctx) {
 		if strings.EqualFold(k, HeaderRequestToken) {
 			token = v
 		}
 	}
 	if token == "" {
-		return Identity{}, nil, false
+		return requestBinding{}, false
 	}
-	identity, ok := requestIdentities.Load(token)
+	binding, ok := requestBindings.Load(token)
+	if !ok {
+		return requestBinding{}, false
+	}
+	return binding.(requestBinding), true
+}
+
+// identityFromContext finds the identity Obot bound to the request, and the request headers
+// rules may see.
+func identityFromContext(ctx *schemas.BifrostContext) (Identity, map[string]string, bool) {
+	binding, ok := bindingFromContext(ctx)
 	if !ok {
 		return Identity{}, nil, false
 	}
+	headers := requestHeaders(ctx)
 	visible := map[string]string{}
 	for k, v := range headers {
 		lower := strings.ToLower(k)
@@ -100,7 +123,39 @@ func identityFromContext(ctx *schemas.BifrostContext) (Identity, map[string]stri
 		}
 		visible[lower] = v
 	}
-	return identity.(Identity), visible, true
+	return binding.identity, visible, true
+}
+
+// modelAccessError refuses an attempt on a model the caller may not use. Fallbacks stay
+// allowed, so the gateway goes on to the next model, which is checked the same way.
+func modelAccessError(message string) *schemas.BifrostError {
+	status := http.StatusForbidden
+	errType := "permission_denied"
+	allowFallbacks := true
+	return &schemas.BifrostError{
+		Type:           &errType,
+		StatusCode:     &status,
+		AllowFallbacks: &allowFallbacks,
+		Error:          &schemas.ErrorField{Type: &errType, Message: message},
+	}
+}
+
+// checkModelAccess refuses an attempt on a model the caller may not use. It runs for every
+// attempt, after the gateway's routing rules chose the model and for each fallback.
+func checkModelAccess(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) *schemas.LLMPluginShortCircuit {
+	binding, ok := bindingFromContext(ctx)
+	if !ok || binding.modelAccess == nil {
+		return nil
+	}
+	if _, name, _ := req.GetRequestFields(); name == "" {
+		// Not a model call, such as listing a provider's models.
+		return nil
+	}
+	model, _ := requestFields(req)
+	if err := binding.modelAccess(ctx, model); err != nil {
+		return &schemas.LLMPluginShortCircuit{Error: modelAccessError(err.Error())}
+	}
+	return nil
 }
 
 func conditionVarsForRequest(req *schemas.BifrostRequest, headers map[string]string) (map[string]any, string) {
@@ -135,6 +190,11 @@ func (p *InputPlugin) PreRequestHook(*schemas.BifrostContext, *schemas.BifrostRe
 }
 
 func (p *InputPlugin) PreLLMHook(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
+	// The input plugin runs first, so no other plugin or provider sees an attempt on a model
+	// the caller may not use.
+	if denied := checkModelAccess(ctx, req); denied != nil {
+		return req, denied, nil
+	}
 	identity, headers, ok := identityFromContext(ctx)
 	if !ok {
 		return req, nil, nil

@@ -132,7 +132,7 @@ type budgetEnforcingBackend interface {
 
 // requestDecoratingBackend is implemented by backends that add headers for the upstream.
 type requestDecoratingBackend interface {
-	decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (release func(), err error)
+	decorateRequest(l *llmProviderProxy, req api.Context, model *v1.Model) (release func(), err error)
 }
 
 type llmProviderProxy struct {
@@ -247,6 +247,7 @@ func (r *responseModifier) modifyResponse(resp *http.Response) error {
 	if r.inputPolicyReplacement != "" {
 		resp.Header.Set("X-Obot-Message-Policy-Replacement", r.inputPolicyReplacement)
 	}
+	r.applyServedModel(resp)
 	r.audit.recordResponse(resp)
 
 	if !shouldWrapLLMResponse(resp) && !r.shouldWrapGatewayResponse(resp) {
@@ -268,6 +269,45 @@ func (r *responseModifier) modifyResponse(resp *http.Response) error {
 	}
 
 	return nil
+}
+
+// applyServedModel costs and records a gateway response by the model that served it. The
+// gateway's routing rules and fallbacks can serve a request with another model than the
+// requested one, which may cost more or less.
+func (r *responseModifier) applyServedModel(resp *http.Response) {
+	// A refused request names the model it was routed to, but wasn't served by it.
+	if r.modelProvider != system.LLMGatewayModelProvider || resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return
+	}
+	m := servedModelChange(resp.Header, r.model, func(served string) (*v1.Model, error) {
+		return r.mapHelper.ResolveTargetModel(system.LLMGatewayModelProvider, served)
+	})
+	if m == nil {
+		return
+	}
+	r.model = m.Spec.Manifest.TargetModel
+	r.modelID = m.Name
+	r.tokenUsageTracker.setCost(m.GetCost())
+	r.audit.setModel(r.modelProvider, m.Name, m.Spec.Manifest.TargetModel)
+}
+
+// servedModelChange returns the model that served a gateway response when it isn't the
+// requested one, and nil when it is or can't be told.
+func servedModelChange(header http.Header, requested string, resolve func(string) (*v1.Model, error)) *v1.Model {
+	provider, model := header.Get(headerServedProvider), header.Get(headerServedModel)
+	if provider == "" || model == "" {
+		return nil
+	}
+	served := provider + "/" + model
+	if served == requested {
+		return nil
+	}
+	m, err := resolve(served)
+	if err != nil || m == nil {
+		slog.Warn("LLM gateway response was served by an unknown model; recording it against the requested model", "requested", requested, "served", served, "error", err)
+		return nil
+	}
+	return m
 }
 
 func shouldWrapLLMResponse(resp *http.Response) bool {
@@ -1206,7 +1246,7 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 	}
 
 	if decorator, ok := l.backend.(requestDecoratingBackend); ok {
-		release, err := decorator.decorateRequest(req.Context(), req.GatewayClient, req.Request, req.User, resolvedModel)
+		release, err := decorator.decorateRequest(l, req, resolvedModel)
 		if err != nil {
 			return err
 		}
