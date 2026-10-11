@@ -465,6 +465,10 @@ func getModelForAlias(ctx context.Context, client kclient.Client, namespace stri
 	if err := alias.Get(ctx, client, &model, namespace, modelAlias.Spec.Manifest.Model); err != nil {
 		return resolvedLLMModel{}, err
 	}
+	if model.Spec.Manifest.ModelProvider != system.LLMGatewayModelProvider {
+		// A legacy model the gateway hasn't taken over yet; fall back to a gateway model.
+		return resolvedLLMModel{}, fmt.Errorf("default model alias %v names model %q, which the LLM gateway doesn't serve", aliasName, model.Name)
+	}
 
 	return resolvedLLMModel{
 		Name:            model.Name,
@@ -502,7 +506,8 @@ func listActiveLLMModels(ctx context.Context, client kclient.Client, namespace s
 
 	result := make([]v1.Model, 0, len(models.Items))
 	for _, model := range models.Items {
-		if !model.Spec.Manifest.Active || model.Spec.Manifest.Usage != types.ModelUsageLLM {
+		// Only the LLM gateway serves models to agents.
+		if !model.Spec.Manifest.Active || model.Spec.Manifest.Usage != types.ModelUsageLLM || model.Spec.Manifest.ModelProvider != system.LLMGatewayModelProvider {
 			continue
 		}
 		if strings.TrimSpace(model.Spec.Manifest.TargetModel) == "" {

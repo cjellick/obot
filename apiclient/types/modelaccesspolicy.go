@@ -121,9 +121,17 @@ func (m ModelResource) IsWildcardSuffix() (string, bool) {
 }
 
 // MatchesTargetModel returns true if this model resource is a wildcard suffix
-// pattern whose prefix matches the given provider-native target model
-// (case-sensitive).
+// pattern whose prefix matches the given target model (case-sensitive). LLM gateway
+// targets are provider-qualified ("anthropic/claude-haiku-4-5"); a pattern without a
+// provider, such as "claude-haiku-4-5*", matches the part after the provider too.
 func (m ModelResource) MatchesTargetModel(targetModel string) bool {
 	prefix, ok := m.IsWildcardSuffix()
-	return ok && strings.HasPrefix(targetModel, prefix)
+	if !ok {
+		return false
+	}
+	if strings.HasPrefix(targetModel, prefix) {
+		return true
+	}
+	_, native, qualified := strings.Cut(targetModel, "/")
+	return qualified && !strings.Contains(prefix, "/") && strings.HasPrefix(native, prefix)
 }

@@ -72,15 +72,27 @@ func MigrateLegacyModels(ctx context.Context, c kclient.Client, importDone bool)
 		return nil
 	}
 	for _, m := range legacy {
-		if _, ok := migrated[m.Name]; !ok && referenced[m.Name] {
-			slog.Warn("keeping a legacy model that is still referred to but that the LLM gateway doesn't serve", "model", m.Name, "modelProvider", m.Spec.Manifest.ModelProvider, "targetModel", m.Spec.Manifest.TargetModel)
-			continue
+		if _, ok := migrated[m.Name]; !ok {
+			if referenced[m.Name] {
+				slog.Warn("keeping a legacy model that is still referred to but that the LLM gateway doesn't serve", "model", m.Name, "modelProvider", m.Spec.Manifest.ModelProvider, "targetModel", m.Spec.Manifest.TargetModel)
+				continue
+			}
+			if hasModelEdits(m) {
+				// Its edits carry over once the gateway lists the model; deleting it now would
+				// re-enable a model an administrator deactivated, or drop a cost override.
+				continue
+			}
 		}
 		if err := c.Delete(ctx, m); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to delete legacy model %s: %w", m.Name, err)
 		}
 	}
 	return deleteEmptyLegacyProviders(ctx, c, importDone)
+}
+
+// hasModelEdits reports whether administrators changed a model in a way carryModelEdits keeps.
+func hasModelEdits(m *v1.Model) bool {
+	return !m.Spec.Manifest.Active || m.Spec.Manifest.Alias != "" || m.Spec.Manifest.OverrideCost != nil
 }
 
 // carryModelEdits copies administrators' edits of a legacy model to its gateway model, once:
@@ -108,8 +120,8 @@ func carryModelEdits(ctx context.Context, c kclient.Client, legacy, target *v1.M
 	return nil
 }
 
-// repointModelReferences re-points default model aliases and model access policies from
-// migrated legacy models to their gateway models. Wildcard suffix patterns written for legacy
+// repointModelReferences re-points default model aliases, model access policies, hosted agents
+// and hosted agent instances from migrated legacy models to their gateway models. Wildcard suffix patterns written for legacy
 // models' provider-native names, such as "claude-haiku-4-5*", get the gateway's provider
 // prefix, such as "anthropic/claude-haiku-4-5*", for each provider whose legacy models they
 // matched. It returns the models still referred to.
@@ -172,6 +184,50 @@ func repointModelReferences(ctx context.Context, c kclient.Client, migrated map[
 		p.Spec.Manifest.Models = models
 		if err := c.Update(ctx, p); err != nil {
 			return nil, fmt.Errorf("failed to re-point model access policy %s: %w", p.Name, err)
+		}
+	}
+	// Hosted agents and their instances name the models they use, too.
+	repoint := func(models []string) ([]string, bool) {
+		var (
+			out     []string
+			changed bool
+		)
+		for _, m := range models {
+			if target, ok := migrated[m]; ok {
+				m, changed = target, true
+			} else {
+				referenced[m] = true
+			}
+			if !slices.Contains(out, m) {
+				out = append(out, m)
+			}
+		}
+		return out, changed
+	}
+	var agents v1.HostedAgentList
+	if err := c.List(ctx, &agents); err != nil {
+		return nil, err
+	}
+	for i := range agents.Items {
+		a := &agents.Items[i]
+		if models, changed := repoint(a.Spec.Manifest.Models); changed {
+			a.Spec.Manifest.Models = models
+			if err := c.Update(ctx, a); err != nil {
+				return nil, fmt.Errorf("failed to re-point hosted agent %s: %w", a.Name, err)
+			}
+		}
+	}
+	var instances v1.HostedAgentInstanceList
+	if err := c.List(ctx, &instances); err != nil {
+		return nil, err
+	}
+	for i := range instances.Items {
+		inst := &instances.Items[i]
+		if models, changed := repoint(inst.Spec.Manifest.Models); changed {
+			inst.Spec.Manifest.Models = models
+			if err := c.Update(ctx, inst); err != nil {
+				return nil, fmt.Errorf("failed to re-point hosted agent instance %s: %w", inst.Name, err)
+			}
 		}
 	}
 	return referenced, nil

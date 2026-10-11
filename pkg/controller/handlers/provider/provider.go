@@ -547,16 +547,8 @@ func (h *Handler) CleanupModelProvider(req router.Request, _ router.Response) er
 		return nil
 	}
 
-	if len(modelProvider.Spec.RequiredConfigurationParameters) > 0 {
-		deleted, err := h.gatewayClient.DeleteCredential(req.Ctx, modelProvider.Name, modelProvider.Name)
-		if err != nil {
-			return err
-		}
-		if deleted {
-			slog.Info("Removed model provider credential during cleanup", "provider", modelProvider.Name)
-		}
-	}
-
+	// A legacy model provider's credential is kept: the LLM gateway only imports some of them,
+	// and an administrator may still need the others to configure the gateway.
 	return removeModelsForProvider(req.Ctx, req.Client, req.Namespace, req.Name)
 }
 

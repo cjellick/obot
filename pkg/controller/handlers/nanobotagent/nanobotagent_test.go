@@ -227,8 +227,8 @@ func TestResolveModelCarriesProviderAndDialect(t *testing.T) {
 				Spec: v1.ModelSpec{
 					Manifest: types.ModelManifest{
 						Name:          "groq-llama",
-						TargetModel:   "llama-3.1-70b-versatile",
-						ModelProvider: "groq-model-provider",
+						TargetModel:   "groq/llama-3.1-70b-versatile",
+						ModelProvider: system.LLMGatewayModelProvider,
 						Active:        true,
 						Usage:         types.ModelUsageLLM,
 						Dialect:       string(llmtypes.DialectOpenAIChatCompletions),
@@ -244,8 +244,8 @@ func TestResolveModelCarriesProviderAndDialect(t *testing.T) {
 	if model.Name != "groq-llama" {
 		t.Errorf("Name = %q, want groq-llama", model.Name)
 	}
-	if model.ModelProvider != "groq-model-provider" {
-		t.Errorf("ModelProvider = %q, want groq-model-provider", model.ModelProvider)
+	if model.ModelProvider != system.LLMGatewayModelProvider {
+		t.Errorf("ModelProvider = %q, want %s", model.ModelProvider, system.LLMGatewayModelProvider)
 	}
 	if model.ProviderDialect != llmtypes.DialectOpenAIChatCompletions {
 		t.Errorf("ProviderDialect = %q, want OpenAIChatCompletions", model.ProviderDialect)
@@ -273,10 +273,11 @@ func TestChooseModelMiniFallsBackToResolvedLLM(t *testing.T) {
 				Name:       "openai-gpt-5.4",
 				Spec: v1.ModelSpec{
 					Manifest: types.ModelManifest{
-						Name:        "gpt-5.4",
-						TargetModel: "gpt-5.4",
-						Active:      true,
-						Usage:       types.ModelUsageLLM,
+						Name:          "openai-gpt-5.4",
+						TargetModel:   "openai/gpt-5.4",
+						ModelProvider: system.LLMGatewayModelProvider,
+						Active:        true,
+						Usage:         types.ModelUsageLLM,
 					},
 				},
 			},
@@ -356,5 +357,37 @@ func TestLLMAndMiniShareTheGatewayProvider(t *testing.T) {
 	}
 	if len(cfg.LLMProviders) != 1 {
 		t.Fatalf("expected one gateway provider, got %d:\n%s", len(cfg.LLMProviders), yaml)
+	}
+}
+
+// An alias still naming a legacy model the gateway hasn't taken over resolves to a gateway
+// model instead, so agents keep working during the migration.
+func TestResolveModelSkipsLegacyModels(t *testing.T) {
+	c := fake.NewClientBuilder().
+		WithScheme(storagescheme.Scheme).
+		WithObjects(
+			&v1.DefaultModelAlias{
+				APIVersion: v1.SchemeGroupVersion.String(), Kind: "DefaultModelAlias",
+				Name: "llm",
+				Spec: v1.DefaultModelAliasSpec{Manifest: types.DefaultModelAliasManifest{Alias: "llm", Model: "legacy-gpt"}},
+			},
+			&v1.Model{
+				APIVersion: v1.SchemeGroupVersion.String(), Kind: "Model",
+				Name: "legacy-gpt",
+				Spec: v1.ModelSpec{Manifest: types.ModelManifest{Name: "gpt-5.4", TargetModel: "gpt-5.4", ModelProvider: system.OpenAIModelProvider, Active: true, Usage: types.ModelUsageLLM}},
+			},
+			&v1.Model{
+				APIVersion: v1.SchemeGroupVersion.String(), Kind: "Model",
+				Name: "gateway-gpt",
+				Spec: v1.ModelSpec{Manifest: types.ModelManifest{Name: "openai-gpt-5.4", TargetModel: "openai/gpt-5.4", ModelProvider: system.LLMGatewayModelProvider, Active: true, Usage: types.ModelUsageLLM}},
+			},
+		).Build()
+
+	model, err := resolveModel(t.Context(), c, "", types.DefaultModelAliasTypeLLM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.Name != "gateway-gpt" {
+		t.Errorf("resolved %q, want the gateway model", model.Name)
 	}
 }

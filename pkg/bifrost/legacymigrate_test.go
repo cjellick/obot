@@ -46,12 +46,15 @@ func TestMigrateLegacyModels(t *testing.T) {
 		model("legacy-sonnet", system.AnthropicModelProvider, "claude-sonnet-9", nil),
 		// No import plan; nothing refers to it.
 		model("legacy-llama", "ollama-model-provider", "llama3", nil),
+		// Deactivated, and the gateway doesn't list it yet; nothing refers to it.
+		model("legacy-disabled", system.OpenAIModelProvider, "gpt-9", func(m *types.ModelManifest) { m.Active = false }),
 		model("proxy-model", system.ModelProxyModelProvider, "claude", nil),
 		model("gw-gpt5", system.LLMGatewayModelProvider, "openai/gpt-5", nil),
 		model("gw-mini", system.LLMGatewayModelProvider, "openai/gpt-5-mini", nil),
 		alias("llm", "legacy-gpt5"),
 		alias("llm-mini", "legacy-mini"),
 		alias("vision", "legacy-sonnet"),
+		&v1.HostedAgent{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "agent1"}, Spec: v1.HostedAgentSpec{Manifest: types.HostedAgentManifest{Models: []string{"legacy-mini"}}}},
 		&v1.ModelAccessPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "map1"}, Spec: v1.ModelAccessPolicySpec{Manifest: types.ModelAccessPolicyManifest{
 			Models: []types.ModelResource{
 				{ID: "legacy-gpt5"}, {ID: "gw-gpt5"}, {ID: "legacy-mini"}, {ID: "obot://llm"},
@@ -129,17 +132,25 @@ func TestMigrateLegacyModels(t *testing.T) {
 			t.Errorf("legacy model %s should be deleted", name)
 		}
 	}
-	for _, name := range []string{"legacy-sonnet", "proxy-model", "gw-gpt5"} {
+	var agent v1.HostedAgent
+	if err := get(&agent, "agent1"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(agent.Spec.Manifest.Models, []string{"gw-mini"}) {
+		t.Errorf("hosted agent models = %v, want the gateway model", agent.Spec.Manifest.Models)
+	}
+	for _, name := range []string{"legacy-sonnet", "legacy-disabled", "proxy-model", "gw-gpt5"} {
 		if !exists(&v1.Model{}, name) {
 			t.Errorf("model %s should be kept", name)
 		}
 	}
-	for _, name := range []string{system.OpenAIModelProvider, "ollama-model-provider"} {
+	for _, name := range []string{"ollama-model-provider"} {
 		if exists(&v1.ModelProvider{}, name) {
 			t.Errorf("legacy model provider %s should be deleted", name)
 		}
 	}
-	for _, name := range []string{system.AnthropicModelProvider, system.LLMGatewayModelProvider, system.ModelProxyModelProvider} {
+	// OpenAI keeps the deactivated model the gateway doesn't list yet.
+	for _, name := range []string{system.OpenAIModelProvider, system.AnthropicModelProvider, system.LLMGatewayModelProvider, system.ModelProxyModelProvider} {
 		if !exists(&v1.ModelProvider{}, name) {
 			t.Errorf("model provider %s should be kept", name)
 		}

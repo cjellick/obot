@@ -192,7 +192,9 @@ func TestUpgradeFromMain(t *testing.T) {
 		p.id = created.ID
 	}
 
-	// A legacy model provider credential, which the gateway imports on its first start.
+	// A legacy model provider credential, which the gateway imports on its first start. The
+	// test controls main's binary and the registry, so failing to set it up fails the test
+	// rather than skipping the import and migration checks.
 	legacyConfigured := false
 	harness.Eventually(t, time.Minute, "the legacy OpenAI provider from the registry", func() error {
 		if resp := admin.Do(t, http.MethodGet, "/api/model-providers/"+system.OpenAIModelProvider, nil); resp.Status != http.StatusOK {
@@ -216,34 +218,32 @@ func TestUpgradeFromMain(t *testing.T) {
 			time.Sleep(time.Second)
 		}
 	} else {
-		t.Logf("could not configure the legacy OpenAI provider on main: %s", resp)
+		t.Fatalf("could not configure the legacy OpenAI provider on main: %s", resp)
 	}
 	if !legacyConfigured {
-		t.Logf("the legacy OpenAI provider never reported configured on main; the import check is skipped")
+		t.Fatal("the legacy OpenAI provider never reported configured on main")
 	}
 
 	// The default llm alias and an access policy refer to the legacy provider's model, which
 	// the gateway must move them off.
 	var legacyModelID string
-	if legacyConfigured {
-		harness.Eventually(t, time.Minute, "the legacy model on main", func() error {
-			var list types.ModelList
-			admin.Get(t, "/api/models?all=true", &list)
-			for _, m := range list.Items {
-				if m.ModelProvider == system.OpenAIModelProvider && m.TargetModel == "gpt-legacy" {
-					legacyModelID = m.ID
-					return nil
-				}
+	harness.Eventually(t, time.Minute, "the legacy model on main", func() error {
+		var list types.ModelList
+		admin.Get(t, "/api/models?all=true", &list)
+		for _, m := range list.Items {
+			if m.ModelProvider == system.OpenAIModelProvider && m.TargetModel == "gpt-legacy" {
+				legacyModelID = m.ID
+				return nil
 			}
-			return fmt.Errorf("not synced")
-		})
-		admin.Put(t, "/api/default-model-aliases/llm", types.DefaultModelAliasManifest{Alias: "llm", Model: legacyModelID}, nil)
-		admin.Post(t, "/api/model-access-policies", types.ModelAccessPolicyManifest{
-			DisplayName: "legacy model",
-			Subjects:    []types.Subject{{Type: types.SubjectTypeSelector, ID: "*"}},
-			Models:      []types.ModelResource{{ID: legacyModelID}},
-		}, nil)
-	}
+		}
+		return fmt.Errorf("not synced")
+	})
+	admin.Put(t, "/api/default-model-aliases/llm", types.DefaultModelAliasManifest{Alias: "llm", Model: legacyModelID}, nil)
+	admin.Post(t, "/api/model-access-policies", types.ModelAccessPolicyManifest{
+		DisplayName: "legacy model",
+		Subjects:    []types.Subject{{Type: types.SubjectTypeSelector, ID: "*"}},
+		Models:      []types.ModelResource{{ID: legacyModelID}},
+	}, nil)
 
 	if err := old.Stop(); err != nil {
 		t.Fatal(err)
@@ -393,9 +393,6 @@ func TestUpgradeFromMain(t *testing.T) {
 	})
 
 	t.Run("legacy provider credentials were imported", func(t *testing.T) {
-		if !legacyConfigured {
-			t.Skip("the legacy provider could not be configured on main")
-		}
 		for _, r := range replicas {
 			a := admin.On(r.BaseURL)
 			harness.Eventually(t, time.Minute, "imported provider on "+r.Config.Name, func() error {
@@ -423,11 +420,24 @@ func TestUpgradeFromMain(t *testing.T) {
 	})
 
 	t.Run("references to the legacy model moved to the gateway", func(t *testing.T) {
-		if !legacyConfigured {
-			t.Skip("the legacy provider could not be configured on main")
+		// The imported provider still talks to OpenAI with a fake key, so the gateway can't
+		// list gpt-legacy yet. Until it does, the legacy model the alias and policy name must
+		// survive, so the references don't break. The import has finished (the subtest above),
+		// so a model sync now runs the migration with deletion enabled.
+		admin.Post(t, "/api/llm-gateway/sync-models", map[string]any{}, nil)
+		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+			if resp := admin.Do(t, http.MethodGet, "/api/models/"+legacyModelID, nil); resp.Status != http.StatusOK {
+				t.Fatalf("the referenced legacy model was deleted before the gateway served its model: %s", resp)
+			}
+			var alias types.DefaultModelAlias
+			admin.Get(t, "/api/default-model-aliases/llm", &alias)
+			if alias.Model != legacyModelID {
+				t.Fatalf("llm alias %q before the gateway served the model, want the legacy model %s", alias.Model, legacyModelID)
+			}
 		}
-		// The imported provider talks to OpenAI; point it at the mock, which serves the same
-		// model for the imported key.
+
+		// Now point the imported provider at the mock, which serves the same model for the
+		// imported key.
 		mock.SetModels(legacyAPIKey, "gpt-legacy")
 		var provider map[string]any
 		admin.Get(t, "/api/llm-gateway/admin/providers/openai", &provider)

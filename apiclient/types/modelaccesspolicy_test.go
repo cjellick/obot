@@ -479,3 +479,23 @@ func TestModelAccessPolicyManifestValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchesTargetModel(t *testing.T) {
+	for _, tt := range []struct {
+		pattern, target string
+		want            bool
+	}{
+		{pattern: "anthropic/claude-haiku-4-5*", target: "anthropic/claude-haiku-4-5-20251001", want: true},
+		// A pattern written for provider-native names still matches gateway models.
+		{pattern: "claude-haiku-4-5*", target: "anthropic/claude-haiku-4-5-20251001", want: true},
+		{pattern: "claude-haiku-4-5*", target: "claude-haiku-4-5", want: true},
+		{pattern: "anthropic/claude*", target: "bedrock/claude-x"},
+		{pattern: "gpt-5*", target: "openai/gpt-4.1"},
+		{pattern: "*", target: "openai/gpt-5"},
+		{pattern: "gpt-5", target: "openai/gpt-5"},
+	} {
+		if got := (ModelResource{ID: tt.pattern}).MatchesTargetModel(tt.target); got != tt.want {
+			t.Errorf("%q matches %q = %v, want %v", tt.pattern, tt.target, got, tt.want)
+		}
+	}
+}

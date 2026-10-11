@@ -12,7 +12,8 @@
 		ModelUsageLabels,
 		ModelAlias,
 		ModelAliasLabels,
-		type Model
+		type Model,
+		matchesModelPattern
 	} from '$lib/services';
 	import { defaultModelAliases as defaultModelAliasesStore } from '$lib/stores';
 	import { goto } from '$lib/url';
@@ -228,9 +229,10 @@
 
 			if (model.id.endsWith('*')) {
 				// Wildcard suffix pattern; count the currently matching models
-				// (case-sensitive prefix match on target model, like the backend)
+				// (case-sensitive prefix match on target model, like the backend; a pattern
+				// without a provider also matches the part after it)
 				const prefix = model.id.slice(0, -1);
-				const matchCount = models.filter((m) => (m.targetModel || '').startsWith(prefix)).length;
+				const matchCount = models.filter((m) => matchesModelPattern(prefix, m.targetModel)).length;
 
 				return {
 					id: model.id,
