@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	gateway "github.com/obot-platform/obot/pkg/gateway/client"
-	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -111,13 +112,9 @@ type legacyImportPlan struct {
 
 // ImportLegacyModelProviders copies the credentials of configured legacy model providers
 // into the gateway, so an existing installation can switch over without re-entering keys.
-// Providers the gateway already has are left alone.
-func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.Client, gatewayClient *gateway.Client) ([]LegacyImportResult, error) {
-	var providers v1.ModelProviderList
-	if err := c.List(ctx, &providers, kclient.InNamespace(system.DefaultNamespace)); err != nil {
-		return nil, err
-	}
-
+// Providers the gateway already has are left alone. Two legacy providers that map to the same
+// gateway provider (the Bedrock or Azure variants) become two keys of one provider.
+func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, _ kclient.Client, gatewayClient *gateway.Client) ([]LegacyImportResult, error) {
 	var existing struct {
 		Providers []struct {
 			Name string `json:"name"`
@@ -130,29 +127,23 @@ func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.
 	for _, p := range existing.Providers {
 		have[p.Name] = true
 	}
+	// Gateway providers this import created, which more legacy providers may add keys to.
+	created := map[string]bool{}
 
 	var results []LegacyImportResult
-	for _, mp := range providers.Items {
-		if mp.Name == system.LLMGatewayModelProvider || mp.Name == system.ModelProxyModelProvider {
-			continue
-		}
-		plan, ok := legacyImportPlans[mp.Name]
-		if !ok {
-			continue
-		}
-		result := LegacyImportResult{ModelProvider: mp.Name, GatewayProvider: plan.provider}
+	for _, name := range slices.Sorted(maps.Keys(legacyImportPlans)) {
+		plan := legacyImportPlans[name]
+		result := LegacyImportResult{ModelProvider: name, GatewayProvider: plan.provider}
 
-		cred, err := gatewayClient.RevealCredential(ctx, []string{mp.Name, system.GenericModelProviderCredentialContext}, mp.Name)
+		cred, err := gatewayClient.RevealCredential(ctx, []string{name, system.GenericModelProviderCredentialContext}, name)
 		if errors.As(err, &gateway.CredentialNotFoundError{}) || (err == nil && len(cred.Secrets) == 0) {
-			result.Status = "skipped"
-			result.Message = "not configured"
-			results = append(results, result)
+			// Not configured; nothing to report.
 			continue
 		} else if err != nil {
-			return nil, fmt.Errorf("failed to read credential for %s: %w", mp.Name, err)
+			return nil, fmt.Errorf("failed to read credential for %s: %w", name, err)
 		}
 
-		if have[plan.provider] {
+		if have[plan.provider] && !created[plan.provider] {
 			result.Status = "skipped"
 			result.Message = "a gateway provider with this name already exists"
 			results = append(results, result)
@@ -160,33 +151,37 @@ func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.
 		}
 
 		providerBody, key := plan.build(cred.Secrets)
-		providerBody["provider"] = plan.provider
-		ApplyProviderDefaults(providerBody)
 		// Send credentials as explicit plain-text values so Bifrost never interprets a stored
 		// secret that happens to start with "env." or "vault." as a reference to resolve.
 		plainTextSecrets(key)
-		if err := engine.Do(ctx, http.MethodPost, "/api/providers", providerBody, nil); err != nil {
-			result.Status = "error"
-			result.Message = err.Error()
-			results = append(results, result)
-			continue
+		if !created[plan.provider] {
+			providerBody["provider"] = plan.provider
+			ApplyProviderDefaults(providerBody)
+			if err := engine.Do(ctx, http.MethodPost, "/api/providers", providerBody, nil); err != nil {
+				result.Status = "error"
+				result.Message = err.Error()
+				results = append(results, result)
+				continue
+			}
 		}
 		if key != nil {
-			key["name"] = "imported-" + mp.Name
+			key["name"] = "imported-" + name
 			if _, ok := key["models"]; !ok {
 				key["models"] = []string{"*"}
 			}
 			key["weight"] = 1
 			if err := engine.Do(ctx, http.MethodPost, "/api/providers/"+url.PathEscape(plan.provider)+"/keys", key, nil); err != nil {
-				// Remove the provider again so a later import can retry it.
-				_ = engine.Do(ctx, http.MethodDelete, "/api/providers/"+url.PathEscape(plan.provider), nil, nil)
+				if !created[plan.provider] {
+					// Remove the provider again so a later import can retry it.
+					_ = engine.Do(ctx, http.MethodDelete, "/api/providers/"+url.PathEscape(plan.provider), nil, nil)
+				}
 				result.Status = "error"
 				result.Message = "adding the provider's key failed: " + err.Error()
 				results = append(results, result)
 				continue
 			}
 		}
-		have[plan.provider] = true
+		have[plan.provider], created[plan.provider] = true, true
 		result.Status = "imported"
 		results = append(results, result)
 	}

@@ -614,6 +614,16 @@ func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *
 	}
 	slog.Info("Back-populated models for model provider", "provider", modelProvider.Name, "models", len(models))
 
+	if modelProvider.Name == system.LLMGatewayModelProvider {
+		// Move what refers to legacy providers' models over to the models just synced.
+		if err := bifrost.MigrateLegacyModels(ctx, client, bifrost.LegacyImportDone(modelProvider)); err != nil {
+			slog.Warn("failed to migrate legacy models to the LLM gateway", "error", err)
+		}
+		if err := bifrost.FillDefaultModelAliases(ctx, client); err != nil {
+			slog.Warn("failed to set default model aliases", "error", err)
+		}
+	}
+
 	return nil
 }
 

@@ -29,8 +29,8 @@ func TestChooseModelPrefersKnownNames(t *testing.T) {
 			Name: "openai-gpt-5.4",
 			Spec: v1.ModelSpec{
 				Manifest: types.ModelManifest{
-					Name:        "gpt-5.4",
-					TargetModel: "gpt-5.4",
+					Name:        "openai-gpt-5.4",
+					TargetModel: "openai/gpt-5.4",
 					Active:      true,
 					Usage:       types.ModelUsageLLM,
 				},
@@ -79,8 +79,8 @@ func TestChooseModelPrefersSuggestedOrder(t *testing.T) {
 			Name: "anthropic-claude-sonnet-4-6",
 			Spec: v1.ModelSpec{
 				Manifest: types.ModelManifest{
-					Name:        "claude-sonnet-4-6",
-					TargetModel: "claude-sonnet-4-6",
+					Name:        "anthropic-claude-sonnet-4-6",
+					TargetModel: "anthropic/claude-sonnet-4-6",
 					Active:      true,
 					Usage:       types.ModelUsageLLM,
 				},
@@ -90,8 +90,8 @@ func TestChooseModelPrefersSuggestedOrder(t *testing.T) {
 			Name: "openai-gpt-5.4",
 			Spec: v1.ModelSpec{
 				Manifest: types.ModelManifest{
-					Name:        "gpt-5.4",
-					TargetModel: "gpt-5.4",
+					Name:        "openai-gpt-5.4",
+					TargetModel: "openai/gpt-5.4",
 					Active:      true,
 					Usage:       types.ModelUsageLLM,
 				},
@@ -540,8 +540,8 @@ func TestChooseModelMiniFallsBackToResolvedLLM(t *testing.T) {
 			Name: "openai-gpt-5.4",
 			Spec: v1.ModelSpec{
 				Manifest: types.ModelManifest{
-					Name:        "gpt-5.4",
-					TargetModel: "gpt-5.4",
+					Name:        "openai-gpt-5.4",
+					TargetModel: "openai/gpt-5.4",
 					Active:      true,
 					Usage:       types.ModelUsageLLM,
 				},

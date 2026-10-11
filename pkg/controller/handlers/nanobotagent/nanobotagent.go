@@ -17,7 +17,7 @@ import (
 	"github.com/obot-platform/nah/pkg/router"
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/alias"
-	"github.com/obot-platform/obot/pkg/controller/handlers/provider"
+	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/gateway/client"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
@@ -576,16 +576,7 @@ func chooseModel(ctx context.Context, client kclient.Client, namespace string, m
 }
 
 func preferredModelsForAlias(aliasName types.DefaultModelAliasType) []string {
-	preferred := make([]string, 0, 2)
-	for _, defaults := range []map[types.DefaultModelAliasType]string{
-		provider.OpenAIDefaultModelAliases(),
-		provider.AnthropicDefaultModelAliases(),
-	} {
-		if model := strings.TrimSpace(defaults[aliasName]); model != "" {
-			preferred = append(preferred, model)
-		}
-	}
-	return preferred
+	return bifrost.PreferredModels(aliasName)
 }
 
 // deleteTokens revokes the API key and deletes the MCP token associated with the MCP server.

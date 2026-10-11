@@ -2,7 +2,12 @@ package bifrost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
 	"slices"
 	"time"
 
@@ -14,10 +19,9 @@ import (
 )
 
 const (
-	// legacyImportAnnotation marks the gateway's ModelProvider once legacy provider
-	// credentials have been imported, so deleting imported providers later doesn't bring
-	// them back.
-	legacyImportAnnotation = "obot.ai/llm-gateway-legacy-import"
+	// legacyImportAnnotation marks the gateway's ModelProvider once the credentials of legacy
+	// model providers have been imported, which happens once per installation.
+	legacyImportAnnotation = "obot.ai/llm-gateway-legacy-import-v2"
 )
 
 // TriggerModelSync flips the sync annotation on the gateway's ModelProvider so
@@ -41,9 +45,84 @@ func TriggerModelSync(ctx context.Context, c kclient.Client) error {
 	})
 }
 
+// envProviders are the upstream providers configured from environment variables at startup.
+var envProviders = []struct{ envVar, provider string }{
+	{envVar: system.OpenAIAPIKeyEnvVar, provider: "openai"},
+	{envVar: system.AnthropicAPIKeyEnvVar, provider: "anthropic"},
+}
+
+// providerKey is a gateway provider key as listed by the engine.
+type providerKey struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// importEnvProviders adds the providers whose API key is set in the environment
+// (OPENAI_API_KEY, ANTHROPIC_API_KEY), and updates their key when the variable changes. An
+// annotation on the gateway's ModelProvider records a hash of each imported key, so an
+// unchanged key isn't written, and announced to other replicas, on every start.
+func (e *Engine) importEnvProviders(ctx context.Context, c kclient.Client, mp *v1.ModelProvider) bool {
+	changed := false
+	for _, p := range envProviders {
+		value := os.Getenv(p.envVar)
+		if value == "" {
+			continue
+		}
+		sum := sha256.Sum256([]byte(value))
+		hash := hex.EncodeToString(sum[:])
+		annotation := "obot.ai/llm-gateway-env-key-" + p.provider
+		if mp.Annotations[annotation] == hash {
+			continue
+		}
+		keyName := "env-" + p.envVar
+		key := map[string]any{"name": keyName, "value": value, "models": []string{"*"}, "weight": 1}
+		plainTextSecrets(key)
+
+		var keys struct {
+			Keys []providerKey `json:"keys"`
+		}
+		var err error
+		if err = e.Do(ctx, http.MethodGet, "/api/providers/"+url.PathEscape(p.provider)+"/keys", nil, &keys); err != nil {
+			provider := map[string]any{"provider": p.provider}
+			ApplyProviderDefaults(provider)
+			if err = e.Do(ctx, http.MethodPost, "/api/providers", provider, nil); err == nil {
+				err = e.Do(ctx, http.MethodPost, "/api/providers/"+url.PathEscape(p.provider)+"/keys", key, nil)
+			}
+		} else if i := slices.IndexFunc(keys.Keys, func(k providerKey) bool { return k.Name == keyName }); i >= 0 {
+			err = e.Do(ctx, http.MethodPut, "/api/providers/"+url.PathEscape(p.provider)+"/keys/"+url.PathEscape(keys.Keys[i].ID), key, nil)
+		} else {
+			err = e.Do(ctx, http.MethodPost, "/api/providers/"+url.PathEscape(p.provider)+"/keys", key, nil)
+		}
+		if err != nil {
+			slog.Warn("failed to configure an LLM gateway provider from the environment", "provider", p.provider, "envVar", p.envVar, "error", err)
+			continue
+		}
+		slog.Info("configured an LLM gateway provider from the environment", "provider", p.provider, "envVar", p.envVar)
+		changed = true
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := c.Get(ctx, kclient.ObjectKeyFromObject(mp), mp); err != nil {
+				return err
+			}
+			if mp.Annotations == nil {
+				mp.Annotations = map[string]string{}
+			}
+			mp.Annotations[annotation] = hash
+			return c.Update(ctx, mp)
+		}); err != nil {
+			slog.Warn("failed to record the LLM gateway provider configured from the environment", "provider", p.provider, "error", err)
+		}
+	}
+	return changed
+}
+
+// LegacyImportDone reports whether the credentials of legacy model providers have been
+// imported into the gateway, whose ModelProvider is mp.
+func LegacyImportDone(mp *v1.ModelProvider) bool {
+	return mp.Annotations[legacyImportAnnotation] != ""
+}
+
 // RunStartupTasks waits for the engine to start, imports legacy model provider credentials
-// the first time the gateway starts without any providers, and then keeps Obot's model
-// list in step with Bifrost's. announce tells the other replicas when it changed the
+// once, and then keeps Obot's model list in step with Bifrost's. announce tells the other replicas when it changed the
 // gateway's configuration, so they reload it.
 func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayClient *gateway.Client, announce func(context.Context) (int64, error)) {
 	if err := e.Wait(ctx); err != nil {
@@ -65,7 +144,7 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 
 	if err := e.Change(ctx, func() (bool, bool) {
 		changed := false
-		if mp.Annotations[legacyImportAnnotation] == "" && !e.HasUpstreamProviders(ctx) {
+		if !LegacyImportDone(&mp) {
 			results, err := e.ImportLegacyModelProviders(ctx, c, gatewayClient)
 			changed = slices.ContainsFunc(results, func(r LegacyImportResult) bool { return r.Status == "imported" })
 			failed := err != nil
@@ -90,6 +169,9 @@ func (e *Engine) RunStartupTasks(ctx context.Context, c kclient.Client, gatewayC
 			}
 		}
 
+		if e.importEnvProviders(ctx, c, &mp) {
+			changed = true
+		}
 		if e.ApplyEgressProxy(ctx) {
 			changed = true
 		}
