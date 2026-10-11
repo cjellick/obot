@@ -329,6 +329,21 @@ Inside Claude Code:
 - Run **`/model`** and select an Obot gateway model. Discovered models are labeled **"From gateway"**.
 - Run **`/status`** to confirm which authentication method is active.
 
+### Claude Code with a Claude subscription
+
+When the server is started with `--llm-gateway-subscription-passthrough` (`OBOT_SERVER_LLM_GATEWAY_SUBSCRIPTION_PASSTHROUGH=true`), users signed in to Claude Code with a Claude Pro, Max, Team or Enterprise subscription can use it through the gateway. Their requests to Claude models are billed to their subscription instead of a provider key configured in Obot. Obot still authenticates the user, enforces model access, budgets and guardrails, and records the requests.
+
+The user keeps their Claude Code login and sends their Obot API key in the `X-Obot-Api-Key` header:
+
+```bash
+export ANTHROPIC_BASE_URL="https://obot.example.com/api/llm-proxy"
+export ANTHROPIC_CUSTOM_HEADERS="X-Obot-Api-Key: $(obot login --url https://obot.example.com --scope llm --print-token)"
+# Don't set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN; they replace the subscription login.
+claude
+```
+
+Only requests from Claude Code to Anthropic models use the subscription. The subscription token is never sent to another provider; requests to other models use Obot's configured keys. Budgets with a spend limit still count these requests at list price.
+
 ### Claude Code with Amazon Bedrock Mantle
 
 Claude Code can also route Bedrock Mantle traffic through Obot. Use this mode for Bedrock `anthropic.*` models.

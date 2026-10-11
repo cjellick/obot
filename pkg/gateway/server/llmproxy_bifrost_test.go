@@ -12,6 +12,7 @@ import (
 	"github.com/obot-platform/obot/pkg/gateway/client"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
+	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 )
 
 type fakeRoundTripper struct {
@@ -221,6 +222,65 @@ func TestWriteBudgetExceeded(t *testing.T) {
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Error.Type != tt.wantType || !strings.Contains(body.Error.Message, `"Daily"`) {
 				t.Fatalf("unexpected body %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestStripCallerCredentials(t *testing.T) {
+	const oauth = "Bearer sk-ant-oat01-test"
+	tests := []struct {
+		name        string
+		passthrough bool
+		target      string
+		auth        string
+		wantAuth    string
+	}{
+		{
+			name:        "subscription token kept for an Anthropic model",
+			passthrough: true,
+			target:      "anthropic/claude-haiku-5-5",
+			auth:        oauth,
+			wantAuth:    oauth,
+		},
+		{
+			name:        "subscription token removed when passthrough is off",
+			passthrough: false,
+			target:      "anthropic/claude-haiku-5-5",
+			auth:        oauth,
+		},
+		{
+			name:        "subscription token never sent to another provider",
+			passthrough: true,
+			target:      "openai/gpt-5-mini",
+			auth:        oauth,
+		},
+		{
+			name:        "Obot API key removed",
+			passthrough: true,
+			target:      "anthropic/claude-haiku-5-5",
+			auth:        "Bearer ok1-1-2-secret",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			req.Header.Set("Authorization", tt.auth)
+			req.Header.Set(HeaderObotAPIKey, "ok1-1-2-secret")
+			req.Header.Set("X-Api-Key", "ok1-1-2-secret")
+			req.Header.Set("X-Bf-Vk", "sk-bf-other")
+			model := &v1.Model{}
+			model.Spec.Manifest.TargetModel = tt.target
+
+			(&bifrostProviderBackend{subscriptionPassthrough: tt.passthrough}).stripCallerCredentials(req, model)
+
+			if got := req.Header.Get("Authorization"); got != tt.wantAuth {
+				t.Errorf("Authorization = %q, want %q", got, tt.wantAuth)
+			}
+			for _, h := range []string{HeaderObotAPIKey, "X-Api-Key", "X-Bf-Vk"} {
+				if got := req.Header.Get(h); got != "" {
+					t.Errorf("%s = %q, want it removed", h, got)
+				}
 			}
 		})
 	}

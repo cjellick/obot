@@ -44,6 +44,9 @@ var (
 // with load balancing, fallbacks, governance, and its own request logging.
 type bifrostProviderBackend struct {
 	engine *bifrost.Engine
+	// subscriptionPassthrough forwards a caller's Anthropic OAuth token (a Claude
+	// subscription signed in to Claude Code) to Anthropic in place of a configured key.
+	subscriptionPassthrough bool
 }
 
 // bifrostRoute maps a client path under /api/llm-proxy/v1 to a Bifrost route.
@@ -85,7 +88,7 @@ func (s *Server) newBifrostLLMProviderProxy() *llmProviderProxy {
 	return &llmProviderProxy{
 		dailyUserInputTokenLimit:  s.dailyUserInputTokenLimit,
 		dailyUserOutputTokenLimit: s.dailyUserOutputTokenLimit,
-		backend:                   &bifrostProviderBackend{engine: s.llmGateway},
+		backend:                   &bifrostProviderBackend{engine: s.llmGateway, subscriptionPassthrough: s.subscriptionPassthrough},
 		mapHelper:                 s.mapHelper,
 		// Guardrails, which include LLM-judge policies, run inside the gateway instead.
 	}
@@ -300,10 +303,24 @@ func (b *bifrostProviderBackend) authorizeExtraModels(l *llmProviderProxy, req a
 	return sjson.SetBytes(body, "fallbacks", resolved)
 }
 
-// decorateRequest removes the caller's Obot credential and adds the identity headers
-// Bifrost uses for request logs and caching, and the guardrails token.
-func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (func(), error) {
-	for _, h := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie", guardrails.HeaderRequestToken} {
+// isAnthropicOAuthBearer reports whether an Authorization header carries an Anthropic OAuth
+// access token, which Claude Code sends when signed in with a Claude subscription.
+func isAnthropicOAuthBearer(header string) bool {
+	return strings.HasPrefix(strings.ToLower(header), "bearer sk-ant-oat")
+}
+
+// stripCallerCredentials removes the caller's credentials and engine headers. A caller's
+// Claude subscription token is kept, when allowed, for an Anthropic model: it is then the
+// upstream credential, which the engine forwards to Anthropic for Claude Code requests
+// instead of choosing a configured key.
+func (b *bifrostProviderBackend) stripCallerCredentials(req *http.Request, model *v1.Model) {
+	subscription := b.subscriptionPassthrough && model != nil &&
+		strings.HasPrefix(model.Spec.Manifest.TargetModel, "anthropic/") &&
+		isAnthropicOAuthBearer(req.Header.Get("Authorization"))
+	for _, h := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie", guardrails.HeaderRequestToken, HeaderObotAPIKey} {
+		if subscription && h == "Authorization" {
+			continue
+		}
 		req.Header.Del(h)
 	}
 	// Never let callers pick a virtual key or smuggle log metadata of their own.
@@ -312,6 +329,12 @@ func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayCli
 			req.Header.Del(name)
 		}
 	}
+}
+
+// decorateRequest removes the caller's Obot credential and adds the identity headers
+// Bifrost uses for request logs and caching, and the guardrails token.
+func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (func(), error) {
+	b.stripCallerCredentials(req, model)
 	for client, engine := range clientGatewayHeaders {
 		if v := req.Header.Get(client); v != "" {
 			req.Header.Set(engine, v)

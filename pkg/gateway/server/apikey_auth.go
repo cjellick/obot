@@ -151,9 +151,17 @@ func (a *APIKeyAuthenticator) authenticateHostedAgent(req *http.Request, instanc
 	}, true, nil
 }
 
+// HeaderObotAPIKey carries an Obot API key alongside another credential.
+const HeaderObotAPIKey = "X-Obot-Api-Key"
+
 // AuthenticateRequest implements authenticator.Request.
 func (a *APIKeyAuthenticator) AuthenticateRequest(req *http.Request) (*authenticator.Response, bool, error) {
-	authHeader := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	// X-Obot-Api-Key lets a client whose Authorization header carries another credential,
+	// such as Claude Code signed in with a Claude subscription, send its Obot API key too.
+	authHeader := req.Header.Get(HeaderObotAPIKey)
+	if authHeader == "" {
+		authHeader = strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	}
 	if authHeader == "" {
 		authHeader = req.Header.Get("X-API-Key")
 		if authHeader == "" {
