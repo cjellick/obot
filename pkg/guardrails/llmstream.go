@@ -316,9 +316,12 @@ func (s *streamState) finalText(d Decision) map[string]string {
 
 // rewriteField sets a field to what clients receive: nothing while blanking (final == nil);
 // for a delta, the part's complete text on its first delta and nothing on later ones; for a
-// complete-text field, the part's complete text.
+// complete-text field, the part's complete text. An empty complete-text field stays empty: it
+// starts a part (an output item before its deltas) rather than repeating it, and filling it
+// would deliver the text twice, since some clients' converters stream a non-empty starting
+// item's text before its deltas.
 func rewriteField(f textField, final map[string]string, emitted map[string]bool) {
-	if f.text == nil {
+	if f.text == nil || (final != nil && !f.delta && *f.text == "") {
 		return
 	}
 	if final == nil {
