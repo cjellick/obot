@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
 )
@@ -228,5 +231,51 @@ func TestEngineError(t *testing.T) {
 				t.Errorf("engineError = %d %q, want %d %q", httpErr.Code, httpErr.Message, tt.code, tt.wantMessage)
 			}
 		})
+	}
+}
+
+// A change the gateway's store refused because it was busy is sent again until it goes
+// through, and given up on, with the store's answer, once retrying takes too long.
+func TestServeRetryingBusyStore(t *testing.T) {
+	respond := func(code int, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		rec.WriteHeader(code)
+		_, _ = rec.WriteString(body)
+		return rec
+	}
+	const busy = `{"error":{"message":"failed to update provider key in store: database is locked"}}`
+
+	calls := 0
+	rec, err := serveRetryingBusyStore(context.Background(), func() (*httptest.ResponseRecorder, error) {
+		calls++
+		if calls < 3 {
+			return respond(http.StatusInternalServerError, busy), nil
+		}
+		return respond(http.StatusOK, `{}`), nil
+	})
+	if err != nil || rec.Code != http.StatusOK || calls != 3 {
+		t.Fatalf("got %v, %d after %d calls; want 200 on the third", err, rec.Code, calls)
+	}
+
+	calls = 0
+	rec, _ = serveRetryingBusyStore(context.Background(), func() (*httptest.ResponseRecorder, error) {
+		calls++
+		return respond(http.StatusInternalServerError, `{"error":{"message":"failed to start"}}`), nil
+	})
+	if rec.Code != http.StatusInternalServerError || calls != 1 {
+		t.Fatalf("another failure was retried: %d calls", calls)
+	}
+
+	old := busyStoreRetryTimeout
+	busyStoreRetryTimeout = 500 * time.Millisecond
+	defer func() { busyStoreRetryTimeout = old }()
+	calls = 0
+	start := time.Now()
+	rec, _ = serveRetryingBusyStore(context.Background(), func() (*httptest.ResponseRecorder, error) {
+		calls++
+		return respond(http.StatusInternalServerError, busy), nil
+	})
+	if rec.Code != http.StatusInternalServerError || calls < 2 || time.Since(start) > 2*time.Second {
+		t.Fatalf("got %d after %d calls in %s; want the busy answer once the retry time runs out", rec.Code, calls, time.Since(start))
 	}
 }

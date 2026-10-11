@@ -81,6 +81,10 @@ type Options struct {
 	// request (see registerLLMPlugins). The gateway fails to start if they can't be, so it
 	// never serves traffic without them.
 	FirstPlugin, LastPlugin schemas.LLMPlugin
+	// CurrentRevision, when set, returns the shared configuration revision. The engine reads
+	// it before it boots, so it knows it already has everything up to that revision and
+	// doesn't boot a second time to catch up.
+	CurrentRevision func(context.Context) (int64, error)
 }
 
 // SharedKeyStore stores the gateway's encryption key for every replica.
@@ -209,6 +213,18 @@ func New() *Engine {
 func (e *Engine) Start(ctx context.Context, opts Options) error {
 	e.startOnce.Do(func() {
 		e.runCtx, e.opts = ctx, opts
+		// Read before booting: the stores then hold at least this revision's configuration.
+		var booted int64
+		if opts.CurrentRevision != nil {
+			revCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			var err error
+			if booted, err = opts.CurrentRevision(revCtx); err != nil {
+				// Without it, the first reload catches up instead.
+				slog.Warn("failed to read the LLM gateway configuration revision before starting", "error", err)
+				booted = 0
+			}
+			cancel()
+		}
 		inst, err := e.boot(ctx, opts)
 		if err != nil {
 			e.startErr = err
@@ -216,6 +232,7 @@ func (e *Engine) Start(ctx context.Context, opts Options) error {
 			close(e.ready)
 			return
 		}
+		e.raiseApplied(booted)
 		e.pendingLock.Lock()
 		e.inst.Store(inst)
 		close(e.ready)
@@ -561,8 +578,26 @@ func (e *Engine) Client() *bifrostcore.Bifrost {
 	return e.inst.Load().server.Client
 }
 
-// Do sends a request to the embedded server's API and decodes a JSON response into out.
+// Do sends a request to the embedded server's API and decodes a JSON response into out. A
+// write the store refused because it was busy is sent again, for up to 30 seconds (see
+// IsStoreBusy).
 func (e *Engine) Do(ctx context.Context, method, path string, body any, out any) error {
+	deadline := time.Now().Add(30 * time.Second)
+	for delay := 100 * time.Millisecond; ; delay = min(delay*2, 2*time.Second) {
+		err := e.do(ctx, method, path, body, out)
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || !IsStoreBusy(apiErr.StatusCode, []byte(apiErr.Message)) || time.Now().Add(delay).After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(delay):
+		}
+	}
+}
+
+func (e *Engine) do(ctx context.Context, method, path string, body any, out any) error {
 	if !e.Ready() {
 		if err := e.Err(); err != nil {
 			return fmt.Errorf("LLM gateway failed to start: %w", err)

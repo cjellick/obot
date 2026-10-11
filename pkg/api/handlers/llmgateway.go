@@ -14,6 +14,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
@@ -135,20 +136,30 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 		// replicas even if the client goes away, so the client can't cancel it midway.
 		ctx = context.WithoutCancel(ctx)
 	}
-	out, err := http.NewRequestWithContext(ctx, req.Method, (&url.URL{Path: "/api/" + path, RawQuery: req.URL.RawQuery}).String(), bytes.NewReader(body))
-	if err != nil {
-		return err
+	serve := func() (*httptest.ResponseRecorder, error) {
+		out, err := http.NewRequestWithContext(ctx, req.Method, (&url.URL{Path: "/api/" + path, RawQuery: req.URL.RawQuery}).String(), bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		if ct := req.Request.Header.Get("Content-Type"); ct != "" {
+			out.Header.Set("Content-Type", ct)
+		}
+		out.Header.Set("Accept", "application/json")
+		rec := httptest.NewRecorder()
+		h.engine.ServeHTTP(rec, out)
+		return rec, nil
 	}
-	if ct := req.Request.Header.Get("Content-Type"); ct != "" {
-		out.Header.Set("Content-Type", ct)
-	}
-	out.Header.Set("Accept", "application/json")
 
-	rec := httptest.NewRecorder()
+	var rec *httptest.ResponseRecorder
 	if req.Method == http.MethodGet {
-		h.engine.ServeHTTP(rec, out)
+		if rec, err = serve(); err != nil {
+			return err
+		}
 	} else if err := h.change(ctx, req, func() (bool, bool) {
-		h.engine.ServeHTTP(rec, out)
+		rec, err = serveRetryingBusyStore(ctx, serve)
+		if err != nil {
+			return false, false
+		}
 		switch {
 		case rec.Code < 300:
 			h.afterMutation(ctx, req, path)
@@ -163,6 +174,8 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 		}
 	}); err != nil {
 		return types.NewErrHTTP(http.StatusInternalServerError, bifrost.ScrubEngineName(err.Error()))
+	} else if err != nil {
+		return err
 	}
 
 	if rec.Code >= http.StatusBadRequest {
@@ -179,6 +192,28 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	req.WriteHeader(rec.Code)
 	_, err = req.ResponseWriter.Write(rec.Body.Bytes())
 	return err
+}
+
+// busyStoreRetryTimeout bounds how long a change waits for the gateway's store.
+var busyStoreRetryTimeout = 30 * time.Second
+
+// serveRetryingBusyStore sends a change to the gateway, and sends it again while the gateway's
+// store reports it is busy. With SQLite, a write fails at once while the gateway writes its
+// model catalog, which it does for a few seconds after every start or reload. The gateway
+// undoes a change whose store write failed, so sending it again is safe.
+func serveRetryingBusyStore(ctx context.Context, serve func() (*httptest.ResponseRecorder, error)) (*httptest.ResponseRecorder, error) {
+	deadline := time.Now().Add(busyStoreRetryTimeout)
+	for delay := 100 * time.Millisecond; ; delay = min(delay*2, 2*time.Second) {
+		rec, err := serve()
+		if err != nil || !bifrost.IsStoreBusy(rec.Code, rec.Body.Bytes()) || time.Now().Add(delay).After(deadline) {
+			return rec, err
+		}
+		select {
+		case <-ctx.Done():
+			return rec, nil
+		case <-time.After(delay):
+		}
+	}
 }
 
 // engineError turns an error response from the engine's API into an Obot API error carrying

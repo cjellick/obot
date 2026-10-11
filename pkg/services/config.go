@@ -36,6 +36,7 @@ import (
 	"github.com/obot-platform/obot/pkg/api/server/ratelimiter"
 	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/bootstrap"
+	"github.com/obot-platform/obot/pkg/controller/handlers/providerconfigurationchange"
 	"github.com/obot-platform/obot/pkg/encryption"
 	"github.com/obot-platform/obot/pkg/gateway/client"
 	"github.com/obot-platform/obot/pkg/gateway/db"
@@ -1145,6 +1146,9 @@ func New(ctx context.Context, config Config) (*Services, error) {
 				// Guardrails are part of the gateway: it doesn't serve until they're in place.
 				FirstPlugin: guardrailInput,
 				LastPlugin:  guardrailOutput,
+				CurrentRevision: func(ctx context.Context) (int64, error) {
+					return providerconfigurationchange.CurrentLLMGatewayRevision(ctx, storageClient)
+				},
 			})
 		}()
 	}

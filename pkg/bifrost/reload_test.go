@@ -149,3 +149,35 @@ func TestFailedReloadKeepsTheRunningGateway(t *testing.T) {
 		t.Fatalf("the running gateway must keep serving: %d %s", code, body)
 	}
 }
+
+// An engine that read the configuration revision before booting already has everything up
+// to it, so catching up to that revision at startup doesn't boot it again.
+func TestStartRecordsTheRevisionItBootedFrom(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	e := New()
+	if err := e.Start(ctx, Options{
+		DataDir:         t.TempDir(),
+		CurrentRevision: func(context.Context) (int64, error) { return 7, nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded, err := e.Reload(7); err != nil || reloaded {
+		t.Fatalf("Reload(7) = %v, %v; want no reload of the revision it booted from", reloaded, err)
+	}
+	if reloaded, err := e.Reload(8); err != nil || !reloaded {
+		t.Fatalf("Reload(8) = %v, %v; want a reload of a newer revision", reloaded, err)
+	}
+
+	// When the revision can't be read, the first reload catches up instead.
+	f := New()
+	if err := f.Start(ctx, Options{
+		DataDir:         t.TempDir(),
+		CurrentRevision: func(context.Context) (int64, error) { return 0, errors.New("not ready") },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded, err := f.Reload(7); err != nil || !reloaded {
+		t.Fatalf("Reload(7) = %v, %v; want a reload", reloaded, err)
+	}
+}
