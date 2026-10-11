@@ -28,58 +28,21 @@ const clientConfig = {
 
 const frameworkConfig = { pricing_sync_interval: 86400 };
 
-const semanticCachePlugin = {
-	name: 'semantic_cache',
-	enabled: true,
-	config: {
-		provider: 'openai',
-		embedding_model: 'text-embedding-3-large',
-		dimension: 3072,
-		ttl: '10m',
-		threshold: 0.9,
-		cache_by_model: true,
-		cache_by_provider: false,
-		exclude_system_prompt: true
-	},
-	status: { status: 'active' }
-};
-
-function mockGateway({
-	status = readyStatus,
-	cacheConnected = true,
-	plugins = [] as unknown[]
-}: { status?: typeof readyStatus; cacheConnected?: boolean; plugins?: unknown[] } = {}) {
+function mockGateway({ status = readyStatus }: { status?: typeof readyStatus } = {}) {
 	worker.use(
 		http.get('/api/llm-gateway/status', () => HttpResponse.json(status)),
 		http.get('/api/llm-gateway/admin/config', () =>
 			HttpResponse.json({
 				client_config: clientConfig,
 				framework_config: frameworkConfig,
-				is_cache_connected: cacheConnected,
 				is_logs_connected: true
 			})
 		),
-		http.get('/api/llm-gateway/admin/plugins', () => HttpResponse.json({ plugins })),
-		// The single Save also writes the cache plugin; specs that care override these.
-		http.post('/api/llm-gateway/admin/plugins', () => HttpResponse.json({})),
-		http.put('/api/llm-gateway/admin/plugins/:name', () => HttpResponse.json({})),
 		http.put('/api/llm-gateway/admin/config', () => HttpResponse.json({})),
 		http.get('/api/llm-gateway/settings', () =>
 			HttpResponse.json({ subscriptionPassthrough: false })
 		),
-		http.put('/api/llm-gateway/settings', () => HttpResponse.json({})),
-		http.get('/api/llm-gateway/admin/providers', () =>
-			HttpResponse.json({
-				providers: [
-					{
-						name: 'openai',
-						network_config: {},
-						concurrency_and_buffer_size: { concurrency: 1000, buffer_size: 5000 }
-					}
-				],
-				total: 1
-			})
-		)
+		http.put('/api/llm-gateway/settings', () => HttpResponse.json({}))
 	);
 }
 
@@ -152,7 +115,7 @@ describe('Models gateway settings tab', () => {
 		await save().click();
 
 		await vi.waitFor(() => expect(saved).toHaveBeenCalledOnce());
-		// The cache plugin write follows; let it finish so it can't reach the next test's mocks.
+		// The settings write follows; let it finish so it can't reach the next test's mocks.
 		await expect.element(save()).toBeEnabled();
 		expect(saved).toHaveBeenCalledWith({
 			client_config: {
@@ -181,157 +144,12 @@ describe('Models gateway settings tab', () => {
 		await save().click();
 
 		await vi.waitFor(() => expect(saved).toHaveBeenCalledOnce());
-		// The cache plugin write follows; let it finish so it can't reach the next test's mocks.
+		// The settings write follows; let it finish so it can't reach the next test's mocks.
 		await expect.element(save()).toBeEnabled();
 		expect(saved).toHaveBeenCalledWith({
 			client_config: { ...clientConfig, enable_logging: false },
 			framework_config: frameworkConfig
 		});
-	});
-
-	it('creates the cache plugin with exact-match settings and no shared cache key', async () => {
-		mockGateway();
-		const created = vi.fn();
-		const updated = vi.fn();
-		worker.use(
-			http.post('/api/llm-gateway/admin/plugins', async ({ request }) => {
-				created(await request.json());
-				return HttpResponse.json({});
-			}),
-			http.put('/api/llm-gateway/admin/plugins/:name', () => {
-				updated();
-				return HttpResponse.json({});
-			})
-		);
-		await renderSettingsPage();
-
-		const enableCaching = page.getByRole('switch', { name: 'Enable caching' });
-		await enableCaching.click();
-		await expect.element(enableCaching).toBeChecked();
-		await save().click();
-
-		await vi.waitFor(() => expect(created).toHaveBeenCalledOnce());
-		expect(updated).not.toHaveBeenCalled();
-		expect(created).toHaveBeenCalledWith({
-			name: 'semantic_cache',
-			enabled: true,
-			config: {
-				ttl: '5m',
-				cache_by_model: true,
-				cache_by_provider: true,
-				exclude_system_prompt: false,
-				conversation_history_threshold: 3,
-				vector_store_namespace: 'ObotLLMGatewayCache',
-				default_cache_key: '',
-				dimension: 1
-			}
-		});
-	});
-
-	it('updates an existing semantic cache plugin with its embedding settings', async () => {
-		mockGateway({ plugins: [semanticCachePlugin] });
-		const updated = vi.fn();
-		worker.use(
-			http.put('/api/llm-gateway/admin/plugins/:name', async ({ params, request }) => {
-				updated(params.name, await request.json());
-				return HttpResponse.json({});
-			})
-		);
-		await renderSettingsPage();
-
-		await expect.element(page.getByRole('switch', { name: 'Enable caching' })).toBeChecked();
-		await expect.element(page.getByText('Plugin status: active')).toBeInTheDocument();
-		await expect
-			.element(page.getByLabelText('Embedding model'))
-			.toHaveValue('text-embedding-3-large');
-		await page.getByLabelText('Similarity threshold (0–1)').fill('0.95');
-		await save().click();
-
-		await vi.waitFor(() => expect(updated).toHaveBeenCalledOnce());
-		expect(updated).toHaveBeenCalledWith('semantic_cache', {
-			name: 'semantic_cache',
-			enabled: true,
-			config: {
-				ttl: '10m',
-				cache_by_model: true,
-				cache_by_provider: false,
-				exclude_system_prompt: true,
-				conversation_history_threshold: 3,
-				vector_store_namespace: 'ObotLLMGatewayCache',
-				default_cache_key: '',
-				provider: 'openai',
-				embedding_model: 'text-embedding-3-large',
-				dimension: 3072,
-				threshold: 0.95
-			}
-		});
-	});
-
-	it('explains how to enable caching when no cache server is connected', async () => {
-		mockGateway({ cacheConnected: false });
-		await renderSettingsPage();
-
-		await expect
-			.element(page.getByText('Caching needs a Redis or Valkey server.', { exact: false }))
-			.toBeInTheDocument();
-		await expect
-			.element(page.getByRole('switch', { name: 'Enable caching' }))
-			.not.toBeInTheDocument();
-	});
-
-	it('saves the general settings and the cache plugin with one Save', async () => {
-		mockGateway();
-		const saved = vi.fn();
-		const created = vi.fn();
-		worker.use(
-			http.put('/api/llm-gateway/admin/config', async ({ request }) => {
-				saved(await request.json());
-				return HttpResponse.json({});
-			}),
-			http.post('/api/llm-gateway/admin/plugins', async ({ request }) => {
-				created(await request.json());
-				return HttpResponse.json({});
-			})
-		);
-		await renderSettingsPage();
-
-		await page.getByLabelText('Log retention (days)').fill('14');
-		const enableCaching = page.getByRole('switch', { name: 'Enable caching' });
-		await enableCaching.click();
-		await expect.element(enableCaching).toBeChecked();
-		await save().click();
-
-		await vi.waitFor(() => expect(created).toHaveBeenCalledOnce());
-		expect(saved).toHaveBeenCalledWith(
-			expect.objectContaining({
-				client_config: expect.objectContaining({ log_retention_days: 14 })
-			})
-		);
-		expect(created).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
-	});
-
-	it('does not write the cache plugin when no cache server is connected', async () => {
-		mockGateway({ cacheConnected: false });
-		const saved = vi.fn();
-		const created = vi.fn();
-		worker.use(
-			http.put('/api/llm-gateway/admin/config', async ({ request }) => {
-				saved(await request.json());
-				return HttpResponse.json({});
-			}),
-			http.post('/api/llm-gateway/admin/plugins', () => {
-				created();
-				return HttpResponse.json({});
-			})
-		);
-		await renderSettingsPage();
-
-		await save().click();
-
-		await vi.waitFor(() => expect(saved).toHaveBeenCalledOnce());
-		// The cache plugin write follows; let it finish so it can't reach the next test's mocks.
-		await expect.element(save()).toBeEnabled();
-		expect(created).not.toHaveBeenCalled();
 	});
 
 	it('shows settings read-only to auditors', async () => {
@@ -340,7 +158,9 @@ describe('Models gateway settings tab', () => {
 
 		await expect.element(page.getByRole('switch', { name: 'Log requests' })).toBeDisabled();
 		await expect.element(page.getByLabelText('Log retention (days)')).toBeDisabled();
-		await expect.element(page.getByRole('switch', { name: 'Enable caching' })).toBeDisabled();
+		await expect
+			.element(page.getByRole('switch', { name: 'Allow Claude subscriptions' }))
+			.toBeDisabled();
 		await expect
 			.element(page.getByRole('button', { name: 'Save', exact: true }))
 			.not.toBeInTheDocument();

@@ -43,6 +43,16 @@ func TestAllowedBifrostAPIPath(t *testing.T) {
 			escaped: "/api/llm-gateway/admin/governance/virtual-keys",
 		},
 		{
+			name:    "plugins are not exposed",
+			raw:     "plugins/obot-guardrails-input",
+			escaped: "/api/llm-gateway/admin/plugins/obot-guardrails-input",
+		},
+		{
+			name:    "the response cache is not exposed",
+			raw:     "cache/clear",
+			escaped: "/api/llm-gateway/admin/cache/clear",
+		},
+		{
 			name:    "hidden api",
 			raw:     "mcp/clients",
 			escaped: "/api/llm-gateway/admin/mcp/clients",

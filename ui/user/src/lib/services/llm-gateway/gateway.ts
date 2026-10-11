@@ -530,7 +530,7 @@ export async function getRankings(filters: LogFilters, opts?: Opts): Promise<Mod
 	return resp.rankings ?? [];
 }
 
-// ---------- Settings & plugins ----------
+// ---------- Settings ----------
 
 export interface ClientConfig {
 	drop_excess_requests: boolean;
@@ -551,26 +551,6 @@ export async function updateConfig(
 	opts?: Opts
 ): Promise<void> {
 	await doPut(`${B}/config`, body, opts);
-}
-
-export interface Plugin {
-	name: string;
-	enabled: boolean;
-	config?: Record<string, unknown>;
-	status?: { status?: string; logs?: string[] };
-}
-
-export async function listPlugins(opts?: Opts): Promise<Plugin[]> {
-	const resp = (await doGet(`${B}/plugins`, opts)) as { plugins: Plugin[] | null };
-	return resp.plugins ?? [];
-}
-
-export async function upsertPlugin(plugin: Plugin, exists: boolean, opts?: Opts): Promise<void> {
-	if (exists) {
-		await doPut(`${B}/plugins/${encodeURIComponent(plugin.name)}`, plugin, opts);
-	} else {
-		await doPost(`${B}/plugins`, plugin, opts);
-	}
 }
 
 // ---------- Helpers ----------

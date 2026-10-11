@@ -1,6 +1,6 @@
 //go:build e2e
 
-// Package harness runs real Obot server processes, with their Postgres and Redis containers
+// Package harness runs real Obot server processes, with their Postgres containers
 // and in-process mock upstreams, for end-to-end tests.
 package harness
 
@@ -121,23 +121,4 @@ func (p *Postgres) Exec(ctx context.Context, db, sql string) (string, error) {
 // DSN returns the DSN of db for a process on the host.
 func (p *Postgres) DSN(db string) string {
 	return fmt.Sprintf("postgres://postgres:%s@127.0.0.1:%d/%s?sslmode=disable", p.Password, p.HostPort, db)
-}
-
-// StartRedis starts a Redis container with the query engine (needed for the gateway's
-// response cache) and waits for it.
-func StartRedis(ctx context.Context, name string) (*Container, error) {
-	c, err := StartContainer(ctx, name, "redis:8-alpine", 6379, nil)
-	if err != nil {
-		return nil, err
-	}
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		if out, err := docker(ctx, "exec", name, "redis-cli", "ping"); err == nil && strings.Contains(out, "PONG") {
-			return c, nil
-		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("redis %s did not become ready", name)
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
 }

@@ -45,7 +45,7 @@ Administrators manage the gateway from these pages:
 | **Guardrails** | **Detectors** configure the checks that guardrails run, for model rules and for [guardrail filters](./filters.md#guardrail-filters) on MCP traffic, with built-in secrets, PII and LLM-judge checks and integrations with Presidio, Azure AI Language and Content Safety, AWS Bedrock Guardrails, Google Model Armor, Check Point (Lakera), Patronus and CrowdStrike AIDR; **Events** lists what guardrails blocked, redacted or logged in model and MCP traffic. See [Guardrails](./guardrails.md). |
 | **Models** → **Routing** | Rules that match requests with a [CEL](https://github.com/google/cel-spec) expression (over `model`, `provider`, `headers`, ...) and send them to other providers or models, split traffic by weight, or define fallback chains. See [Routing rules and fallbacks](#routing-rules-and-fallbacks). |
 | **Audit Logs** → **Gateway Requests** | Every routed request with its user, provider, key, retries, fallbacks, tokens, cost, latency and content. |
-| **Models** → **Settings** | Request logging and retention, content logging, queueing behavior, and response caching. |
+| **Models** → **Settings** | Request logging and retention, content logging, queueing behavior, and whether Claude subscriptions may be used. |
 
 Prometheus metrics for the gateway (requests, latency, tokens and cost by provider, model, key and budget) are served at `GET /api/llm-gateway/metrics` (metric names start with `obot_llm_gateway_`) to administrators, auditors and credentials allowed to read `/debug/metrics`.
 
@@ -62,7 +62,6 @@ Models from gateway providers are listed on the **Models** page under the *LLM G
 | `--llm-gateway-log-retention-days` / `OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS` | Days of request logs to keep (default 30). |
 | `--llm-gateway-log-level` / `OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL` | Log level for the embedded gateway (default `warn`). |
 | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Obot routes gateway providers through the environment's egress proxy, except endpoints `NO_PROXY` excludes or that are on localhost. A proxy set on a provider explicitly takes precedence. |
-| `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` / `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_ADDR`, `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_PASSWORD` | Redis or Valkey server used for response caching. Cached responses are kept per user; clients can send `X-Obot-Cache-TTL` or `X-Obot-Cache-No-Store` to tune a request. |
 
 ## Routing rules and fallbacks
 

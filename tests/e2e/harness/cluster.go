@@ -27,8 +27,6 @@ type ClusterOptions struct {
 	Name string
 	// Dir holds replica working directories and logs.
 	Dir string
-	// Redis starts a Redis container for the gateway's response cache.
-	Redis bool
 	// PretendContainer sets FakeDocker.PretendContainer.
 	PretendContainer bool
 }
@@ -38,7 +36,6 @@ type Cluster struct {
 	Name       string
 	Dir        string
 	PG         *Postgres
-	Redis      *Container
 	Docker     *FakeDocker
 	DB         string
 	SetupToken string
@@ -47,7 +44,7 @@ type Cluster struct {
 	replicas []*Replica
 }
 
-// NewCluster starts Postgres (and Redis) containers and the fake docker API. Replicas are
+// NewCluster starts a Postgres container and the fake docker API. Replicas are
 // started with StartReplica.
 func NewCluster(ctx context.Context, opts ClusterOptions) (*Cluster, error) {
 	c := &Cluster{
@@ -72,17 +69,11 @@ func NewCluster(ctx context.Context, opts ClusterOptions) (*Cluster, error) {
 		c.Close()
 		return nil, err
 	}
-	if opts.Redis {
-		if c.Redis, err = StartRedis(ctx, opts.Name+"-redis"); err != nil {
-			c.Close()
-			return nil, err
-		}
-	}
 	return c, nil
 }
 
 // ReplicaArgs are flags every replica gets: authentication with the initial owner, remote
-// MCP servers on localhost allowed, the fake docker API and the cache's Redis.
+// MCP servers on localhost allowed and the fake docker API.
 func (c *Cluster) replicaConfig(name, binary string, args []string, env map[string]string) ReplicaConfig {
 	e := map[string]string{
 		"OBOT_SERVER_ENABLE_AUTHENTICATION":                "true",
@@ -93,9 +84,6 @@ func (c *Cluster) replicaConfig(name, binary string, args []string, env map[stri
 	}
 	maps.Copy(e, env)
 	a := []string{"--disallow-localhost-mcp=false", "--disallow-private-ipmcp=false"}
-	if c.Redis != nil {
-		a = append(a, "--llm-gateway-cache-redis-addr", fmt.Sprintf("127.0.0.1:%d", c.Redis.HostPort))
-	}
 	a = append(a, args...)
 	return ReplicaConfig{
 		Name:   name,
@@ -150,9 +138,6 @@ func (c *Cluster) Close() error {
 	}
 	if c.PG != nil {
 		errs = append(errs, RemoveContainer(c.PG.Name))
-	}
-	if c.Redis != nil {
-		errs = append(errs, RemoveContainer(c.Redis.Name))
 	}
 	if c.Docker != nil {
 		c.Docker.Close()

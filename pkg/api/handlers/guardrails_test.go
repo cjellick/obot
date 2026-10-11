@@ -58,28 +58,3 @@ func TestCheckDestinationChange(t *testing.T) {
 		})
 	}
 }
-
-func TestCheckPluginChange(t *testing.T) {
-	tests := []struct {
-		name    string
-		method  string
-		path    string
-		body    string
-		wantErr bool
-	}{
-		{name: "list plugins", method: "GET", path: "plugins"},
-		{name: "configure the cache", method: "PUT", path: "plugins/semantic_cache", body: `{"enabled":true}`},
-		{name: "create the cache", method: "POST", path: "plugins", body: `{"name":"semantic_cache"}`},
-		{name: "disable guardrails", method: "PUT", path: "plugins/obot-guardrails-input", body: `{"enabled":false}`, wantErr: true},
-		{name: "delete guardrails", method: "DELETE", path: "plugins/obot-guardrails-output", wantErr: true},
-		{name: "replace guardrails", method: "POST", path: "plugins", body: `{"name":"obot-guardrails-input"}`, wantErr: true},
-		{name: "other APIs are unaffected", method: "PUT", path: "config", body: `{}`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := checkPluginChange(tt.method, tt.path, []byte(tt.body)); (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}

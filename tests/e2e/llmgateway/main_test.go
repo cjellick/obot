@@ -133,9 +133,8 @@ func run(m *testing.M) (int, error) {
 	e.mock.SetModels(anthropicKey, anthropicModels...)
 
 	e.cluster, err = harness.NewCluster(ctx, harness.ClusterOptions{
-		Name:  "obot-e2e-" + harness.RandomSuffix(),
-		Dir:   dir,
-		Redis: true,
+		Name: "obot-e2e-" + harness.RandomSuffix(),
+		Dir:  dir,
 	})
 	if err != nil {
 		return 1, err

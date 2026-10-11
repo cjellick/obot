@@ -33,13 +33,9 @@ import (
 var (
 	// clientGatewayHeaders are the request headers callers may use to tune the gateway for
 	// their own requests, and the engine headers they map to. Everything else the engine reads
-	// from headers (log metadata, direct keys, cache keys) is controlled by Obot.
+	// from headers (log metadata, direct keys) is controlled by Obot.
 	clientGatewayHeaders = map[string]string{
-		"X-Obot-Cache-TTL":       "x-bf-cache-ttl",
-		"X-Obot-Cache-Threshold": "x-bf-cache-threshold",
-		"X-Obot-Cache-Type":      "x-bf-cache-type",
-		"X-Obot-Cache-No-Store":  "x-bf-cache-no-store",
-		"X-Obot-Session-ID":      "x-bf-session-id",
+		"X-Obot-Session-ID": "x-bf-session-id",
 	}
 )
 
@@ -458,9 +454,6 @@ func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api
 	}
 
 	ownerID := principal.ResourceOwnerID(user)
-	// Cache entries are scoped per user so one user's cached response is never served to
-	// another. This only takes effect when an admin enables the cache.
-	req.Header.Set(bifrost.HeaderCacheKey, "obot-user-"+ownerID)
 	req.Header.Set(bifrost.HeaderLogUserID, ownerID)
 	req.Header.Set(bifrost.HeaderDimUser, ownerID)
 	if name := user.GetName(); name != "" {

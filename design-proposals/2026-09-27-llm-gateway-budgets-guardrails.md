@@ -10,8 +10,7 @@ gateway engine is [Bifrost](https://github.com/maximhq/bifrost)
 (Apache-2.0, Go), embedded in the Obot process as a library. Obot keeps
 authentication, model access policies, auditing and usage tracking in front of
 the engine. Bifrost handles provider routing, key load balancing, retries,
-fallbacks, API-format translation, routing rules, response caching and request
-logging. Bifrost is an implementation detail: no Obot path, model ID, header or
+fallbacks, API-format translation, routing rules and request logging. Bifrost is an implementation detail: no Obot path, model ID, header or
 metric names it.
 
 Two capabilities that Bifrost only offers in its Enterprise edition are built
@@ -57,8 +56,7 @@ dedicated LLM gateways offer:
 
 - load balancing across several keys, with retries and fallbacks;
 - routing rules and traffic splitting;
-- spend budgets rather than a single daily token quota;
-- response caching; and
+- spend budgets rather than a single daily token quota; and
 - per-request logs with cost and latency.
 
 Clients are also tied to one API format per provider. Claude Code can't use a
@@ -155,7 +153,7 @@ flowchart LR
         proxy["Obot LLM proxy<br/>auth, model access,<br/>budgets, audit, usage"]
         subgraph engine["Embedded gateway engine (Bifrost)"]
             gin[guardrails input plugin]
-            builtin["built-in plugins<br/>routing, logging,<br/>cache, telemetry"]
+            builtin["built-in plugins<br/>routing, logging,<br/>telemetry"]
             gout[guardrails output plugin]
         end
         ge[Guardrail engine]
@@ -250,10 +248,6 @@ The request flows through these steps:
    gets `429`, naming the budget and when more becomes available.
 5. **Decorate the request:**
    - The caller's identity goes into the engine's log headers.
-   - A per-user cache key is added, so cached responses are never shared
-     between users.
-   - `X-Obot-Cache-TTL` and `X-Obot-Cache-No-Store` are mapped to the engine's
-     cache headers.
    - The caller is bound to a guardrail token (see
      [Guardrails](#guardrails-on-llm-traffic)).
 6. **Forward** to the engine. It runs its input plugins, routing rules, key
@@ -499,7 +493,7 @@ read `/debug/metrics`.
 | `GET /metrics` | The engine's Prometheus metrics, renamed `obot_llm_gateway_*` |
 | `POST /sync-models`, `POST /import-legacy-providers` | Actions |
 | `GET, POST /budgets`, `GET, PUT, DELETE /budgets/{id}`, `GET /budgets/{id}/usage` | Budgets |
-| `/admin/{path...}` | Guarded pass-through to the engine's management API: providers, keys, models, routing rules, pricing overrides, logs, config, plugins, cache, routing, pricing, proxy config, version. It blocks path traversal and rejects `env.`/`vault.` secret references, so the engine's host environment can't be exfiltrated through a provider key. |
+| `/admin/{path...}` | Guarded pass-through to the engine's management API: providers, keys, models, routing rules, pricing overrides, logs, config, routing, pricing, proxy config, version. The engine's plugin and cache APIs are not exposed: Obot's guardrail plugins must stay enabled, and response caching isn't offered. It blocks path traversal and rejects `env.`/`vault.` secret references, so the engine's host environment can't be exfiltrated through a provider key. |
 | `GET /guardrails/providers` | Profile types and their settings |
 | `GET, POST /guardrails/rules`, `GET, PUT, DELETE /guardrails/rules/{id}` | Rules (CEL is validated on save) |
 | `GET, POST /guardrails/profiles`, `GET, PUT, DELETE /guardrails/profiles/{id}` | Profiles. Secrets are write-only; an omitted secret keeps its value. Deleting a profile a rule uses returns `409`. |
@@ -533,7 +527,6 @@ Violations pages redirect to their guardrail equivalents.
 | `--llm-gateway-encryption-key` | generated into the data dir |
 | `--llm-gateway-log-retention-days` | `30` |
 | `--llm-gateway-log-level` | `warn` |
-| `--llm-gateway-cache-redis-addr`, `--llm-gateway-cache-redis-password` | caching off |
 
 The Helm chart's persistence note now also covers the gateway data dir.
 
@@ -566,7 +559,6 @@ The Helm chart's persistence note now also covers the gateway data dir.
   requires re-entering its credentials, so a stored credential can't be
   redirected to another host and read back through a test.
 - **Guardrail identity can't be spoofed** (see identity binding above).
-- **Cached responses are keyed per user.**
 - **Guardrail events never store the content** that triggered them. The LLM
   judge's free-text explanation is shown to the caller but not stored.
 

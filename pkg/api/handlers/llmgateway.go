@@ -6,13 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path"
-	"slices"
 	"strings"
 
 	"github.com/obot-platform/obot/apiclient/types"
@@ -27,12 +25,10 @@ import (
 )
 
 var (
-	// configurablePlugins are the gateway plugins administrators may create, change or remove.
-	configurablePlugins = []string{"semantic_cache"}
-
 	// allowedBifrostAPIPrefixes are the Bifrost management routes exposed through Obot. Bifrost
 	// also has MCP, skills, prompt repository, and session APIs; Obot has its own versions of
-	// those features, so they stay hidden.
+	// those features, so they stay hidden. Its plugins and response cache aren't exposed
+	// either: Obot's guardrail plugins must stay enabled, and responses aren't cached.
 	allowedBifrostAPIPrefixes = []string{
 		"providers",
 		"keys",
@@ -41,8 +37,6 @@ var (
 		"governance/pricing-overrides",
 		"logs",
 		"config",
-		"plugins",
-		"cache/",
 		"routing/",
 		"version",
 		"pricing/",
@@ -127,9 +121,6 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 			return err
 		}
 	}
-	if err := checkPluginChange(req.Method, path, body); err != nil {
-		return err
-	}
 
 	ctx := req.Context()
 	if req.Method != http.MethodGet {
@@ -200,28 +191,6 @@ func engineError(code int, body []byte) error {
 		message = http.StatusText(code)
 	}
 	return types.NewErrHTTP(code, bifrost.ScrubEngineName(message))
-}
-
-// checkPluginChange limits plugin changes to the plugins Obot lets administrators configure.
-// Other plugins, notably Obot's guardrail plugins, can't be disabled, deleted or replaced
-// through the pass-through; otherwise guardrails would stop while the Guardrails pages still
-// showed the rules as enabled.
-func checkPluginChange(method, path string, body []byte) error {
-	if method == http.MethodGet || (path != "plugins" && !strings.HasPrefix(path, "plugins/")) {
-		return nil
-	}
-	name := strings.TrimPrefix(strings.TrimPrefix(path, "plugins"), "/")
-	if name == "" {
-		var plugin struct {
-			Name string `json:"name"`
-		}
-		_ = json.Unmarshal(body, &plugin)
-		name = plugin.Name
-	}
-	if !slices.Contains(configurablePlugins, name) {
-		return types.NewErrHTTP(http.StatusForbidden, fmt.Sprintf("the %q plugin can't be changed through the LLM gateway API", name))
-	}
-	return nil
 }
 
 // allowedBifrostAPIPath validates the requested Bifrost API path against the allowlist. The

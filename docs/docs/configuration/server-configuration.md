@@ -101,8 +101,6 @@ The Obot server is configured via environment variables. The following configura
 | `OBOT_SERVER_LLM_GATEWAY_ENCRYPTION_KEY` | Key that encrypts LLM gateway provider credentials at rest. When unset, a key is generated: with Postgres it is stored in Obot's database and shared by every replica; with SQLite it is stored in the data dir. | generated |
 | `OBOT_SERVER_LLM_GATEWAY_LOG_RETENTION_DAYS` | Days of LLM gateway request logs to keep. | `30` |
 | `OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL` | Log level for the embedded LLM gateway (`debug`, `info`, `warn`, `error`). | `warn` |
-| `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_ADDR` | Redis or Valkey server the LLM gateway uses for response caching. Caching is unavailable without one. | - |
-| `OBOT_SERVER_LLM_GATEWAY_CACHE_REDIS_PASSWORD` | Password for the LLM gateway cache server. | - |
 | `OBOT_SERVER_ENABLE_HOSTED_AGENTS` | Enable Hosted Agents APIs and UI. Hosted Agents are unavailable unless this is explicitly set to `true`. | `false` |
 | `OBOT_SERVER_LICENSE_KEY` | A license key for Obot Enterprise. If set via configuration, the license key cannot be updated in the UI. | - |
 | `OBOT_ENABLE_AGENTS` | Controls whether [Obot Agent](../concepts/obot-agent.md) features (agents and workflows) are available. Tri-state: `true` force-enables them regardless of existing data, `false` force-disables them even if agents already exist, and when unset Obot enables them only if the deployment already has at least one agent. New deployments therefore start with Obot Agent disabled, while existing deployments that already use agents stay enabled across upgrades with no migration required. The effective value is resolved once at server startup. | unset |
