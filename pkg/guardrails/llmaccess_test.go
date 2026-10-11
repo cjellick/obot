@@ -42,11 +42,11 @@ func TestGatewayChecksRoutedModelAccess(t *testing.T) {
 	}
 
 	// The caller may use OpenAI models only.
-	openAIOnly := func(_ context.Context, model string) error {
-		if strings.HasPrefix(model, "openai/") {
+	openAIOnly := func(_ context.Context, attempt Attempt) error {
+		if strings.HasPrefix(attempt.Model, "openai/") {
 			return nil
 		}
-		return &AttemptError{Status: http.StatusForbidden, Type: "permission_denied", Message: fmt.Sprintf("user does not have permission to use model %q", model)}
+		return &AttemptError{Status: http.StatusForbidden, Type: "permission_denied", Message: fmt.Sprintf("user does not have permission to use model %q", attempt.Model)}
 	}
 	body := `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
 
@@ -95,7 +95,7 @@ func TestGatewayChecksRoutedModelAccess(t *testing.T) {
 		{
 			name:       "routed to a model the caller may use",
 			tier:       "premium",
-			access:     func(context.Context, string) error { return nil },
+			access:     func(context.Context, Attempt) error { return nil },
 			wantStatus: http.StatusOK,
 			wantModel:  "claude-opus-4-8",
 		},
@@ -125,8 +125,8 @@ func TestGatewayChecksRoutedModelAccess(t *testing.T) {
 
 // budgetSpentFor refuses models with prefix as an exhausted budget would.
 func budgetSpentFor(prefix string) AttemptCheck {
-	return func(_ context.Context, model string) error {
-		if strings.HasPrefix(model, prefix) {
+	return func(_ context.Context, attempt Attempt) error {
+		if strings.HasPrefix(attempt.Model, prefix) {
 			return &AttemptError{Status: http.StatusTooManyRequests, Type: "budget_exceeded", Message: "budget \"Opus\" exhausted"}
 		}
 		return nil
@@ -136,7 +136,7 @@ func budgetSpentFor(prefix string) AttemptCheck {
 // An unexpected failure while checking an attempt is an internal error, not a refusal.
 func TestGatewayAttemptCheckFailure(t *testing.T) {
 	gw, _ := startGateway(t, &fakeStore{})
-	failing := func(context.Context, string) error { return fmt.Errorf("informer not synced: secret detail") }
+	failing := func(context.Context, Attempt) error { return fmt.Errorf("informer not synced: secret detail") }
 	code, out := callWithAccess(t, gw, `{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`, "", failing)
 	if code != http.StatusInternalServerError || strings.Contains(out, "secret detail") {
 		t.Fatalf("got %d %s, want a 500 without the internal error", code, out)
@@ -157,4 +157,76 @@ func callWithAccess(t *testing.T, gw *bifrost.Engine, body, tier string, access 
 	gw.ServeHTTP(rec, req)
 	b, _ := io.ReadAll(rec.Body)
 	return rec.Code, string(b)
+}
+
+// The gateway reports an attempt as paid by the caller's Claude subscription only when it
+// forwards the caller's OAuth token instead of a configured key: Claude Code calling an
+// Anthropic model with a subscription token. Any other attempt, including a fallback to
+// another provider, uses a configured key.
+func TestGatewayFlagsSubscriptionAttempts(t *testing.T) {
+	gw, _ := startGateway(t, &fakeStore{})
+	const (
+		claudeCLI = "claude-cli/2.1.0 (external, cli)"
+		oauth     = "Bearer sk-ant-oat01-test"
+	)
+	messages := `{"model":"anthropic/claude-sonnet-4-5","max_tokens":100,"messages":[{"role":"user","content":"hello"}]%s}`
+
+	tests := []struct {
+		name         string
+		headers      map[string]string
+		extra        string
+		refuse       string
+		wantAttempts []Attempt
+	}{
+		{
+			name:         "Claude Code with a subscription token",
+			headers:      map[string]string{"User-Agent": claudeCLI, "Authorization": oauth},
+			wantAttempts: []Attempt{{Model: "anthropic/claude-sonnet-4-5", Subscription: true}},
+		},
+		{
+			name:         "Claude Code with a configured key",
+			headers:      map[string]string{"User-Agent": claudeCLI},
+			wantAttempts: []Attempt{{Model: "anthropic/claude-sonnet-4-5"}},
+		},
+		{
+			name:         "another client with a subscription token",
+			headers:      map[string]string{"User-Agent": "curl/8.0", "Authorization": oauth},
+			wantAttempts: []Attempt{{Model: "anthropic/claude-sonnet-4-5"}},
+		},
+		{
+			name:    "a fallback to another provider",
+			headers: map[string]string{"User-Agent": claudeCLI, "Authorization": oauth},
+			extra:   `,"fallbacks":["openai/gpt-4o-mini"]`,
+			refuse:  "anthropic/",
+			wantAttempts: []Attempt{
+				{Model: "anthropic/claude-sonnet-4-5", Subscription: true},
+				{Model: "openai/gpt-4o-mini"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var attempts []Attempt
+			record := func(_ context.Context, attempt Attempt) error {
+				attempts = append(attempts, attempt)
+				if tt.refuse != "" && strings.HasPrefix(attempt.Model, tt.refuse) {
+					return &AttemptError{Status: http.StatusTooManyRequests, Type: "budget_exceeded", Message: "budget exhausted"}
+				}
+				return nil
+			}
+			req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", strings.NewReader(fmt.Sprintf(messages, tt.extra)))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("anthropic-version", "2023-06-01")
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			token, release := BindRequest(Identity{UserID: "alice"}, record)
+			defer release()
+			req.Header.Set(HeaderRequestToken, token)
+			gw.ServeHTTP(httptest.NewRecorder(), req)
+			if fmt.Sprint(attempts) != fmt.Sprint(tt.wantAttempts) {
+				t.Fatalf("attempts %+v, want %+v", attempts, tt.wantAttempts)
+			}
+		})
+	}
 }

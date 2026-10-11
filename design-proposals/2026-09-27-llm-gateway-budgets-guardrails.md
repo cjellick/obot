@@ -293,8 +293,15 @@ when an administrator turns this on (`PUT /api/llm-gateway/settings`,
   Claude Code to Anthropic models, and only while the setting is on. It is
   stripped from every other request, so it never reaches another provider.
   Without the setting, caller credentials are always stripped.
-- **Controls.** Access policies, budgets, guardrails, the audit log and usage
-  apply as for any request. Spend budgets count these requests at list price.
+- **Controls.** Access policies, guardrails, the audit log and usage apply as
+  for any request.
+- **Budgets don't apply** to an attempt the caller's subscription pays for,
+  since budgets cap what Obot's provider keys spend. It isn't refused when a
+  budget is exhausted, and its usage isn't charged to any budget. An attempt
+  is exempt only when both sides agree. Obot must have kept the token for the
+  request, and the engine must forward it instead of choosing a configured
+  key, which it does only for Claude Code requests to Anthropic. A fallback or
+  routing target on another provider uses Obot's keys, so it is budgeted.
 
 ### Request path
 
@@ -791,9 +798,8 @@ available for custom logic.
     (Anthropic extended thinking) invalidates the signature, so a later turn
     that replays it may be rejected. Blocking instead would be equally
     disruptive. Revisit if this shows up in practice.
-12. **Spend budgets for subscription traffic.** Requests billed to a user's
-    Claude subscription count against spend budgets at list price. Should
-    they be exempt, or counted separately?
+12. **Budgets for subscription traffic.** Resolved: requests a user's Claude
+    subscription pays for are exempt from budgets.
 13. **Reload cost.** A reload re-bootstraps the engine (seconds, including
     provider model listing). Changes made in quick succession reload once per
     revision a replica sees. Each replica also reloads once at startup if the

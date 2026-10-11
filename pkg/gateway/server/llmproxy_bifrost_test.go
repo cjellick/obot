@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,8 +12,10 @@ import (
 	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
+	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/gateway/client"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
+	"github.com/obot-platform/obot/pkg/guardrails"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 )
@@ -273,8 +276,11 @@ func TestStripCallerCredentials(t *testing.T) {
 			model := &v1.Model{}
 			model.Spec.Manifest.TargetModel = tt.target
 
-			stripCallerCredentials(req, model, tt.passthrough)
+			kept := stripCallerCredentials(req, model, tt.passthrough)
 
+			if kept != (tt.wantAuth != "") {
+				t.Errorf("reported the subscription token kept = %v, want %v", kept, tt.wantAuth != "")
+			}
 			if got := req.Header.Get("Authorization"); got != tt.wantAuth {
 				t.Errorf("Authorization = %q, want %q", got, tt.wantAuth)
 			}
@@ -285,6 +291,23 @@ func TestStripCallerCredentials(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An attempt the caller's Claude subscription pays for spends no budget, but only when Obot
+// kept the subscription token for the gateway to forward.
+func TestSubscriptionAttemptsSpendNoBudget(t *testing.T) {
+	sonnet := &v1.Model{}
+	sonnet.Spec.Manifest.TargetModel = "anthropic/claude-sonnet-4-5"
+	attempts := &gatewayAttempts{budgets: map[string][]string{"stale": {"b1"}}, subscription: true}
+	// The budget lookup isn't reached: the backend and proxy are nil.
+	check := attempts.check(nil, nil, api.Context{}, sonnet)
+	if err := check(context.Background(), guardrails.Attempt{Model: sonnet.Spec.Manifest.TargetModel, Subscription: true}); err != nil {
+		t.Fatal(err)
+	}
+	if model, budgets := attempts.served(); model != sonnet.Spec.Manifest.TargetModel || len(budgets) != 0 {
+		t.Fatalf("served %q with budgets %v, want %q with none", model, budgets, sonnet.Spec.Manifest.TargetModel)
+	}
+
 }
 
 func TestServedModelChange(t *testing.T) {

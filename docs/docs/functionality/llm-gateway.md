@@ -106,7 +106,7 @@ Whichever model ends up serving a request:
 
   A routing rule therefore can't give anyone a model their access policy doesn't include. To route requests for one model to another, grant the target model to the same users and groups. This also covers rules that match a request header: a client can set any header, but the header can only route it to models it may already use.
 
-- **Its budgets must have room.** Every budget that applies to the caller and the model being tried is checked for each attempt, so a budget limited to a model applies whenever that model serves a request, however the request reached it. An attempt whose budget is exhausted is refused, and the gateway tries the next fallback, if any. If none can serve the request, the caller gets the budget's 429.
+- **Its budgets must have room.** Every budget that applies to the caller and the model being tried is checked for each attempt (except attempts a user's [Claude subscription](#claude-code-with-a-claude-subscription) pays for), so a budget limited to a model applies whenever that model serves a request, however the request reached it. An attempt whose budget is exhausted is refused, and the gateway tries the next fallback, if any. If none can serve the request, the caller gets the budget's 429.
 
 - **Usage is recorded against the model that served it.** The LLM audit log, usage reports and budgets record that model, price the request at its rates, and charge the budgets that apply to it. A request that was refused is recorded against the model that was requested.
 
@@ -195,7 +195,7 @@ Claude Code reaches Bedrock and Azure models through the same base URL. Pass the
 
 ### Claude Code with a Claude subscription
 
-When an administrator turns on **Allow Claude subscriptions** in the **Settings** tab of the **Models** page, users signed in to Claude Code with a Claude Pro, Max, Team or Enterprise subscription can use it through the gateway. Their requests to Claude models are billed to their subscription instead of a provider key configured in Obot. Obot still authenticates the user, enforces model access, budgets and guardrails, and records the requests.
+When an administrator turns on **Allow Claude subscriptions** in the **Settings** tab of the **Models** page, users signed in to Claude Code with a Claude Pro, Max, Team or Enterprise subscription can use it through the gateway. Their requests to Claude models are billed to their subscription instead of a provider key configured in Obot. Obot still authenticates the user, enforces model access and guardrails, and records the requests in the audit log and usage reports.
 
 The user keeps their Claude Code login and sends their Obot API key in the `X-Obot-Api-Key` header:
 
@@ -206,7 +206,9 @@ export ANTHROPIC_CUSTOM_HEADERS="X-Obot-Api-Key: $(obot login --url https://obot
 claude
 ```
 
-Only requests from Claude Code to Anthropic models use the subscription. The subscription token is never sent to another provider; requests to other models use Obot's configured keys. Budgets with a spend limit still count these requests at list price.
+Only requests from Claude Code to Anthropic models use the subscription. The subscription token is never sent to another provider; requests to other models use Obot's configured keys.
+
+Budgets don't apply to requests the subscription pays for: they aren't refused when a budget is exhausted, and they don't count toward any budget. Budgets still apply to everything else the user sends, including a fallback or routing rule that serves the request with a model from another provider, since that uses Obot's keys.
 
 See the Claude Code documentation for details:
 

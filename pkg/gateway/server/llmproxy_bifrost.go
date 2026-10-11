@@ -316,6 +316,10 @@ func (b *bifrostProviderBackend) authorizeModel(l *llmProviderProxy, req api.Con
 // is checked against the caller's access and the budgets of the model it tries.
 type gatewayAttempts struct {
 	unbind func()
+	// subscription is true when the caller's Claude subscription token was kept for the
+	// gateway to forward. Attempts the gateway sends with it are paid for by the caller's
+	// subscription, not Obot's provider keys, so they don't spend budgets.
+	subscription bool
 
 	lock     sync.Mutex
 	budgets  map[string][]string
@@ -343,9 +347,11 @@ func (a *gatewayAttempts) budgetExceeded() *client.LLMGatewayBudgetExceeded {
 
 // check admits one attempt: the caller must be allowed to use the attempted model, and every
 // budget that applies to it must have room. A caller may only be served by models they may
-// use, whatever routed them there, and spends the budgets of the model that serves them.
+// use, whatever routed them there, and spends the budgets of the model that serves them,
+// unless their own Claude subscription pays for it.
 func (a *gatewayAttempts) check(b *bifrostProviderBackend, l *llmProviderProxy, apiReq api.Context, requested *v1.Model) guardrails.AttemptCheck {
-	return func(_ context.Context, reference string) error {
+	return func(_ context.Context, attempt guardrails.Attempt) error {
+		reference := attempt.Model
 		model := requested
 		if requested == nil || reference != requested.Spec.Manifest.TargetModel {
 			// The requested model was checked before the request was sent.
@@ -358,6 +364,13 @@ func (a *gatewayAttempts) check(b *bifrostProviderBackend, l *llmProviderProxy, 
 				}
 				return err
 			}
+		}
+		if a.subscription && attempt.Subscription {
+			a.lock.Lock()
+			a.budgets[reference] = nil
+			a.admitted = reference
+			a.lock.Unlock()
+			return nil
 		}
 		ids, err := b.admit(apiReq.Context(), apiReq.GatewayClient, apiReq.User, model)
 		if exceeded := (*client.LLMGatewayBudgetExceeded)(nil); errors.As(err, &exceeded) {
@@ -414,8 +427,8 @@ func isAnthropicOAuthBearer(header string) bool {
 // stripCallerCredentials removes the caller's credentials and engine headers. A caller's
 // Claude subscription token is kept, when an admin allows it, for an Anthropic model: it is
 // then the upstream credential, which the engine forwards to Anthropic for Claude Code
-// requests instead of choosing a configured key.
-func stripCallerCredentials(req *http.Request, model *v1.Model, subscriptionPassthrough bool) {
+// requests instead of choosing a configured key. It reports whether the token was kept.
+func stripCallerCredentials(req *http.Request, model *v1.Model, subscriptionPassthrough bool) bool {
 	subscription := subscriptionPassthrough && model != nil &&
 		strings.HasPrefix(model.Spec.Manifest.TargetModel, "anthropic/") &&
 		isAnthropicOAuthBearer(req.Header.Get("Authorization"))
@@ -431,13 +444,14 @@ func stripCallerCredentials(req *http.Request, model *v1.Model, subscriptionPass
 			req.Header.Del(name)
 		}
 	}
+	return subscription
 }
 
 // decorateRequest removes the caller's Obot credential and adds the identity headers
 // Bifrost uses for request logs and caching, and the guardrails token.
 func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api.Context, model *v1.Model) (gatewayRequest, error) {
 	ctx, gatewayClient, req, user := apiReq.Context(), apiReq.GatewayClient, apiReq.Request, apiReq.User
-	stripCallerCredentials(req, model, b.settings.get(ctx, gatewayClient).SubscriptionPassthrough)
+	subscription := stripCallerCredentials(req, model, b.settings.get(ctx, gatewayClient).SubscriptionPassthrough)
 	for client, engine := range clientGatewayHeaders {
 		if v := req.Header.Get(client); v != "" {
 			req.Header.Set(engine, v)
@@ -462,7 +476,7 @@ func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api
 	if err != nil {
 		return nil, err
 	}
-	attempts := &gatewayAttempts{budgets: map[string][]string{}}
+	attempts := &gatewayAttempts{budgets: map[string][]string{}, subscription: subscription}
 	token, unbind := guardrails.BindRequest(guardrails.Identity{UserID: userID, Groups: groups}, attempts.check(b, l, apiReq, model))
 	attempts.unbind = unbind
 	req.Header.Set(guardrails.HeaderRequestToken, token)

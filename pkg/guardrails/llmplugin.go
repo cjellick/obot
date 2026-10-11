@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	bifrostcore "github.com/maximhq/bifrost/core"
+	"github.com/maximhq/bifrost/core/providers/anthropic"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/obot-platform/obot/pkg/gateway/types"
 )
@@ -56,11 +57,21 @@ type OutputPlugin struct {
 	engine *Engine
 }
 
-// AttemptCheck reports whether a request may be served by a model, named "provider/model":
-// whether the caller may use it and has budget left for it. An *AttemptError refuses the
-// attempt with its status, error type and message; any other error is an internal failure,
-// reported to the caller as a 500 without its details.
-type AttemptCheck func(ctx context.Context, model string) error
+// AttemptCheck reports whether a request may be served by an attempt's model: whether the
+// caller may use it and has budget left for it. An *AttemptError refuses the attempt with its
+// status, error type and message; any other error is an internal failure, reported to the
+// caller as a 500 without its details.
+type AttemptCheck func(ctx context.Context, attempt Attempt) error
+
+// Attempt is one try the gateway makes to serve a request.
+type Attempt struct {
+	// Model is the attempted model, named "provider/model".
+	Model string
+	// Subscription is true when the gateway sends the attempt with the caller's own Claude
+	// subscription token rather than a configured provider key, so the caller's subscription
+	// pays for it.
+	Subscription bool
+}
 
 // AttemptError refuses an attempt, such as with 429 budget_exceeded.
 type AttemptError struct {
@@ -167,8 +178,14 @@ func checkAttempt(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) *sch
 		// Not a model call, such as listing a provider's models.
 		return nil
 	}
-	model, _ := requestFields(req)
-	if err := binding.attemptCheck(ctx, model); err != nil {
+	model, provider := requestFields(req)
+	attempt := Attempt{
+		Model: model,
+		// The engine skips key selection and forwards the caller's OAuth token for Claude Code
+		// requests to Anthropic; any other provider uses a configured key.
+		Subscription: provider == string(schemas.Anthropic) && anthropic.IsClaudeCodeMaxMode(ctx),
+	}
+	if err := binding.attemptCheck(ctx, attempt); err != nil {
 		return &schemas.LLMPluginShortCircuit{Error: attemptError(err)}
 	}
 	return nil
