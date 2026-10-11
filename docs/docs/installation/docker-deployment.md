@@ -91,7 +91,7 @@ If you want published workflows in Docker to use external object storage instead
 ## Next Steps
 
 1. **Configure Authentication**: Set up [auth providers](./enabling-authentication.md) for secure access
-2. **Configure Model Providers**: Configure [model providers](../configuration/model-providers.md) (OpenAI, Anthropic, etc.)
+2. **Add LLM Providers**: Add providers (OpenAI, Anthropic, etc.) under **Models** → **Providers**. See [LLM Gateway](../functionality/llm-gateway.md).
 3. **Set Up MCP Servers**: Configure [MCP servers](../functionality/mcp-servers.md) for extended functionality
 
 ## Related Documentation

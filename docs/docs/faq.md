@@ -16,7 +16,7 @@ Currently, users must log in at least once before roles can be assigned. To pre-
 
 ### What are the differences between the open source and enterprise versions of Obot?
 
-All editions use the same container image. The default edition includes all model providers without registration, plus Local, GitHub, and Google authentication. Entra, Okta, JumpCloud, and Auth0 authentication require free Community registration or an Enterprise license. Enterprise adds unlimited users and devices and enterprise support. See [Obot Editions](./enterprise/overview.md).
+All editions use the same container image. The default edition includes all LLM providers without registration, plus Local, GitHub, and Google authentication. Entra, Okta, JumpCloud, and Auth0 authentication require free Community registration or an Enterprise license. Enterprise adds unlimited users and devices and enterprise support. See [Obot Editions](./enterprise/overview.md).
 
 ## Integration & Troubleshooting
 

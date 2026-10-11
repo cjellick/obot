@@ -48,6 +48,7 @@ export const PATH_REDIRECTS: Record<string, string> = {
 	"configuration/chat-configuration": "configuration/server-configuration",
 	"configuration/oauth-configuration":
 		"configuration/mcp-server-oauth-configuration",
+	"configuration/model-providers": "functionality/llm-gateway",
 
 	// Removed sections
 	"integrations/ide-client-integration": "",

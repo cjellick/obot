@@ -1,6 +1,8 @@
 import { themes as prismThemes } from "prism-react-renderer";
 import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
+import { existsSync } from "fs";
+import { join } from "path";
 import versions from "./versions.json";
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
@@ -25,6 +27,28 @@ const versionsConfig = Object.fromEntries(
       noIndex: true,
     },
   ]),
+);
+
+// Redirects for pages removed from the current docs. The redirect under /next/ applies right
+// away. The one at the site root is added only once the latest release no longer has the
+// page, because the redirect plugin refuses to replace an existing page.
+const removedPages: Record<string, string> = {
+  "/configuration/model-providers": "/functionality/llm-gateway",
+};
+const removedPageRedirects = Object.entries(removedPages).flatMap(
+  ([from, to]) => {
+    const redirects = [{ from: `/next${from}`, to: `/next${to}` }];
+    const latestPage = join(
+      __dirname,
+      "versioned_docs",
+      `version-${latestVersion}`,
+      `${from}.md`,
+    );
+    if (!existsSync(latestPage)) {
+      redirects.push({ from, to });
+    }
+    return redirects;
+  },
 );
 
 // Generate sitemap ignore patterns for older and unreleased versions
@@ -92,6 +116,7 @@ const config: Config = {
             from: "/functionality/chat/overview",
             to: "/concepts/obot-agent",
           },
+          ...removedPageRedirects,
         ],
         createRedirects(existingPath) {
           if (existingPath.endsWith("/functionality/agent-auth-scopes/")) {

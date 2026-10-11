@@ -40,15 +40,15 @@ Administrators do not have automatic access to all models. Like any other user, 
 
 #### Wildcard Suffix Patterns
 
-To grant access to a family of models—including versions that don't exist yet—end your entry with a single `*`. For example, `claude-haiku-4-5*` grants access to every model whose provider-native ID starts with `claude-haiku-4-5`, such as date-suffixed releases like `claude-haiku-4-5-20251001`.
+To grant access to a family of models—including versions that don't exist yet—end your entry with a single `*`. For example, `anthropic/claude-haiku-4-5*` grants access to every model whose name starts with `anthropic/claude-haiku-4-5`, such as date-suffixed releases like `anthropic/claude-haiku-4-5-20251001`.
 
 To add a pattern, start typing a prefix into the search box of the **Add Models** dialog. A pattern entry (your prefix followed by `*`) is offered at the top of the results, along with a live count of the models it currently matches. You can also type the pattern out explicitly, ending with `*`.
 
 Patterns follow these rules:
 
 - The `*` is only allowed at the end of the entry, and the prefix cannot be empty or begin/end with whitespace (a bare `*` is the existing "All models" option)
-- Matching is case-sensitive and applies to the provider-native model ID
-- Patterns match models from **all** providers
+- Matching is case-sensitive and applies to the model name, which starts with the provider (`provider/model`)
+- To match a model family on several providers, add one pattern per provider
 - Patterns automatically cover future models: when a provider adds a new model whose ID starts with the prefix, users gain access without any policy changes
 - Patterns can be combined with specific models and default model aliases in the same policy
 
@@ -56,7 +56,7 @@ Patterns follow these rules:
 
 Only models configured with the **Language Model (Chat)** usage type appear when creating policies. Models configured for other purposes—such as text embedding, image generation, or vision—do not appear as options.
 
-To change which models are available for chat or to configure new model providers, see [Model Providers](../configuration/model-providers.md).
+To change which models are available or to add providers, use **Models** → **Providers**. See [LLM Gateway](./llm-gateway.md).
 
 ## Default Model Aliases
 
@@ -65,7 +65,7 @@ When selecting models for a policy, you'll see options like:
 - **Language Model (Chat)** — The primary default model
 - **Language Model (Chat - Fast)** — A faster, typically smaller model
 
-These are aliases that automatically resolve to whichever model is currently configured as the default in [Model Providers](../configuration/model-providers.md).
+These are aliases that automatically resolve to whichever model is currently set as the default with **Set Default Models** on the **Providers** tab of the **Models** page. See [Default models](./llm-gateway.md#default-models).
 
 Using aliases provides flexibility: if you later change which model serves as the default, users with access to the alias automatically gain access to the new default without needing to update any policies.
 
@@ -76,7 +76,7 @@ When Obot starts for the first time, a **Default Policy** is automatically creat
 - Grants access to **All Obot Users**
 - Includes all default model aliases
 
-This ensures that once you configure a model provider, all users can immediately start chatting. You can modify or delete this policy to restrict access as needed.
+This ensures that once you add a provider under **Models** → **Providers**, all users can immediately start chatting. You can modify or delete this policy to restrict access as needed.
 
 ## Upgrades and Migration
 
@@ -89,9 +89,11 @@ For existing installations that previously used **Allowed Models** and **Default
 
 You can find and modify this migrated policy on the Model Access Policies page. The previous settings in Chat Configuration no longer control model access.
 
+When upgrading from a version that used model providers, policies that named a model provider's model are re-pointed to the LLM gateway model for the same upstream model. See [Upgrading from model providers](./llm-gateway.md#upgrading-from-model-providers). Wildcard patterns written for earlier versions matched provider-native IDs, such as `claude-haiku-4-5*`. They're replaced with the provider-qualified form, such as `anthropic/claude-haiku-4-5*`, for each provider whose models they matched. A pattern that matched no model is left as it was; add the provider to it yourself.
+
 ## Managing Policies
 
-To manage policies, go to **Obot Agent Management > Model Access Policies**.
+To manage policies, go to **Models** → **Access Policies**.
 
 ### Creating a Policy
 
@@ -111,6 +113,6 @@ Deleting a policy removes model access for the affected subjects. If a user lose
 
 ## Related Topics
 
-- [Model Providers](../configuration/model-providers.md) — Configure language models and set defaults
+- [LLM Gateway](./llm-gateway.md) — Add providers and set default models
 - [MCP Access Policies](./mcp-access-policies.md) — Similar access control for MCP servers
 - [User Roles](../configuration/user-roles.md) — Understanding administrator and user permissions

@@ -66,8 +66,8 @@ secret:
   # Point this to your postgres database
   OBOT_SERVER_DSN: postgres://<user>:<pass>@<host>/<db>
 
-  # Setting these is optional, but you'll need to setup a model provider from the Admin UI before using chat.
-  # You can set either, neither or both.
+  # Optional. These configure the LLM gateway's OpenAI and Anthropic providers at startup.
+  # You can set either, neither or both, or add providers later under Models > Providers.
   OPENAI_API_KEY: <openai api key>
   ANTHROPIC_API_KEY: <anthropic api key>
 
@@ -227,7 +227,7 @@ For more examples and storage-class guidance, see [Persistent Storage in Kuberne
 ## Next Steps
 
 1. **Configure Authentication**: Set up [auth providers](../configuration/auth-providers.md)
-2. **Add Model Providers**: Configure [model providers](../configuration/model-providers.md)
+2. **Add LLM Providers**: Add providers under **Models** → **Providers**. See [LLM Gateway](../functionality/llm-gateway.md).
 3. **Set Up MCP Servers**: Configure [MCP servers](../functionality/mcp-servers.md)
 4. **Configure Monitoring**: Set up logging and metrics
 5. **Review Security**: Enable authentication and encryption

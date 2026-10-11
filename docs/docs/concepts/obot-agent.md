@@ -20,9 +20,9 @@ Conversations provide isolated message history while sharing the agent's configu
 
 Workflows automate interactions through scheduled or on-demand execution. They can run on recurring schedules or be triggered manually.
 
-### Model Providers
+### Models
 
-Obot Agent supports multiple LLM providers including OpenAI, Anthropic, Azure OpenAI, and Amazon Bedrock. Model providers are configured at the platform level and made available to users.
+Obot Agent reaches models through the [LLM Gateway](../functionality/llm-gateway.md), which supports providers including OpenAI, Anthropic, Azure OpenAI, Amazon Bedrock, and Google Vertex AI. Administrators add providers under **Models** → **Providers** and make models available to users with [Model Access Policies](../functionality/model-access-policies.md).
 
 ## Learn More
 

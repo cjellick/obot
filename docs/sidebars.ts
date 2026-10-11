@@ -68,7 +68,6 @@ const sidebars = {
 			label: "Configuration and Operations",
 			items: [
 				"configuration/auth-providers",
-				"configuration/model-providers",
 				"configuration/user-roles",
 				"configuration/mcp-server-gitops",
 				"configuration/mcp-deployments-in-kubernetes",

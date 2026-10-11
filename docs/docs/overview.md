@@ -130,11 +130,11 @@ The bootstrap token must be at least six characters. If you omit `OBOT_BOOTSTRAP
 Open [http://localhost:8080](http://localhost:8080), sign in with the bootstrap token, and then:
 
 1. [Configure authentication](configuration/auth-providers.md).
-2. Add MCP servers, model providers, or skill sources.
+2. Add MCP servers, LLM providers (under **Models** → **Providers**), or skill sources.
 3. Create access policies for the users and groups that should use them.
 4. Install the [Obot CLI](installation/cli-setup.md) or configure Obot Sentry if local-client integration is required.
 
-A model provider is required only when using the LLM Gateway.
+An LLM provider is required only for features that call models, such as the LLM Gateway and hosted agents.
 
 This Docker configuration mounts the host Docker socket so Obot can launch hosted MCP servers as sibling containers. Use it only for development, evaluation, or trusted single-tenant environments. See the [Installation Guide](installation/overview.md) for Kubernetes and production deployment requirements.
 

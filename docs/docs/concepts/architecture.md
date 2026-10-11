@@ -92,4 +92,4 @@ Application-level encryption is disabled by default. When configured, an encrypt
 
 ## LLMs
 
-Obot supports multiple model providers, available without Community registration or an Enterprise license. Configure upstream credentials and models for your organization. See [Model Providers](../configuration/model-providers.md).
+Obot reaches models through its built-in [LLM Gateway](../functionality/llm-gateway.md), which supports many providers without Community registration or an Enterprise license. Administrators add providers and their credentials under **Models** → **Providers**.

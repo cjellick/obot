@@ -10,7 +10,7 @@ what usage limits apply.
 
 ## Obot
 
-The default edition supports up to 100 users and 100 devices. It includes Local, GitHub, and Google authentication and all [model providers](../configuration/model-providers.md), including Azure OpenAI, Amazon Bedrock, and Google Vertex, without registration. Entra, Okta, JumpCloud, and Auth0 authentication require Community registration or an Enterprise license.
+The default edition supports up to 100 users and 100 devices. It includes Local, GitHub, and Google authentication and all [LLM Gateway](../functionality/llm-gateway.md) providers, including Azure OpenAI, Amazon Bedrock, and Google Vertex, without registration. Entra, Okta, JumpCloud, and Auth0 authentication require Community registration or an Enterprise license.
 
 ## Obot Community
 

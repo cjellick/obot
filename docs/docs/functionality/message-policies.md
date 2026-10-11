@@ -14,7 +14,7 @@ When Obot starts, it converts each existing message policy into guardrails, once
 | Applies to *Both* | A rule that blocks on input and output |
 | Subjects (users, groups, all users) | The rule's assignment |
 
-The original MessagePolicy resources are kept but no longer enforced, and the message policy API is read-only. Earlier violation records stay in the database. New findings, including those from the legacy per-provider LLM routes, are recorded as [guardrail events](./guardrails.md#events).
+The original MessagePolicy resources are kept but no longer enforced, and the message policy API is read-only. Earlier violation records stay in the database. New findings are recorded as [guardrail events](./guardrails.md#events).
 
 The `OBOT_SERVER_ENABLE_MESSAGE_POLICIES` setting no longer affects enforcement. Guardrails are always available.
 
