@@ -88,6 +88,17 @@ func (h *LLMGatewayHandler) Status(req api.Context) error {
 	return req.Write(status)
 }
 
+// withProviderDefaults fills in the network settings a new provider leaves unset, such as
+// retries, which also let requests fail over between its keys.
+func withProviderDefaults(body []byte) ([]byte, error) {
+	var provider map[string]any
+	if err := json.Unmarshal(body, &provider); err != nil {
+		return nil, types.NewErrBadRequest("invalid provider: %v", err)
+	}
+	bifrost.ApplyProviderDefaults(provider)
+	return json.Marshal(provider)
+}
+
 func (h *LLMGatewayHandler) requireEngine() error {
 	if h.engine == nil {
 		return types.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway is disabled")
@@ -118,6 +129,11 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	}
 	if len(body) > 0 {
 		if err := rejectSecretReferences(body); err != nil {
+			return err
+		}
+	}
+	if req.Method == http.MethodPost && path == "providers" {
+		if body, err = withProviderDefaults(body); err != nil {
 			return err
 		}
 	}

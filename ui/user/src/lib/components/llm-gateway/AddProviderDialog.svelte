@@ -98,7 +98,10 @@
 				provider: providerID,
 				network_config: {
 					default_request_timeout_in_seconds: 300,
+					// Retries also let requests fail over between the provider's keys.
 					max_retries: 2,
+					retry_backoff_initial: 500,
+					retry_backoff_max: 5000,
 					...(baseURL.trim() ? { base_url: baseURL.trim() } : {}),
 					...(allowPrivate ? { allow_private_network: true } : {})
 				}

@@ -161,6 +161,7 @@ func (engine *Engine) ImportLegacyModelProviders(ctx context.Context, c kclient.
 
 		providerBody, key := plan.build(cred.Secrets)
 		providerBody["provider"] = plan.provider
+		ApplyProviderDefaults(providerBody)
 		// Send credentials as explicit plain-text values so Bifrost never interprets a stored
 		// secret that happens to start with "env." or "vault." as a reference to resolve.
 		plainTextSecrets(key)

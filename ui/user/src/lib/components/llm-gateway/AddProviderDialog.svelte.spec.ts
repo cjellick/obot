@@ -71,7 +71,12 @@ describe('AddProviderDialog', () => {
 		await vi.waitFor(() => expect(onCreated).toHaveBeenCalledWith('anthropic'));
 		expect(created).toHaveBeenCalledWith({
 			provider: 'anthropic',
-			network_config: { default_request_timeout_in_seconds: 300, max_retries: 2 }
+			network_config: {
+				default_request_timeout_in_seconds: 300,
+				max_retries: 2,
+				retry_backoff_initial: 500,
+				retry_backoff_max: 5000
+			}
 		});
 		expect(keyCreated).toHaveBeenCalledWith('anthropic', {
 			name: 'anthropic-key-2',
@@ -107,6 +112,8 @@ describe('AddProviderDialog', () => {
 			network_config: {
 				default_request_timeout_in_seconds: 300,
 				max_retries: 2,
+				retry_backoff_initial: 500,
+				retry_backoff_max: 5000,
 				base_url: 'http://10.0.0.5/v1',
 				allow_private_network: true
 			},
