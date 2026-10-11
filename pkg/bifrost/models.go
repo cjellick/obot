@@ -212,6 +212,23 @@ func (e *Engine) withLastKnownModels(ctx context.Context, listed []listedModel) 
 	return listed
 }
 
+// ConfiguredProviders returns the names of the upstream providers configured in the gateway.
+func (e *Engine) ConfiguredProviders(ctx context.Context) ([]string, error) {
+	var resp struct {
+		Providers []struct {
+			Name string `json:"name"`
+		} `json:"providers"`
+	}
+	if err := e.Do(ctx, http.MethodGet, "/api/providers", nil, &resp); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(resp.Providers))
+	for _, p := range resp.Providers {
+		names = append(names, p.Name)
+	}
+	return names, nil
+}
+
 // HasUpstreamProviders reports whether Bifrost has at least one usable provider. A failed
 // check reports the last known answer, so a transient error doesn't unconfigure the gateway.
 func (e *Engine) HasUpstreamProviders(ctx context.Context) bool {

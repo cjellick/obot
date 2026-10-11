@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	openai "github.com/obot-platform/chat-completion-client"
 	"github.com/obot-platform/nah/pkg/apply"
 	"github.com/obot-platform/nah/pkg/name"
 	"github.com/obot-platform/nah/pkg/router"
@@ -30,6 +31,7 @@ import (
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
 	"go.yaml.in/yaml/v3"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/fields"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -491,7 +493,8 @@ func (h *Handler) BackPopulateModels(req router.Request, _ router.Response) erro
 }
 
 func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *dispatcher.Dispatcher, modelProvider *v1.ModelProvider) error {
-	if builtin, ok := dispatcher.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name); ok {
+	builtin, isBuiltin := dispatcher.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name)
+	if isBuiltin {
 		// A built-in provider always lists, even with no upstream providers, so that removing
 		// its last provider prunes its models. While it is still starting, keep the current
 		// models until it can list them.
@@ -540,6 +543,17 @@ func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *
 	}
 	modelProvider.Status.Error = ""
 
+	// Administrators can rename, deactivate and re-categorize models, and override their
+	// cost. Keep those edits: models are re-applied from the provider's list on every sync.
+	var existingModels v1.ModelList
+	if err := client.List(ctx, &existingModels, kclient.InNamespace(modelProvider.Namespace), kclient.MatchingFields{"spec.manifest.modelProvider": modelProvider.Name}); err != nil {
+		return fmt.Errorf("failed to list models of model provider %q: %w", modelProvider.Name, err)
+	}
+	existing := make(map[string]types.ModelManifest, len(existingModels.Items))
+	for _, m := range existingModels.Items {
+		existing[m.Name] = m.Spec.Manifest
+	}
+
 	models := make([]kclient.Object, 0, len(availableModels.Models))
 	for _, model := range availableModels.Models {
 		displayName := model.Metadata["displayName"]
@@ -563,6 +577,10 @@ func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *
 			},
 		}
 
+		if prior, ok := existing[discovered.Name]; ok {
+			keepModelEdits(&discovered.Spec.Manifest, prior)
+		}
+
 		models = append(models, discovered)
 
 		// The embedded gateway reports its own pricing, so project it into ModelInfo for
@@ -583,12 +601,69 @@ func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *
 		}
 	}
 
+	if lister, ok := builtin.(upstreamProviderLister); isBuiltin && ok {
+		kept, err := unlistedProviderModels(ctx, client, lister, availableModels, existingModels.Items)
+		if err != nil {
+			return err
+		}
+		models = append(models, kept...)
+	}
+
 	if err = apply.New(client).Apply(ctx, modelProvider, models...); err != nil {
 		return fmt.Errorf("failed to create models for model provider %q: %w", modelProvider.Name, err)
 	}
 	slog.Info("Back-populated models for model provider", "provider", modelProvider.Name, "models", len(models))
 
 	return nil
+}
+
+// upstreamProviderLister is a built-in model provider that routes to several upstream
+// providers, such as the LLM gateway.
+type upstreamProviderLister interface {
+	ConfiguredProviders(ctx context.Context) ([]string, error)
+}
+
+// unlistedProviderModels keeps the models, and their pricing, of upstream providers that are
+// still configured but are missing from a listing: a provider whose list call fails (an
+// outage, an expired key) lists nothing, and syncing without its models would delete them,
+// and with them the default model aliases, access policies and edits that refer to them.
+// Only removing a provider removes its models.
+func unlistedProviderModels(ctx context.Context, client kclient.Client, lister upstreamProviderLister, listed *openai.ModelsList, existing []v1.Model) ([]kclient.Object, error) {
+	configured, err := lister.ConfiguredProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list upstream providers: %w", err)
+	}
+	listedProviders := map[string]bool{}
+	for _, m := range listed.Models {
+		provider, _, _ := strings.Cut(m.ID, "/")
+		listedProviders[provider] = true
+	}
+	var kept []kclient.Object
+	for _, m := range existing {
+		provider, _, _ := strings.Cut(m.Spec.Manifest.TargetModel, "/")
+		if listedProviders[provider] || !slices.Contains(configured, provider) {
+			continue
+		}
+		kept = append(kept, &v1.Model{Namespace: m.Namespace, Name: m.Name, Spec: m.Spec})
+		var info v1.ModelInfo
+		if err := client.Get(ctx, kclient.ObjectKey{Namespace: m.Namespace, Name: v1.ModelInfoName(m.Spec.Manifest.ModelProvider, m.Spec.Manifest.TargetModel)}, &info); err == nil {
+			kept = append(kept, &v1.ModelInfo{Namespace: info.Namespace, Name: info.Name, Spec: info.Spec})
+		} else if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+	}
+	return kept, nil
+}
+
+// keepModelEdits keeps the fields administrators edit from a model's current manifest.
+func keepModelEdits(discovered *types.ModelManifest, prior types.ModelManifest) {
+	discovered.DisplayName = prior.DisplayName
+	discovered.Active = prior.Active
+	discovered.Alias = prior.Alias
+	discovered.OverrideCost = prior.OverrideCost
+	if prior.Usage != "" {
+		discovered.Usage = prior.Usage
+	}
 }
 
 func modelDialect(metadata map[string]string, fallback string) string {

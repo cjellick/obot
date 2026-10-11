@@ -1,13 +1,20 @@
 package provider
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
+	openai "github.com/obot-platform/chat-completion-client"
 	"github.com/obot-platform/obot/apiclient/types"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
+	storagescheme "github.com/obot-platform/obot/pkg/storage/scheme"
+	"github.com/obot-platform/obot/pkg/system"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
+	kfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestReadLocalProviderRegistryFromSubdirectories(t *testing.T) {
@@ -243,5 +250,51 @@ func TestModelDialectPrefersMetadataDialect(t *testing.T) {
 				t.Fatalf("modelDialect() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestKeepModelEdits(t *testing.T) {
+	override := &types.ModelCost{TokenUsageCost: types.TokenUsageCost{Input: 1}}
+	discovered := types.ModelManifest{Name: "gpt-5", DisplayName: "GPT-5", TargetModel: "openai/gpt-5", Active: true, Usage: types.ModelUsageLLM, Dialect: "openai"}
+	keepModelEdits(&discovered, types.ModelManifest{DisplayName: "Our GPT", Active: false, Alias: "main", OverrideCost: override, Usage: types.ModelUsageEmbedding})
+	want := types.ModelManifest{Name: "gpt-5", DisplayName: "Our GPT", TargetModel: "openai/gpt-5", Alias: "main", Active: false, Usage: types.ModelUsageEmbedding, Dialect: "openai", OverrideCost: override}
+	if discovered != want {
+		t.Fatalf("got %+v, want %+v", discovered, want)
+	}
+}
+
+type fakeLister []string
+
+func (f fakeLister) ConfiguredProviders(context.Context) ([]string, error) { return f, nil }
+
+func TestUnlistedProviderModels(t *testing.T) {
+	model := func(name, target string) v1.Model {
+		return v1.Model{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: name}, Spec: v1.ModelSpec{Manifest: types.ModelManifest{TargetModel: target, ModelProvider: system.LLMGatewayModelProvider, DisplayName: "edited " + name}}}
+	}
+	existing := []v1.Model{
+		model("m-openai", "openai/gpt-5"),
+		model("m-anthropic", "anthropic/claude-sonnet-5"),
+		model("m-groq", "groq/llama"),
+	}
+	info := &v1.ModelInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: v1.ModelInfoName(system.LLMGatewayModelProvider, "anthropic/claude-sonnet-5")}}
+	client := kfake.NewClientBuilder().WithScheme(storagescheme.Scheme).WithObjects(info).Build()
+	// OpenAI listed its models; Anthropic is configured but its list call failed; Groq was
+	// removed from the gateway.
+	listed := &openai.ModelsList{Models: []openai.Model{{ID: "openai/gpt-5"}}}
+
+	kept, err := unlistedProviderModels(context.Background(), client, fakeLister{"openai", "anthropic"}, listed, existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, o := range kept {
+		names = append(names, o.GetName())
+	}
+	want := []string{"m-anthropic", info.Name}
+	if !slices.Equal(names, want) {
+		t.Fatalf("kept %v, want %v", names, want)
+	}
+	if m := kept[0].(*v1.Model); m.Spec.Manifest.DisplayName != "edited m-anthropic" {
+		t.Fatalf("the kept model lost its edits: %+v", m.Spec.Manifest)
 	}
 }
