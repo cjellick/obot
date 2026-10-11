@@ -131,6 +131,10 @@ func TestUpgradeFromMain(t *testing.T) {
 		if err := cluster.Close(); err != nil {
 			t.Logf("cleanup: %v", err)
 		}
+		// Logs and data stay for inspection; the binary copies are large.
+		for _, sub := range []string{"bin", "bin-main", "obot-main"} {
+			_ = os.RemoveAll(filepath.Join(dir, sub))
+		}
 	}()
 
 	// Obot images ship a provider registry; this one has only the OpenAI model provider, whose

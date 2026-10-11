@@ -152,6 +152,8 @@ func run(m *testing.M) (int, error) {
 		if err := e.cluster.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "e2e: cleanup: %v\n", err)
 		}
+		// Logs and data stay for inspection; the binary copy is large.
+		_ = os.RemoveAll(filepath.Join(dir, "bin"))
 	}()
 
 	// Replica A creates the schema first: two Obot processes initializing an empty
