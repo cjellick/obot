@@ -35,6 +35,23 @@ A working prototype exists on the `bifrost-llm-gateway` branch of
 `2026-09-26-guardrails.md`. This proposal describes that prototype so it can be
 reviewed before it ships, and lists what it changes in existing behavior.
 
+**Revision (2026-10-11): the gateway replaces model providers.** The first
+draft kept the legacy per-provider routes and model providers alongside the
+gateway, with an off switch. The implementation now goes further:
+
+- The legacy routes, their backends, model provider daemons and the gateway's
+  off switch are removed.
+- Legacy credentials are imported once. References to legacy models are then
+  migrated, and legacy models and providers are deleted.
+- The message policy API is removed.
+- Access and budgets are checked on every model the gateway tries.
+- Administrators can let users bring their Claude subscription.
+
+The sections below describe the revised design. See
+[The gateway replaces model providers](#the-gateway-replaces-model-providers),
+[Claude subscription passthrough](#claude-subscription-passthrough) and
+[Rollout and migration](#rollout-and-migration).
+
 ## Related issues
 
 - TBD. No issue has been filed yet. Per this repository's rules, an issue must
@@ -95,14 +112,19 @@ such as AWS Bedrock Guardrails, Azure AI Content Safety or Lakera.
 - A pluggable detector interface, with the external services Bifrost
   Enterprise integrates with.
 - Existing message policies keep working with no administrator action.
+- Existing model provider configurations move to the gateway with no
+  administrator action, for the providers the gateway can import.
 - The gateway engine stays replaceable: Obot's external interface doesn't
   depend on Bifrost's.
 - One Obot deployment, with no new service to deploy.
 
 ## Non-goals
 
-- Removing the legacy per-provider routes (`/api/llm-proxy/<provider>/...`) or
-  legacy model providers. They remain; removing them is follow-up work.
+- Rolling back to an earlier release without restoring a backup. The upgrade
+  migrates and deletes legacy model configuration (see
+  [Rollout and migration](#rollout-and-migration)).
+- Importing model providers that only came from the provider registry, such
+  as Ollama, Groq or vLLM. Administrators add them as gateway providers.
 - Exposing Bifrost's own UI, virtual keys, MCP gateway, skills or prompt
   repository. Obot has its own versions of these, or doesn't need them.
 - Metering and guarding image, audio, rerank or batch APIs. Only chat,
@@ -219,10 +241,60 @@ flowchart LR
     `HasUpstreamProviders`, `Ready`).
   - The provider counts as configured once it has at least one upstream
     provider.
-- **First-boot import.** When the gateway starts with no providers, the
-  credentials of configured legacy model providers are imported into it. This
-  is also available as an explicit action (`POST
-  /api/llm-gateway/import-legacy-providers`).
+- **Legacy import and migration.** See
+  [The gateway replaces model providers](#the-gateway-replaces-model-providers).
+- **Changes Obot makes itself are serialized across replicas.** Startup tasks
+  (legacy import, providers from environment keys, the egress proxy) and admin
+  writes run under a Postgres advisory lock that every replica shares, after
+  reloading to the latest revision. Otherwise replicas starting together
+  would each write back a stale in-memory copy, erasing one another's changes.
+  The lock is transaction-scoped, so a crashed replica can't leave it held. It
+  keeps one pooled connection idle in a transaction for the critical section,
+  which is capped at 5 minutes.
+
+### The gateway replaces model providers
+
+The gateway is the only way Obot reaches models, and it can't be disabled.
+
+- **Removed:** the legacy per-provider proxy routes and backends (OpenAI,
+  Anthropic, Generic Responses, Bedrock, Azure), model provider daemons, the
+  model provider configure APIs and UI, and `--disable-llm-gateway`.
+  `/api/llm-proxy/openai` and `/api/llm-proxy/anthropic` remain as aliases of
+  `/api/llm-proxy/v1`. The other legacy routes return `410 Gone`.
+- **Credential import.** On the first start, the credentials of each
+  configured OpenAI, Anthropic, Generic Responses, Bedrock and Azure model
+  provider become a gateway provider. A gateway provider that already exists
+  is left alone. Once every import succeeds, a marker annotation on the
+  gateway's ModelProvider records it, so a failure is retried on the next
+  start.
+- **Reference migration.** This runs after every gateway model sync. Default
+  model aliases, model access policies, hosted agents and hosted agent
+  instances that name a legacy model are re-pointed to the gateway model with
+  the same upstream model. Wildcard patterns written for provider-native names
+  get the gateway provider's prefix. A deactivated state, alias or cost
+  override on the legacy model carries over.
+- **Deletion.** After the import, legacy models are deleted once migrated or
+  unreferenced, and then legacy providers left without models. A model that is
+  still referred to, or that has an administrator's edits, is kept until the
+  gateway lists its upstream model, so no reference breaks and no setting is
+  lost. Provider credentials are kept.
+
+### Claude subscription passthrough
+
+Users signed in to Claude Code with a Claude Pro, Max, Team or Enterprise
+subscription can bill their requests to it instead of Obot's provider keys,
+when an administrator turns this on (`PUT /api/llm-gateway/settings`,
+`subscriptionPassthrough`; off by default).
+
+- **Authentication.** The caller sends their Obot API key in `X-Obot-Api-Key`
+  and keeps the Claude Code OAuth token in `Authorization`. Obot authenticates
+  the caller from the Obot header only.
+- **Forwarding.** The OAuth token is forwarded upstream only for requests from
+  Claude Code to Anthropic models, and only while the setting is on. It is
+  stripped from every other request, so it never reaches another provider.
+  Without the setting, caller credentials are always stripped.
+- **Controls.** Access policies, budgets, guardrails, the audit log and usage
+  apply as for any request. Spend budgets count these requests at list price.
 
 ### Request path
 
@@ -243,27 +315,35 @@ The request flows through these steps:
    model ID such as `claude-sonnet-4-5` (what Claude Code sends) resolves to
    the newest gateway model with that target ID.
 3. **Authorize.** Model access policies apply to the requested model and to
-   every model named in `fallbacks`.
+   every model named in `fallbacks`. Routing rules and fallbacks can still
+   send the request to another model, so the check is repeated inside the
+   engine for each attempt (step 6).
 4. **Admit against budgets** (see [Budgets](#budgets)). An exhausted budget
    gets `429`, naming the budget and when more becomes available.
 5. **Decorate the request:**
    - The caller's identity goes into the engine's log headers.
    - The caller is bound to a guardrail token (see
      [Guardrails](#guardrails-on-llm-traffic)).
-6. **Forward** to the engine. It runs its input plugins, routing rules, key
-   selection, retries, fallbacks, translation, the provider call, and its
-   output plugins.
+6. **Forward** to the engine. It runs its routing rules, then for each
+   attempt (the routed model, then each fallback) its input plugins, key
+   selection, retries, translation, the provider call, and its output plugins.
+   Obot's input plugin checks model access and budgets for the attempt's
+   model. An attempt the caller may not use fails with `403`, and an exhausted
+   budget with `429`, without reaching the provider. A later fallback may then
+   serve the request.
 7. **Sanitize the response.** Engine-identifying response headers
    (`X-Bifrost-*`, some of which name upstream keys) and body fields
    (`extra_fields`, `is_bifrost_error`) are stripped, from JSON and SSE alike.
 8. **Record usage** from the response: the LLM audit log, token usage, and a
-   budget usage row for every budget the request was admitted under.
+   budget usage row for every budget the serving model was admitted under.
+   Usage is priced at the serving model's rates, and the audit log names the
+   serving model.
 
 Only `chat/completions`, `responses`, `responses/input_tokens`, `messages`,
 `messages/count_tokens`, `embeddings` and `models` are exposed. Other engine
 endpoints are refused because Obot can't meter or guard them.
 
-Nanobot agents, hosted agents, the MCP tester and message policy evaluation use
+Nanobot agents, hosted agents, the MCP tester and LLM judge evaluation use
 gateway models through the same path. The judge calls the engine directly over
 the in-memory transport.
 
@@ -289,8 +369,8 @@ Budgets live in three tables in Obot's database:
   - Per-user budgets count the caller's usage; shared budgets count everyone's.
   - Hosted agents are charged to their owner, using the owner's groups and
     role.
-- **Recording.** After the response, one usage row per admitted budget is
-  written. Usage rows are pruned with LLM audit log retention.
+- **Recording.** After the response, one usage row is written per budget
+  that admitted the model that served the request. Usage rows are pruned with LLM audit log retention.
 - **Replaces the daily token quota.** Gateway traffic is governed by budgets,
   not the daily token quota. On first start, the configured daily input and
   output limits become a "Daily token limit" budget for everyone, with admins
@@ -298,7 +378,6 @@ Budgets live in three tables in Obot's database:
   replace its token limits (a budget option, `userTokenLimits`). This happens
   once, recorded by the migration marker `llm_gateway_default_budget`; the
   budget has a fixed ID, so replicas starting together create only one.
-  Legacy routes keep the daily token quota.
 
 ### Guardrails data model
 
@@ -454,8 +533,6 @@ flowchart LR
     mp[MessagePolicy CRs] -->|converted once at startup| p[LLM Judge profile<br/>+ blocking rule]
     p --> gw[Gateway plugins]
     p --> mcp[MCP gateway]
-    p -->|JudgePolicies adapter| legacy[Legacy per-provider routes]
-    legacy -->|violations| ev[guardrail_events]
 ```
 
 - **Conversion.** On startup, each MessagePolicy becomes an LLM Judge profile
@@ -467,19 +544,13 @@ flowchart LR
   - A policy with no subjects applied to no one, so it converts to a disabled
     rule.
   - The rules fail closed, as message policies did when the judge failed.
-- **Legacy routes.** The legacy per-provider routes still evaluate policies
-  themselves. `messagepolicy.Helper` now reads its policies from the
-  guardrail tables: enabled, blocking, LLM-target rules with judge profiles.
-  Violations are recorded as guardrail events as well as message policy
-  violation records.
-- **Old resources and API.** MessagePolicy resources are kept but no longer
-  enforced. In the message policy API, create and update return `410 Gone`;
-  list, get and delete still work.
+- **Old resources and API.** MessagePolicy resources are kept for the
+  conversion but no longer enforced. The message policy and violation APIs
+  are removed. Earlier violation records stay in the database.
 - **Old admin pages.** Message Policies and Policy Violations redirect to
   Guardrails.
-- **Feature flag.** `OBOT_SERVER_ENABLE_MESSAGE_POLICIES` now only controls
-  whether the legacy read-only API is served. Guardrails are always
-  available.
+- **Feature flag.** `OBOT_SERVER_ENABLE_MESSAGE_POLICIES` now only decides
+  whether converted rules start enabled. Guardrails are always available.
 
 ### API
 
@@ -491,7 +562,8 @@ read `/debug/metrics`.
 | --- | --- |
 | `GET /status` | Enabled, ready, has providers, proxy path |
 | `GET /metrics` | The engine's Prometheus metrics, renamed `obot_llm_gateway_*` |
-| `POST /sync-models`, `POST /import-legacy-providers` | Actions |
+| `POST /sync-models` | Action |
+| `GET, PUT /settings` | Gateway settings: whether Claude subscriptions may be used |
 | `GET, POST /budgets`, `GET, PUT, DELETE /budgets/{id}`, `GET /budgets/{id}/usage` | Budgets |
 | `/admin/{path...}` | Guarded pass-through to the engine's management API: providers, keys, models, routing rules, pricing overrides, logs, config, routing, pricing, proxy config, version. The engine's plugin and cache APIs are not exposed: Obot's guardrail plugins must stay enabled, and response caching isn't offered. It blocks path traversal and rejects `env.`/`vault.` secret references, so the engine's host environment can't be exfiltrated through a provider key. |
 | `GET /guardrails/providers` | Profile types and their settings |
@@ -508,7 +580,7 @@ shared table, filters and empty-state components, and the same forms.
 
 | Where | What |
 | --- | --- |
-| **AI Resources → Models** | Tabs: Models (with client setup for Claude Code, Codex, the SDKs and `curl`), Providers (gateway providers, plus the legacy per-provider integrations), Routing, Budgets & Limits, Guardrails (model rules), Access Policies, Settings |
+| **AI Resources → Models** | Tabs: Models (with client setup for Claude Code, Codex, the SDKs and `curl`), Providers (gateway providers), Routing, Budgets & Limits, Guardrails (model rules), Access Policies, Settings |
 | **AI Resources → Guardrails** | Detectors (with a test panel) and Events, shared by model rules and guardrail filters |
 | **AI Resources → MCP Servers → Filters** | Guardrail filters next to the other filter types |
 | **Operations → Usage → Gateway** | Requests, success rate, latency, tokens, cost, cost by provider, top models |
@@ -521,7 +593,6 @@ Violations pages redirect to their guardrail equivalents.
 
 | Flag / env | Default |
 | --- | --- |
-| `--disable-llm-gateway` / `OBOT_SERVER_DISABLE_LLM_GATEWAY` | `false` |
 | `--llm-gateway-data-dir` | `$XDG_DATA_HOME/obot/llm-gateway` |
 | `--llm-gateway-postgres-dsn` | derived when Obot uses Postgres |
 | `--llm-gateway-encryption-key` | generated into the data dir |
@@ -536,7 +607,6 @@ The Helm chart's persistence note now also covers the gateway data dir.
 | --- | --- |
 | Engine still starting, or failed to start (including failing to register the guardrail plugins) | Gateway requests get `503` (no hang). Gateway models are kept, not pruned. The status banner shows the error. |
 | Reload after another replica's change fails | The replica keeps serving its current configuration, and the ProviderSync controller retries. |
-| Gateway disabled | The built-in model provider is removed, so its models don't look usable. The legacy routes are unaffected. |
 | Budget storage error | The request fails, closed. |
 | Guardrail rules or detectors can't be loaded | LLM requests, and MCP messages a guardrail filter applies to, are blocked. |
 | A detector errors or times out, or the LLM judge's model is unavailable | The rule is skipped and an error event is recorded, unless the rule fails closed. |
@@ -544,7 +614,9 @@ The Helm chart's persistence note now also covers the gateway data dir.
 | A redaction can't be applied (a span outside the text) | The rule blocks instead. |
 | A held stream can't be rewritten | The stream ends with a guardrail error rather than delivering blanked content. |
 | Guardrail event buffer full | Events are dropped with a warning; traffic is unaffected. |
-| Message policy conversion fails | Retried every 10 seconds. Until it succeeds, the legacy routes see no judge policies. |
+| Message policy conversion fails | Retried every 10 seconds. Until it succeeds, converted policies aren't enforced. |
+| Legacy credential import fails | Logged; the import runs again on the next start. Legacy models aren't deleted until it succeeds. |
+| Access check for an attempt fails (storage error) | The attempt fails with `500`, closed. |
 
 ### Security
 
@@ -559,6 +631,13 @@ The Helm chart's persistence note now also covers the gateway data dir.
   requires re-entering its credentials, so a stored credential can't be
   redirected to another host and read back through a test.
 - **Guardrail identity can't be spoofed** (see identity binding above).
+- **Routing can't widen access.** Each model the engine tries is checked
+  against the caller's access, so a routing rule, even one that matches a
+  client-set header, only reaches models the caller may use.
+- **Subscription tokens stay with Anthropic.** A caller's OAuth token is
+  forwarded only to Anthropic, only for Claude Code requests, and only when an
+  administrator allows it. Caller credentials are stripped from every other
+  request.
 - **Guardrail events never store the content** that triggered them. The LLM
   judge's free-text explanation is shown to the caller but not stored.
 
@@ -567,17 +646,17 @@ The Helm chart's persistence note now also covers the gateway data dir.
 | Area | Effect |
 | --- | --- |
 | LLM proxy (`pkg/gateway/server`) | New root route; backend interfaces; budget admission and recording; response sanitization; a Chat Completions usage tracker; `reasoning_effort` extraction for the gateway |
-| Model providers and dispatcher | Built-in provider concept; configured and back-populate logic; model cleanup skips the gateway's models; gateway models accept every API format |
-| Model access policies | Bare model IDs resolve to provider-qualified gateway models; fallbacks are authorized |
+| Model providers and dispatcher | Legacy model providers, their daemons and configure APIs are removed; the gateway is the only model provider; legacy models are migrated and deleted |
+| Model access policies | Bare model IDs resolve to provider-qualified gateway models; every attempted model is authorized; policies naming legacy models are re-pointed |
 | Nanobot agents, hosted agents, MCP tester | Point at `/api/llm-proxy/v1` for gateway models |
 | Daily token quota | No longer applies to gateway traffic; replaced by budgets (with a migrated default budget) |
-| Message policies | Become guardrails. The CRs are unenforced. The API is read-only. The UI redirects. The feature flag no longer gates enforcement. The judge calls gateway models in-process. |
+| Message policies | Become guardrails. The CRs are unenforced. The API is removed. The UI redirects. The feature flag no longer gates enforcement. The judge calls gateway models in-process. |
 | MCP gateway | Guardrails after hooks on `tools/call`; `newGuardedHookProcessor`; the handler constructor takes the guardrail engine |
 | Database | Six new tables; two migration markers; retention for budget usage and guardrail events |
-| Storage and operations | A second database (`<db>_llm_gateway`) or SQLite files; an encryption key that must be shared by all replicas; optional Redis |
+| Storage and operations | A second database (`<db>_llm_gateway`) or SQLite files; an encryption key that must be shared by all replicas |
 | Dependencies | Bifrost `core` and `transports` (the latter by pseudo-version, since its v2 tags lack a `/v2` module path), cel-go, AWS SDK signing, Google auth. `go.mod` grows by about 100 direct and indirect modules. |
 | Authorization | `/api/llm-gateway/` is admin-only; auditors get GET; metrics readable by the metrics group |
-| Docs | New LLM gateway and Guardrails pages; rewritten Message Policies page; updated server configuration |
+| Docs | New LLM gateway and Guardrails pages; the Model Providers page removed, with an upgrade section; rewritten Message Policies page; updated server configuration |
 
 ## Alternatives considered
 
@@ -678,10 +757,8 @@ available for custom logic.
    Should these store the redacted version, or keep the original only for
    auditors (as blocked message policy content is today)? Decide before
    shipping.
-3. **Legacy routes get only judge policies.** On the legacy per-provider
-   routes, only blocking LLM Judge rules apply, through the adapter. Secrets,
-   PII, external detectors and redaction don't apply there. Accept this until
-   the legacy routes are removed, or route them through the engine?
+3. **Legacy routes get only judge policies.** Resolved: the legacy routes are
+   removed, so every guardrail applies to all LLM traffic.
 4. **Hard budget ceilings.** Reserve an estimate at admission (for example,
    from `max_tokens`) to prevent overshoot? The cost is complexity and
    rejecting requests that would have fit.
@@ -705,41 +782,44 @@ available for custom logic.
    this is acceptable, and whether the migrated budget should exempt admins
    (it currently does). A personal limit on a metric the server left unlimited
    is not carried over.
-9. **Message policy removal.** When can the MessagePolicy CRD, the violations
-   table and the legacy API be deleted? This depends on removing the legacy
-   routes.
-10. **Guardrails with the gateway disabled.** Guardrail rules and profiles are
-    stored and applied to MCP traffic even when the gateway is disabled, but
-    the UI lives under LLM Gateway. Should Guardrails move to its own
-    navigation section?
+9. **Message policy removal.** The API is removed. When can the
+   MessagePolicy CRD and the violations table be deleted? They are kept only
+   for the one-time conversion and earlier records.
+10. **Guardrails navigation.** Resolved: the gateway can't be disabled, and
+    Guardrails has its own page under AI Resources.
 11. **Redacting signed reasoning.** Redacting thinking that a provider signs
     (Anthropic extended thinking) invalidates the signature, so a later turn
     that replays it may be rejected. Blocking instead would be equally
     disruptive. Revisit if this shows up in practice.
-12. **Reload cost.** A reload re-bootstraps the engine (seconds, including
+12. **Spend budgets for subscription traffic.** Requests billed to a user's
+    Claude subscription count against spend budgets at list price. Should
+    they be exempt, or counted separately?
+13. **Reload cost.** A reload re-bootstraps the engine (seconds, including
     provider model listing). Changes made in quick succession reload once per
     revision a replica sees. Each replica also reloads once at startup if the
     revision already exists. Batch or debounce if this matters.
 
 ## Rollout and migration
 
-- **Default on**, with `--disable-llm-gateway` as the off switch. The legacy
-  routes and model providers keep working unchanged, so clients can move over
-  at their own pace.
-- **One-time migrations** are recorded as markers in Obot's migrations table:
-  - Legacy provider credentials are copied into the gateway on the first boot
-    that has no gateway providers. Copied, not moved.
-  - `llm_gateway_default_budget`: the daily quota becomes a budget.
-  - `guardrails_message_policies`: message policies become guardrails.
-- **Rollback:**
-  - Disabling the gateway removes its model provider and models from Obot.
-    Legacy providers and routes are untouched.
-  - Budgets and guardrail rules stay in the database and apply again when the
-    gateway is re-enabled. MCP guardrails keep applying while it's off.
-  - Rolling back to a release without this change leaves the new tables
-    unused. MessagePolicy CRs were never modified, so they are enforced again
-    by the old code. Policies created as guardrails after the migration would
-    not carry back.
+- **Always on.** The gateway replaces model providers in one step. Clients of
+  `/api/llm-proxy/openai` and `/api/llm-proxy/anthropic` keep working. Clients
+  of the other legacy routes get `410` and must move to `/api/llm-proxy/v1`.
+- **One-time migrations:**
+  - Legacy provider credentials are imported into the gateway on the first
+    start, recorded by an annotation on the gateway's ModelProvider.
+  - References to legacy models are re-pointed after each gateway model sync,
+    and legacy models and providers are then deleted (see
+    [The gateway replaces model providers](#the-gateway-replaces-model-providers)).
+  - `llm_gateway_default_budget` (a migrations table marker): the daily quota
+    becomes a budget.
+  - `guardrails_message_policies` (a migrations table marker): message
+    policies become guardrails.
+- **Rollback is unsupported without a backup.** After the upgrade, default
+  model aliases, access policies and hosted agents name gateway models, and the
+  legacy models and providers are deleted. An earlier release has no gateway
+  provider, so it couldn't serve them. Operators must back up Obot's database
+  (and the gateway's stores) before upgrading, and restore it to roll back.
+  The upgrade docs say so.
 - **Observability:**
   - `obot_llm_gateway_*` Prometheus metrics.
   - The gateway request log.
@@ -784,7 +864,9 @@ Still needed before shipping:
 - Load tests of held streams and of the guardrail cache.
 - Validation against live vendor sandboxes (open question 5).
 - An upgrade test from a release with message policies and a daily quota
-  configured.
+  configured. Done for legacy model providers: `tests/e2e/llmgatewayupgrade`
+  upgrades from `main` with a configured OpenAI provider, an alias and an
+  access policy, and checks the import, the migration and the deletion.
 
 ## References
 

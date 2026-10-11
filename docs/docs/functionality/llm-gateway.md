@@ -276,9 +276,11 @@ The first time the new version starts, Obot moves your configuration to the gate
 
 2. **References move to gateway models.** After each gateway model sync, default model aliases and model access policies that named an old model are re-pointed to the gateway model for the same upstream model (`provider/model`). A deactivated state, alias or cost override set on the old model carries over. Wildcard patterns in access policies, such as `claude-haiku-4-5*`, get the provider prefix (`anthropic/claude-haiku-4-5*`) of each provider whose models they matched.
 
-3. **Old models and providers are deleted.** An old model that an alias or access policy still names, but that the gateway doesn't serve yet, is kept until the gateway lists it.
+3. **Old models and providers are deleted.** Some old models are kept until the gateway lists them: one that an alias, access policy or hosted agent still names, and one an administrator deactivated or gave an alias or cost override, so those settings carry over. An old provider is deleted once it has no models left. Its stored credentials are kept.
 
-Other model providers, such as Ollama, Groq or vLLM, are not imported. Add them under **Models** → **Providers**, using the built-in Ollama or vLLM provider or a custom OpenAI-compatible provider. See [Provider notes](#provider-notes).
+Other model providers, such as Ollama, Groq or vLLM, are not imported, and aliases, access policies and hosted agents that name their models are not re-pointed. Those models stay, but nothing serves them. Before upgrading, note these providers' settings, such as their endpoints. Then add them under **Models** → **Providers**, using the built-in Ollama or vLLM provider or a custom OpenAI-compatible provider, and point the aliases and policies at the new models. See [Provider notes](#provider-notes).
+
+The upgrade can't be undone. Once aliases and policies name gateway models and the old providers are deleted, an earlier version of Obot can't serve them. Back up Obot's database before upgrading, and restore it to roll back.
 
 ### Client routes
 

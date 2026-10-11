@@ -105,7 +105,7 @@ Message policies are now LLM Judge guardrails. When Obot starts, each existing m
 
 The rules fail closed, as message policies did: when the judge's model is unavailable, the request is blocked.
 
-The original policies are kept but no longer enforced. The message policy API is now read-only.
+The original policies are kept but no longer enforced. The message policy API was removed.
 
 ## API
 
@@ -117,6 +117,7 @@ Administrators can manage guardrails under `/api/llm-gateway/guardrails`:
 | `GET, POST /rules`, `GET, PUT, DELETE /rules/{id}` | Rules (`target` must be `llm`) |
 | `GET, POST /profiles`, `GET, PUT, DELETE /profiles/{id}` | Detectors (credentials are write-only) |
 | `POST /profiles/{id}/test` | Run a detector against sample text |
+| `POST /providers/{type}/fields/{field}/options` | List a detector field's choices from the service its settings point at, such as the entity types a Presidio Analyzer supports. Send the detector's `config`, and `profileID` to use a saved detector's credentials. |
 | `POST /validate-condition` | Check a CEL condition |
 | `GET /events` | Events, filterable by `ruleID`, `outcome`, `target`, `userID` and `since` |
 
