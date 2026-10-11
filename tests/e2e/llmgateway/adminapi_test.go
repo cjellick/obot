@@ -94,29 +94,23 @@ func TestAdminAPISafety(t *testing.T) {
 		}
 	})
 
-	t.Run("only the cache plugin can be changed", func(t *testing.T) {
+	t.Run("the engine's plugins and cache are not exposed", func(t *testing.T) {
+		// Obot's guardrail plugins must stay enabled, and responses aren't cached, so neither
+		// API is reachable.
 		for _, tc := range []struct {
 			method, path string
 			body         any
 		}{
+			{http.MethodGet, "/api/llm-gateway/admin/plugins", nil},
 			{http.MethodDelete, "/api/llm-gateway/admin/plugins/obot-guardrails-input", nil},
 			{http.MethodPut, "/api/llm-gateway/admin/plugins/obot-guardrails-output", map[string]any{"name": "obot-guardrails-output", "enabled": false}},
-			{http.MethodPost, "/api/llm-gateway/admin/plugins", map[string]any{"name": "obot-guardrails-input", "enabled": false}},
-			{http.MethodPost, "/api/llm-gateway/admin/plugins", map[string]any{"name": "logging", "enabled": false}},
-			{http.MethodPut, "/api/llm-gateway/admin/plugins/telemetry", map[string]any{"name": "telemetry", "enabled": false}},
+			{http.MethodPost, "/api/llm-gateway/admin/plugins", map[string]any{"name": "semantic_cache", "enabled": true}},
+			{http.MethodDelete, "/api/llm-gateway/admin/cache/clear", nil},
 		} {
-			if resp := admin.Do(t, tc.method, tc.path, tc.body); resp.Status != http.StatusForbidden {
-				t.Errorf("%s %s: want 403, got %s", tc.method, tc.path, resp)
+			if resp := admin.Do(t, tc.method, tc.path, tc.body); resp.Status != http.StatusNotFound {
+				t.Errorf("%s %s: want 404, got %s", tc.method, tc.path, resp)
 			}
 		}
-		var plugins struct {
-			Plugins []struct {
-				Name    string `json:"name"`
-				Enabled bool   `json:"enabled"`
-			} `json:"plugins"`
-		}
-		admin.Get(t, "/api/llm-gateway/admin/plugins", &plugins)
-		t.Logf("gateway plugins: %+v", plugins.Plugins)
 	})
 
 	t.Run("detector credentials are never returned", func(t *testing.T) {
