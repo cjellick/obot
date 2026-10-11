@@ -34,7 +34,7 @@ const (
 	dailyOutput  = 2000
 	legacyAPIKey = "e2e-legacy-openai-key"
 
-	// fakeProviderDaemon is a provider daemon that serves an empty model list.
+	// fakeProviderDaemon is a provider daemon that serves one model, gpt-legacy.
 	fakeProviderDaemon = `package main
 
 import (
@@ -45,7 +45,7 @@ import (
 func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(` + "`" + `{"object":"list","data":[]}` + "`" + `))
+		_, _ = w.Write([]byte(` + "`" + `{"object":"list","data":[{"id":"gpt-legacy","object":"model","metadata":{"usage":"llm"}}]}` + "`" + `))
 	})
 	_ = http.ListenAndServe("127.0.0.1:"+os.Getenv("PORT"), nil)
 }
@@ -222,6 +222,29 @@ func TestUpgradeFromMain(t *testing.T) {
 		t.Logf("the legacy OpenAI provider never reported configured on main; the import check is skipped")
 	}
 
+	// The default llm alias and an access policy refer to the legacy provider's model, which
+	// the gateway must move them off.
+	var legacyModelID string
+	if legacyConfigured {
+		harness.Eventually(t, time.Minute, "the legacy model on main", func() error {
+			var list types.ModelList
+			admin.Get(t, "/api/models?all=true", &list)
+			for _, m := range list.Items {
+				if m.ModelProvider == system.OpenAIModelProvider && m.TargetModel == "gpt-legacy" {
+					legacyModelID = m.ID
+					return nil
+				}
+			}
+			return fmt.Errorf("not synced")
+		})
+		admin.Put(t, "/api/default-model-aliases/llm", types.DefaultModelAliasManifest{Alias: "llm", Model: legacyModelID}, nil)
+		admin.Post(t, "/api/model-access-policies", types.ModelAccessPolicyManifest{
+			DisplayName: "legacy model",
+			Subjects:    []types.Subject{{Type: types.SubjectTypeSelector, ID: "*"}},
+			Models:      []types.ModelResource{{ID: legacyModelID}},
+		}, nil)
+	}
+
 	if err := old.Stop(); err != nil {
 		t.Fatal(err)
 	}
@@ -363,9 +386,9 @@ func TestUpgradeFromMain(t *testing.T) {
 				t.Fatalf("no rule for policy %q", p.manifest.DisplayName)
 			}
 		}
-		// The message policy API is read-only now.
-		if resp := admin.Do(t, http.MethodPost, "/api/message-policies", policies[0].manifest); resp.Status != http.StatusGone {
-			t.Errorf("creating a message policy: want 410, got %s", resp)
+		// The message policy API is gone; LLM judge guardrails replace it.
+		if resp := admin.Do(t, http.MethodGet, "/api/message-policies", nil); resp.Status != http.StatusNotFound && resp.Status != http.StatusForbidden {
+			t.Errorf("listing message policies: want the API gone, got %s", resp)
 		}
 	})
 
@@ -397,6 +420,70 @@ func TestUpgradeFromMain(t *testing.T) {
 				return nil
 			})
 		}
+	})
+
+	t.Run("references to the legacy model moved to the gateway", func(t *testing.T) {
+		if !legacyConfigured {
+			t.Skip("the legacy provider could not be configured on main")
+		}
+		// The imported provider talks to OpenAI; point it at the mock, which serves the same
+		// model for the imported key.
+		mock.SetModels(legacyAPIKey, "gpt-legacy")
+		var provider map[string]any
+		admin.Get(t, "/api/llm-gateway/admin/providers/openai", &provider)
+		nc, _ := provider["network_config"].(map[string]any)
+		nc["base_url"], nc["allow_private_network"] = mock.URL, true
+		update := map[string]any{"network_config": nc}
+		for _, k := range []string{"keys", "concurrency_and_buffer_size", "proxy_config", "custom_provider_config"} {
+			if v, ok := provider[k]; ok {
+				update[k] = v
+			}
+		}
+		admin.Put(t, "/api/llm-gateway/admin/providers/openai", update, nil)
+		admin.Post(t, "/api/llm-gateway/sync-models", map[string]any{}, nil)
+
+		var gatewayModelID string
+		harness.Eventually(t, 2*time.Minute, "the llm alias on the gateway model", func() error {
+			var list types.ModelList
+			admin.Get(t, "/api/models?all=true", &list)
+			for _, m := range list.Items {
+				if m.TargetModel == "openai/gpt-legacy" {
+					gatewayModelID = m.ID
+				}
+			}
+			var alias types.DefaultModelAlias
+			admin.Get(t, "/api/default-model-aliases/llm", &alias)
+			if gatewayModelID == "" || alias.Model != gatewayModelID {
+				return fmt.Errorf("gateway model %q, llm alias %q", gatewayModelID, alias.Model)
+			}
+			return nil
+		})
+		var policies struct {
+			Items []types.ModelAccessPolicy `json:"items"`
+		}
+		admin.Get(t, "/api/model-access-policies", &policies)
+		found := false
+		for _, p := range policies.Items {
+			if p.DisplayName != "legacy model" {
+				continue
+			}
+			found = true
+			if len(p.Models) != 1 || p.Models[0].ID != gatewayModelID {
+				t.Errorf("access policy models %v, want the gateway model %s", p.Models, gatewayModelID)
+			}
+		}
+		if !found {
+			t.Error("the access policy referring to the legacy model is gone")
+		}
+		harness.Eventually(t, time.Minute, "the legacy model and provider to be deleted", func() error {
+			if resp := admin.Do(t, http.MethodGet, "/api/models/"+legacyModelID, nil); resp.Status != http.StatusNotFound {
+				return fmt.Errorf("legacy model: %s", resp)
+			}
+			if resp := admin.Do(t, http.MethodGet, "/api/model-providers/"+system.OpenAIModelProvider, nil); resp.Status != http.StatusNotFound {
+				return fmt.Errorf("legacy provider: %s", resp)
+			}
+			return nil
+		})
 	})
 
 	t.Run("personal token limit applies through the migrated budget", func(t *testing.T) {
