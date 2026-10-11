@@ -223,6 +223,9 @@ func (t sanitizingTransport) RoundTrip(req *http.Request) (*http.Response, error
 			return nil, err
 		}
 		body = stripEngineFields(body)
+		if resp.StatusCode >= http.StatusBadRequest {
+			body = bifrost.ScrubEngineNameBytes(body)
+		}
 		resp.Body = io.NopCloser(bytes.NewReader(body))
 		resp.ContentLength = int64(len(body))
 		resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
@@ -255,7 +258,11 @@ func (s *sseSanitizer) Read(p []byte) (int, error) {
 		if len(line) > 0 {
 			if data, ok := bytes.CutPrefix(line, []byte("data: ")); ok && len(data) > 0 && data[0] == '{' {
 				trimmed := bytes.TrimRight(data, "\r\n")
-				line = append(append([]byte("data: "), stripEngineFields(trimmed)...), data[len(trimmed):]...)
+				event := stripEngineFields(trimmed)
+				if gjson.GetBytes(event, "error").Exists() {
+					event = bifrost.ScrubEngineNameBytes(event)
+				}
+				line = append(append([]byte("data: "), event...), data[len(trimmed):]...)
 			}
 			s.pending = line
 		}

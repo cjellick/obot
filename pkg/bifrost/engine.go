@@ -428,10 +428,10 @@ func (e *Engine) boot(ctx context.Context, opts Options) (*instance, error) {
 
 func (e *Engine) bootServer(ctx context.Context, opts Options) (*instance, error) {
 	if opts.DataDir == "" {
-		return nil, errors.New("bifrost data dir is required")
+		return nil, errors.New("LLM gateway data dir is required")
 	}
 	if err := os.MkdirAll(opts.DataDir, 0o700); err != nil {
-		return nil, fmt.Errorf("failed to create bifrost data dir: %w", err)
+		return nil, fmt.Errorf("failed to create the LLM gateway data dir: %w", err)
 	}
 
 	encryptionKey, err := resolveEncryptionKey(opts)
@@ -446,7 +446,7 @@ func (e *Engine) bootServer(ctx context.Context, opts Options) (*instance, error
 		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(opts.DataDir, "config.json"), cfg, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write bifrost config: %w", err)
+		return nil, fmt.Errorf("failed to write the LLM gateway config: %w", err)
 	}
 
 	level := schemas.LogLevel(strings.ToLower(opts.LogLevel))
@@ -471,7 +471,7 @@ func (e *Engine) bootServer(ctx context.Context, opts Options) (*instance, error
 	ln.SetLocalAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 80})
 	if err := server.Bootstrap(ctx); err != nil {
 		// Bootstrap may have started work before failing; release it.
-		return &instance{server: server, listener: ln}, fmt.Errorf("failed to bootstrap bifrost: %w", err)
+		return &instance{server: server, listener: ln}, fmt.Errorf("failed to start the LLM gateway: %w", err)
 	}
 	inst := &instance{server: server, listener: ln}
 
@@ -627,7 +627,7 @@ func (e *Engine) Do(ctx context.Context, method, path string, body any, out any)
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("bifrost returned %d: %s", e.StatusCode, e.Message)
+	return fmt.Sprintf("LLM gateway returned %d: %s", e.StatusCode, e.Message)
 }
 
 func resolveEncryptionKey(opts Options) (string, error) {
@@ -647,7 +647,7 @@ func resolveEncryptionKey(opts Options) (string, error) {
 		}
 	}
 	if err := os.WriteFile(filepath.Join(opts.DataDir, "encryption.key"), []byte(key), 0o600); err != nil {
-		return "", fmt.Errorf("failed to persist bifrost encryption key: %w", err)
+		return "", fmt.Errorf("failed to persist the LLM gateway encryption key: %w", err)
 	}
 	return key, nil
 }
@@ -680,7 +680,7 @@ func dataDirEncryptionKey(dataDir string) (string, error) {
 	if os.IsNotExist(err) {
 		return "", nil
 	} else if err != nil {
-		return "", fmt.Errorf("failed to read bifrost encryption key: %w", err)
+		return "", fmt.Errorf("failed to read the LLM gateway encryption key: %w", err)
 	}
 	return strings.TrimSpace(string(data)), nil
 }
@@ -767,7 +767,7 @@ func buildConfigFile(opts Options, encryptionKey string) ([]byte, error) {
 func postgresConfigFromDSN(dsn string) (map[string]any, error) {
 	u, err := url.Parse(strings.Replace(dsn, "postgresql://", "postgres://", 1))
 	if err != nil {
-		return nil, fmt.Errorf("invalid bifrost postgres DSN: %w", err)
+		return nil, fmt.Errorf("invalid LLM gateway postgres DSN: %w", err)
 	}
 	password, _ := u.User.Password()
 	port := u.Port()

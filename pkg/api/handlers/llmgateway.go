@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,7 +83,7 @@ func (h *LLMGatewayHandler) Status(req api.Context) error {
 	if h.engine != nil {
 		status.Ready = h.engine.Ready()
 		if err := h.engine.Err(); err != nil {
-			status.Error = err.Error()
+			status.Error = bifrost.ScrubEngineName(err.Error())
 		}
 		status.HasProviders = h.engine.HasUpstreamProviders(req.Context())
 	}
@@ -166,6 +167,9 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 		return types.NewErrHTTP(http.StatusInternalServerError, err.Error())
 	}
 
+	if rec.Code >= http.StatusBadRequest {
+		return engineError(rec.Code, rec.Body.Bytes())
+	}
 	for k, vs := range rec.Header() {
 		if strings.EqualFold(k, "Content-Length") {
 			continue
@@ -177,6 +181,25 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 	req.WriteHeader(rec.Code)
 	_, err = req.ResponseWriter.Write(rec.Body.Bytes())
 	return err
+}
+
+// engineError turns an error response from the engine's API into an Obot API error carrying
+// only its message, so the engine's own error format and name don't reach clients.
+func engineError(code int, body []byte) error {
+	var errBody struct {
+		Message string `json:"message"`
+		Error   struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	message := strings.TrimSpace(string(body))
+	if json.Unmarshal(body, &errBody) == nil {
+		message = cmp.Or(errBody.Error.Message, errBody.Message)
+	}
+	if message == "" {
+		message = http.StatusText(code)
+	}
+	return types.NewErrHTTP(code, bifrost.ScrubEngineName(message))
 }
 
 // checkPluginChange limits plugin changes to the plugins Obot lets administrators configure.

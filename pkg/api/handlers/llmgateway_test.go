@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"errors"
+	"net/http"
 	"testing"
+
+	"github.com/obot-platform/obot/apiclient/types"
 )
 
 func TestAllowedBifrostAPIPath(t *testing.T) {
@@ -124,6 +128,51 @@ func TestRejectSecretReferences(t *testing.T) {
 			err := rejectSecretReferences([]byte(tt.body))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEngineError(t *testing.T) {
+	tests := []struct {
+		name        string
+		code        int
+		body        string
+		wantMessage string
+	}{
+		{
+			name:        "engine error object",
+			code:        http.StatusNotFound,
+			body:        `{"is_bifrost_error":false,"status_code":404,"error":{"message":"Provider not found: not found"},"extra_fields":{"routing_info":{}}}`,
+			wantMessage: "Provider not found: not found",
+		},
+		{
+			name:        "top-level message",
+			code:        http.StatusBadRequest,
+			body:        `{"message":"bifrost could not parse the request"}`,
+			wantMessage: "LLM gateway could not parse the request",
+		},
+		{
+			name:        "plain text",
+			code:        http.StatusConflict,
+			body:        "Provider openai already exists\n",
+			wantMessage: "Provider openai already exists",
+		},
+		{
+			name:        "empty body",
+			code:        http.StatusBadGateway,
+			body:        "",
+			wantMessage: "Bad Gateway",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var httpErr *types.ErrHTTP
+			if err := engineError(tt.code, []byte(tt.body)); !errors.As(err, &httpErr) {
+				t.Fatalf("engineError returned %T, want *types.ErrHTTP", err)
+			}
+			if httpErr.Code != tt.code || httpErr.Message != tt.wantMessage {
+				t.Errorf("engineError = %d %q, want %d %q", httpErr.Code, httpErr.Message, tt.code, tt.wantMessage)
 			}
 		})
 	}
