@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,7 +25,6 @@ import (
 	"github.com/obot-platform/obot/pkg/bifrost"
 	gateway "github.com/obot-platform/obot/pkg/gateway/client"
 	"github.com/obot-platform/obot/pkg/gateway/server/dispatcher"
-	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	"github.com/obot-platform/obot/pkg/license"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
@@ -44,19 +42,7 @@ const (
 )
 
 var (
-	jsonErrRegexp             = regexp.MustCompile(`(?s)\{.*"error":.*}`)
-	openAIDefaultModelAliases = map[types.DefaultModelAliasType]string{
-		types.DefaultModelAliasTypeLLM:             "gpt-5.4",
-		types.DefaultModelAliasTypeLLMMini:         "gpt-5-mini",
-		types.DefaultModelAliasTypeVision:          "gpt-5.4",
-		types.DefaultModelAliasTypeImageGeneration: "dall-e-3",
-		types.DefaultModelAliasTypeTextEmbedding:   "text-embedding-3-large",
-	}
-	anthropicDefaultModelAliases = map[types.DefaultModelAliasType]string{
-		types.DefaultModelAliasTypeLLM:     "claude-sonnet-4-6",
-		types.DefaultModelAliasTypeLLMMini: "claude-haiku-4-5",
-		types.DefaultModelAliasTypeVision:  "claude-sonnet-4-6",
-	}
+	jsonErrRegexp            = regexp.MustCompile(`(?s)\{.*"error":.*}`)
 	providerNameInvalidChars = regexp.MustCompile(`[^a-z0-9-]+`)
 	providerNameDashes       = regexp.MustCompile(`-{2,}`)
 )
@@ -71,14 +57,6 @@ type Handler struct {
 type providerFromFile[T types.ModelProviderManifest | types.AuthProviderManifest] struct {
 	Name     string `yaml:"-"`
 	Manifest T      `yaml:",inline"`
-}
-
-func OpenAIDefaultModelAliases() map[types.DefaultModelAliasType]string {
-	return maps.Clone(openAIDefaultModelAliases)
-}
-
-func AnthropicDefaultModelAliases() map[types.DefaultModelAliasType]string {
-	return maps.Clone(anthropicDefaultModelAliases)
 }
 
 func New(gatewayClient *gateway.Client, dispatcher *dispatcher.Dispatcher, licenseProvider *license.Provider, registryPaths []string) *Handler {
@@ -176,37 +154,18 @@ func readRegistry(registryPath string) ([]kclient.Object, error) {
 		return nil, fmt.Errorf("provider registry path %s is not a directory", registryPath)
 	}
 
-	models, err := readProviderDirectoryIgnoreMissing[types.ModelProviderManifest](filepath.Join(registryPath, modelProvidersRegistryDir))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read model providers from registry %s: %w", registryPath, err)
-	}
-
 	auths, err := readProviderDirectoryIgnoreMissing[types.AuthProviderManifest](filepath.Join(registryPath, authProvidersRegistryDir))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read auth providers from registry %s: %w", registryPath, err)
 	}
 
-	return appendProviders(registryPath, auths, models), nil
+	return appendProviders(registryPath, auths), nil
 }
 
-func appendProviders(registryPath string, authProviderManifests []providerFromFile[types.AuthProviderManifest], modelProviderManifests []providerFromFile[types.ModelProviderManifest]) []kclient.Object {
-	objs := make([]kclient.Object, 0, len(authProviderManifests)+len(modelProviderManifests))
-
-	for _, m := range modelProviderManifests {
-		if m.Manifest.Command == "" {
-			slog.Warn("Skipping model provider with missing required fields", "name", m.Name, "command", m.Manifest.Command)
-			continue
-		}
-
-		m.Manifest.Command = path.Join(registryPath, m.Manifest.Command)
-
-		objs = append(objs, &v1.ModelProvider{
-			Name: m.Name,
-			Spec: v1.ModelProviderSpec{
-				ModelProviderManifest: m.Manifest,
-			},
-		})
-	}
+// appendProviders converts a registry's auth providers to objects. Registries also ship model
+// providers, which the LLM gateway replaced, so they are ignored.
+func appendProviders(registryPath string, authProviderManifests []providerFromFile[types.AuthProviderManifest]) []kclient.Object {
+	objs := make([]kclient.Object, 0, len(authProviderManifests))
 
 	for _, a := range authProviderManifests {
 		if a.Manifest.Command == "" {
@@ -279,7 +238,9 @@ func (h *Handler) ReadFromRegistry(ctx context.Context, c kclient.Client) error 
 	}
 
 	slog.Info("Applying resolved providers from registries", "providers", len(toAdd))
-	return apply.New(c).WithOwnerSubContext(providerRegistryOwnerSubContext).WithPruneTypes(&v1.ModelProvider{}, &v1.AuthProvider{}).Apply(ctx, nil, toAdd...)
+	// Only auth providers are pruned. Model providers the registry created before the LLM
+	// gateway replaced them are deleted once the gateway has migrated them.
+	return apply.New(c).WithOwnerSubContext(providerRegistryOwnerSubContext).WithPruneTypes(&v1.AuthProvider{}).Apply(ctx, nil, toAdd...)
 }
 
 func (h *Handler) PollRegistries(ctx context.Context, c kclient.Client) {
@@ -298,112 +259,6 @@ func (h *Handler) PollRegistries(ctx context.Context, c kclient.Client) {
 			return
 		}
 	}
-}
-
-func (h *Handler) EnsureOpenAIEnvCredentialAndDefaults(ctx context.Context, c kclient.Client) error {
-	return h.ensureModelProviderCredAndDefaults(ctx, c, OpenAIDefaultModelAliases(), system.OpenAIModelProvider, system.OpenAIAPIKeyEnvVar)
-}
-
-func (h *Handler) EnsureAnthropicCredentialAndDefaults(ctx context.Context, c kclient.Client) error {
-	return h.ensureModelProviderCredAndDefaults(ctx, c, AnthropicDefaultModelAliases(), system.AnthropicModelProvider, system.AnthropicAPIKeyEnvVar)
-}
-
-func (h *Handler) ensureModelProviderCredAndDefaults(ctx context.Context, c kclient.Client, defaultModelAliasMapping map[types.DefaultModelAliasType]string, modelProviderName, envVarName string) error {
-	apiKey := os.Getenv(envVarName)
-	if apiKey == "" {
-		return nil
-	}
-
-	credentialEnvVarName := fmt.Sprintf("OBOT_%s_API_KEY", strings.ToUpper(strings.ReplaceAll(modelProviderName, "-", "_")))
-
-	// If the model provider exists and the environment variable is set, then ensure the credential exists.
-	var modelProvider v1.ModelProvider
-	for {
-		select {
-		case <-time.After(2 * time.Second):
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-
-		if err := c.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: modelProviderName}, &modelProvider); err == nil {
-			break
-		}
-	}
-
-	if cred, err := h.gatewayClient.RevealCredential(ctx, []string{modelProvider.Name, system.GenericModelProviderCredentialContext}, modelProviderName); err != nil {
-		if !errors.As(err, &gateway.CredentialNotFoundError{}) {
-			return fmt.Errorf("failed to check OpenAI credential: %w", err)
-		}
-
-		// The credential doesn't exist, so create it.
-		if err = h.gatewayClient.UpsertCredential(ctx, gatewaytypes.Credential{
-			Context: modelProvider.Name,
-			Name:    modelProviderName,
-			Secrets: map[string]string{
-				credentialEnvVarName: apiKey,
-			},
-		}); err != nil {
-			return err
-		}
-		slog.Info("Created model provider credential from environment configuration", "provider", modelProviderName, "envVar", envVarName)
-	} else if cred.Secrets[credentialEnvVarName] != apiKey {
-		// If the credential exists, but has a different value, then update it.
-		if err = h.gatewayClient.UpsertCredential(ctx, gatewaytypes.Credential{
-			Context: modelProvider.Name,
-			Name:    modelProviderName,
-			Secrets: map[string]string{
-				credentialEnvVarName: apiKey,
-			},
-		}); err != nil {
-			return fmt.Errorf("failed to update model provider credential: %w", err)
-		}
-		slog.Info("Updated model provider credential from environment configuration", "provider", modelProviderName, "envVar", envVarName)
-
-		// Stop the model provider if it was started while we were updating the credential.
-		h.dispatcher.StopModelProvider(modelProvider.Namespace, modelProvider.Name)
-		slog.Info("Stopped model provider to force restart after credential update", "provider", modelProvider.Name)
-	}
-
-	var modelAliases v1.DefaultModelAliasList
-	if err := c.List(ctx, &modelAliases); err != nil {
-		return fmt.Errorf("failed to list model aliases: %w", err)
-	}
-
-	updatedAliases := 0
-	for _, alias := range modelAliases.Items {
-		if alias.Spec.Manifest.Model != "" {
-			continue
-		}
-
-		targetModel := defaultModelAliasMapping[types.DefaultModelAliasType(alias.Spec.Manifest.Alias)]
-		if targetModel == "" {
-			continue
-		}
-
-		alias.Spec.Manifest.Model = modelName(modelProvider.Name, targetModel)
-		if err := c.Update(ctx, &alias); err != nil {
-			return fmt.Errorf("failed to update model alias %q for model provider %q: %w", alias.Name, modelProviderName, err)
-		}
-		updatedAliases++
-	}
-	slog.Info("Populated default model aliases for provider", "provider", modelProviderName, "aliases", updatedAliases)
-
-	// Lastly, ensure that the models are populated from the model provider
-	if err := c.Get(ctx, kclient.ObjectKey{Namespace: modelProvider.Namespace, Name: modelProvider.Name}, &modelProvider); err != nil {
-		return nil
-	}
-
-	if modelProvider.Annotations[v1.ModelProviderSyncAnnotation] != "" {
-		delete(modelProvider.Annotations, v1.ModelProviderSyncAnnotation)
-	} else {
-		if modelProvider.Annotations == nil {
-			modelProvider.Annotations = make(map[string]string, 1)
-		}
-		modelProvider.Annotations[v1.ModelProviderSyncAnnotation] = "true"
-	}
-	slog.Info("Toggled model provider sync annotation to refresh models", "provider", modelProvider.Name)
-
-	return c.Update(ctx, &modelProvider)
 }
 
 func (h *Handler) SetAuthProviderConfiguredStatus(req router.Request, _ router.Response) error {
@@ -443,47 +298,18 @@ func SetAuthProviderConfiguredStatus(ctx context.Context, gatewayClient *gateway
 	return nil
 }
 
+// SetModelProviderConfiguredStatus marks a built-in model provider, the LLM gateway,
+// configured once it has an upstream provider. Legacy model providers are left as they are
+// until the gateway migrates them.
 func (h *Handler) SetModelProviderConfiguredStatus(req router.Request, _ router.Response) error {
 	modelProvider := req.Object.(*v1.ModelProvider)
-	if err := SetModelProviderConfiguredStatus(req.Ctx, h.gatewayClient, h.licenseProvider, modelProvider); err != nil {
-		return err
+	builtin, ok := h.dispatcher.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name)
+	if !ok {
+		return nil
 	}
-	// A built-in provider has no credential of its own; it is usable once it has at least
-	// one upstream provider configured.
-	if builtin, ok := h.dispatcher.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name); ok {
-		modelProvider.Status.Configured = builtin.HasUpstreamProviders(req.Ctx)
-	}
-	return nil
-}
-
-func SetModelProviderConfiguredStatus(ctx context.Context, gatewayClient *gateway.Client, licenseProvider *license.Provider, modelProvider *v1.ModelProvider) error {
-	var (
-		configured          = true
-		missingConfigParams []string
-	)
-	if len(modelProvider.Spec.RequiredConfigurationParameters) > 0 {
-		cred, err := gatewayClient.RevealCredential(ctx, []string{modelProvider.Name, system.GenericModelProviderCredentialContext}, modelProvider.Name)
-		if err != nil && !errors.As(err, &gateway.CredentialNotFoundError{}) {
-			return fmt.Errorf("failed to reveal credential for model provider %q: %w", modelProvider.Name, err)
-		}
-		if cred.Secrets == nil {
-			// Don't pass a nil map so that the provider status functions can distinguish between "no credential found" and "credential found but has no secrets"
-			cred.Secrets = make(map[string]string)
-		}
-
-		providerStatus, err := providers.ModelProviderStatus(ctx, *modelProvider, cred.Secrets, licenseProvider)
-		if err != nil {
-			return err
-		}
-
-		configured = providerStatus.Configured
-		missingConfigParams = providerStatus.MissingConfigurationParameters
-	}
-
-	modelProvider.Status.MissingConfigurationParameters = missingConfigParams
+	modelProvider.Status.Configured = builtin.HasUpstreamProviders(req.Ctx)
+	modelProvider.Status.MissingConfigurationParameters = nil
 	modelProvider.Status.ObservedGeneration = modelProvider.Generation
-	modelProvider.Status.Configured = configured
-
 	return nil
 }
 
@@ -494,14 +320,10 @@ func (h *Handler) BackPopulateModels(req router.Request, _ router.Response) erro
 
 func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *dispatcher.Dispatcher, modelProvider *v1.ModelProvider) error {
 	builtin, isBuiltin := dispatcher.BuiltinModelProvider(modelProvider.Namespace, modelProvider.Name)
-	if isBuiltin {
-		// A built-in provider always lists, even with no upstream providers, so that removing
-		// its last provider prunes its models. While it is still starting, keep the current
-		// models until it can list them.
-		if !builtin.Ready() {
-			return nil
-		}
-	} else if !modelProvider.Status.Configured {
+	// Only built-in providers (the LLM gateway) list models. A built-in provider always lists,
+	// even with no upstream providers, so that removing its last provider prunes its models.
+	// While it is still starting, keep the current models until it can list them.
+	if !isBuiltin || !builtin.Ready() {
 		return nil
 	}
 
@@ -601,7 +423,7 @@ func BackPopulateModels(ctx context.Context, client kclient.Client, dispatcher *
 		}
 	}
 
-	if lister, ok := builtin.(upstreamProviderLister); isBuiltin && ok {
+	if lister, ok := builtin.(upstreamProviderLister); ok {
 		kept, err := unlistedProviderModels(ctx, client, lister, availableModels, existingModels.Items)
 		if err != nil {
 			return err

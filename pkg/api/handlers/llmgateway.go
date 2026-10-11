@@ -18,7 +18,6 @@ import (
 	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/controller/handlers/providerconfigurationchange"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
-	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
 	"gorm.io/gorm"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,13 +54,12 @@ type LLMGatewayHandler struct {
 
 // LLMGatewayStatus describes the embedded gateway.
 type LLMGatewayStatus struct {
-	Enabled             bool   `json:"enabled"`
-	Ready               bool   `json:"ready"`
-	Error               string `json:"error,omitempty"`
-	HasProviders        bool   `json:"hasProviders"`
-	ModelProviderName   string `json:"modelProviderName"`
-	ProxyPath           string `json:"proxyPath"`
-	ModelsBackPopulated bool   `json:"modelsBackPopulated"`
+	Enabled           bool   `json:"enabled"`
+	Ready             bool   `json:"ready"`
+	Error             string `json:"error,omitempty"`
+	HasProviders      bool   `json:"hasProviders"`
+	ModelProviderName string `json:"modelProviderName"`
+	ProxyPath         string `json:"proxyPath"`
 }
 
 func NewLLMGatewayHandler(engine *bifrost.Engine) *LLMGatewayHandler {
@@ -70,20 +68,14 @@ func NewLLMGatewayHandler(engine *bifrost.Engine) *LLMGatewayHandler {
 
 func (h *LLMGatewayHandler) Status(req api.Context) error {
 	status := LLMGatewayStatus{
-		Enabled:           h.engine != nil,
+		Enabled:           true,
 		ModelProviderName: system.LLMGatewayModelProvider,
 		ProxyPath:         "/api/llm-proxy",
+		Ready:             h.engine.Ready(),
+		HasProviders:      h.engine.HasUpstreamProviders(req.Context()),
 	}
-	if h.engine != nil {
-		status.Ready = h.engine.Ready()
-		if err := h.engine.Err(); err != nil {
-			status.Error = bifrost.ScrubEngineName(err.Error())
-		}
-		status.HasProviders = h.engine.HasUpstreamProviders(req.Context())
-	}
-	var mp v1.ModelProvider
-	if err := req.Get(&mp, system.LLMGatewayModelProvider); err == nil && mp.Status.ModelsBackPopulated != nil {
-		status.ModelsBackPopulated = *mp.Status.ModelsBackPopulated
+	if err := h.engine.Err(); err != nil {
+		status.Error = bifrost.ScrubEngineName(err.Error())
 	}
 	return req.Write(status)
 }
@@ -100,9 +92,6 @@ func withProviderDefaults(body []byte) ([]byte, error) {
 }
 
 func (h *LLMGatewayHandler) requireEngine() error {
-	if h.engine == nil {
-		return types.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway is disabled")
-	}
 	if !h.engine.Ready() {
 		if err := h.engine.Err(); err != nil {
 			return types.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway failed to start: "+err.Error())

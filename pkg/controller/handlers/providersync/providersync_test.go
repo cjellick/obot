@@ -67,11 +67,11 @@ func TestReconcileStopsOnlyProvidersWithNewRevisions(t *testing.T) {
 
 	require.NoError(t, handler.Reconcile(router.Request{Object: daemonSync}, nil))
 	assert.Equal(t, 1, stopper.authStops["default/entra"])
-	assert.Equal(t, 1, stopper.modelStops["default/openai"])
+	assert.Zero(t, stopper.modelStops["default/openai"], "model providers have no daemon")
 
 	require.NoError(t, handler.Reconcile(router.Request{Object: daemonSync}, nil))
 	assert.Equal(t, 1, stopper.authStops["default/entra"])
-	assert.Equal(t, 1, stopper.modelStops["default/openai"])
+	assert.Zero(t, stopper.modelStops["default/openai"], "model providers have no daemon")
 
 	authRevision := daemonSync.Spec.Revisions["auth/default/entra"]
 	authRevision.Revision++
@@ -84,8 +84,8 @@ func TestReconcileStopsOnlyProvidersWithNewRevisions(t *testing.T) {
 	}
 	require.NoError(t, handler.Reconcile(router.Request{Object: daemonSync}, nil))
 	assert.Equal(t, 2, stopper.authStops["default/entra"])
-	assert.Equal(t, 1, stopper.modelStops["default/openai"])
-	assert.Equal(t, 1, stopper.modelStops["default/anthropic"])
+	assert.Zero(t, stopper.modelStops["default/openai"], "model providers have no daemon")
+	assert.Zero(t, stopper.modelStops["default/anthropic"], "model providers have no daemon")
 
 	authRevision.Revision = 1
 	daemonSync.Spec.Revisions["auth/default/entra"] = authRevision

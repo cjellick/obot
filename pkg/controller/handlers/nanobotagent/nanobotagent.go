@@ -411,39 +411,14 @@ func (h *Handler) parseModelProvider(model resolvedLLMModel) (nanobotLLMProvider
 	name := model.ModelProvider
 	envVarName := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_API_KEY"
 
+	if model.ModelProvider != system.LLMGatewayModelProvider {
+		return nanobotLLMProvider{}, "", fmt.Errorf("model %q is not served by the LLM gateway", model.Name)
+	}
 	dialect := model.ProviderDialect
 	if dialect == "" {
-		switch model.ModelProvider {
-		case system.AnthropicModelProvider:
-			dialect = llmtypes.DialectAnthropicMessages
-		case system.OpenAIModelProvider:
-			dialect = llmtypes.DialectOpenAIResponses
-		default:
-			dialect = llmtypes.DialectOpenResponses
-		}
+		dialect = llmtypes.DialectOpenResponses
 	}
-
-	baseURL := h.serverURL + "/api/llm-proxy"
-	switch model.ModelProvider {
-	case system.OpenAIModelProvider:
-		baseURL += "/openai/v1"
-	case system.AnthropicModelProvider:
-		baseURL += "/anthropic/v1"
-	case system.GenericResponsesModelProvider:
-		baseURL += "/generic-responses/v1"
-	case system.AmazonBedrockModelProvider:
-		baseURL += "/aws-bedrock/v1"
-	case system.AmazonBedrockAPIKeyModelProvider:
-		baseURL += "/aws-bedrock-api-key/v1"
-	case system.AzureModelProvider:
-		baseURL += "/azure/v1"
-	case system.AzureEntraModelProvider:
-		baseURL += "/azure-entra/v1"
-	case system.LLMGatewayModelProvider:
-		baseURL += "/v1"
-	default:
-		return nanobotLLMProvider{}, "", fmt.Errorf("unsupported model provider %q", model.ModelProvider)
-	}
+	baseURL := h.serverURL + "/api/llm-proxy/v1"
 
 	p := nanobotLLMProvider{
 		Name:    name,

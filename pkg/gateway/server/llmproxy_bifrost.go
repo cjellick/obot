@@ -112,7 +112,7 @@ func (s *Server) SetLLMGateway(engine *bifrost.Engine) {
 	s.llmGateway = engine
 }
 
-// LLMGateway returns the embedded Bifrost gateway, or nil when it is disabled.
+// LLMGateway returns the embedded Bifrost gateway.
 func (s *Server) LLMGateway() *bifrost.Engine {
 	return s.llmGateway
 }
@@ -163,9 +163,6 @@ func resolveBifrostRoute(req *http.Request) (bifrostRoute, error) {
 }
 
 func (b *bifrostProviderBackend) upstreamURL(req *http.Request) (url.URL, llmtypes.Dialect, error) {
-	if b.engine == nil {
-		return url.URL{}, "", types2.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway is disabled")
-	}
 	if !b.engine.Ready() {
 		if err := b.engine.Err(); err != nil {
 			return url.URL{}, "", types2.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway failed to start")

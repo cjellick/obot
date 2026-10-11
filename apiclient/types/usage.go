@@ -36,11 +36,3 @@ type TokenUsage struct {
 }
 
 type TokenUsageList List[TokenUsage]
-
-type RemainingTokenUsage struct {
-	UserID                string `json:"userID,omitempty"`
-	InputTokens           int    `json:"inputTokens"`
-	OutputTokens          int    `json:"outputTokens"`
-	UnlimitedInputTokens  bool   `json:"unlimitedInputTokens"`
-	UnlimitedOutputTokens bool   `json:"unlimitedOutputTokens"`
-}

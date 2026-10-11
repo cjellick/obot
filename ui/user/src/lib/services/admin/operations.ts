@@ -2363,11 +2363,6 @@ export async function listTokenUsage(
 	return unwrapTokenUsageList(response);
 }
 
-export async function listRemainingTokenUsageForUser(userId: string, opts?: { fetch?: Fetcher }) {
-	const response = await doGet(`/users/${userId}/remaining-token-usage`, opts);
-	return response;
-}
-
 export async function listTotalTokenUsageForUser(userId: string, opts?: { fetch?: Fetcher }) {
 	const response = await doGet(`/users/${userId}/total-token-usage`, opts);
 	return response;

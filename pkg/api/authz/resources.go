@@ -104,7 +104,6 @@ var (
 			"GET    /api/users/{user_id}/activities",
 			"GET    /api/users/{user_id}/token-usage",
 			"GET    /api/users/{user_id}/total-token-usage",
-			"GET    /api/users/{user_id}/remaining-token-usage",
 			"GET    /api/workspaces",
 			"GET    /api/projects/{project_id}",
 			"PUT    /api/projects/{project_id}",

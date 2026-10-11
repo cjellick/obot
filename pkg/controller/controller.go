@@ -286,24 +286,9 @@ func (c *Controller) PostStart(ctx context.Context, client kclient.Client) {
 		panic(err)
 	}
 	go c.providerHandler.PollRegistries(ctx, client)
-	var err error
-	for range 3 {
-		err = c.providerHandler.EnsureOpenAIEnvCredentialAndDefaults(ctx, client)
-		if err == nil {
-			break
-		}
-		time.Sleep(500 * time.Millisecond) // wait a bit before retrying
-	}
-	if err != nil {
-		panic(fmt.Errorf("failed to ensure openai env credential and defaults: %w", err))
-	}
 
 	if err := c.services.PersistentTokenServer.EnsureJWK(ctx); err != nil {
 		panic(fmt.Errorf("failed to ensure JWK: %w", err))
-	}
-
-	if err = c.providerHandler.EnsureAnthropicCredentialAndDefaults(ctx, client); err != nil {
-		panic(fmt.Errorf("failed to ensure anthropic credential and defaults: %w", err))
 	}
 
 	if err := c.modelInfoSourceHandler.SetUpDefaultModelInfoSource(ctx, client); err != nil {
@@ -761,14 +746,6 @@ func (c *Controller) ensureLocalAuthProvider(ctx context.Context) error {
 func (c *Controller) ensureBifrostModelProvider(ctx context.Context) error {
 	modelProvider := bifrost.ModelProviderResource()
 
-	if c.services.BifrostEngine == nil {
-		// The gateway is disabled, so its provider and models must not look usable.
-		if err := c.services.StorageClient.Delete(ctx, modelProvider); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to remove LLM gateway model provider: %w", err)
-		}
-		return nil
-	}
-
 	var existing v1.ModelProvider
 	if err := c.services.StorageClient.Get(ctx, kclient.ObjectKeyFromObject(modelProvider), &existing); apierrors.IsNotFound(err) {
 		return c.services.StorageClient.Create(ctx, modelProvider)
@@ -820,33 +797,10 @@ func (c *Controller) ensureAuthProvidersAndModelProviders(ctx context.Context) e
 				return fmt.Errorf("failed to update auth provider: %w", err)
 			}
 		}
-
-		var modelProviders v1.ModelProviderList
-		if err := c.services.StorageClient.List(ctx, &modelProviders); err != nil {
-			return fmt.Errorf("failed to get model provider: %w", err)
-		}
-
-		for _, modelProvider := range modelProviders.Items {
-			if modelProvider.Name == system.LLMGatewayModelProvider {
-				// The gateway may still be starting; its startup tasks sync its models.
-				continue
-			}
-			if err := provider.SetModelProviderConfiguredStatus(ctx, c.services.GatewayClient, c.services.LicenseProvider, &modelProvider); err != nil {
-				return fmt.Errorf("failed to set model provider configured status: %w", err)
-			}
-			if err := provider.BackPopulateModels(ctx, c.services.StorageClient, c.services.ProviderDispatcher, &modelProvider); err != nil {
-				return fmt.Errorf("failed to back populate models: %w", err)
-			}
-			if err := c.services.StorageClient.Status().Update(ctx, &modelProvider); err != nil {
-				return fmt.Errorf("failed to update model provider status: %w", err)
-			}
-		}
 	}
 
-	if c.services.BifrostEngine != nil {
-		go c.services.BifrostEngine.RunStartupTasks(ctx, c.services.StorageClient, c.services.GatewayClient, func(ctx context.Context) (int64, error) {
-			return providerconfigurationchange.AdvanceLLMGatewayRevision(ctx, c.services.StorageClient)
-		})
-	}
+	go c.services.BifrostEngine.RunStartupTasks(ctx, c.services.StorageClient, c.services.GatewayClient, func(ctx context.Context) (int64, error) {
+		return providerconfigurationchange.AdvanceLLMGatewayRevision(ctx, c.services.StorageClient)
+	})
 	return nil
 }

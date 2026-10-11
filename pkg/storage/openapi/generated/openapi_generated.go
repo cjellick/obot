@@ -320,7 +320,6 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/obot-platform/obot/apiclient/types.RegistryServerRemote":                      schema_obot_platform_obot_apiclient_types_RegistryServerRemote(ref),
 		"github.com/obot-platform/obot/apiclient/types.RegistryServerRepository":                  schema_obot_platform_obot_apiclient_types_RegistryServerRepository(ref),
 		"github.com/obot-platform/obot/apiclient/types.RegistryServerResponse":                    schema_obot_platform_obot_apiclient_types_RegistryServerResponse(ref),
-		"github.com/obot-platform/obot/apiclient/types.RemainingTokenUsage":                       schema_obot_platform_obot_apiclient_types_RemainingTokenUsage(ref),
 		"github.com/obot-platform/obot/apiclient/types.RemoteCatalogConfig":                       schema_obot_platform_obot_apiclient_types_RemoteCatalogConfig(ref),
 		"github.com/obot-platform/obot/apiclient/types.RemoteRuntimeConfig":                       schema_obot_platform_obot_apiclient_types_RemoteRuntimeConfig(ref),
 		"github.com/obot-platform/obot/apiclient/types.Resource":                                  schema_obot_platform_obot_apiclient_types_Resource(ref),
@@ -16283,53 +16282,6 @@ func schema_obot_platform_obot_apiclient_types_RegistryServerResponse(ref common
 		},
 		Dependencies: []string{
 			"github.com/obot-platform/obot/apiclient/types.RegistryMeta", "github.com/obot-platform/obot/apiclient/types.RegistryServerDetail"},
-	}
-}
-
-func schema_obot_platform_obot_apiclient_types_RemainingTokenUsage(ref common.ReferenceCallback) common.OpenAPIDefinition {
-	return common.OpenAPIDefinition{
-		Schema: spec.Schema{
-			SchemaProps: spec.SchemaProps{
-				Type: []string{"object"},
-				Properties: map[string]spec.Schema{
-					"userID": {
-						SchemaProps: spec.SchemaProps{
-							Type:   []string{"string"},
-							Format: "",
-						},
-					},
-					"inputTokens": {
-						SchemaProps: spec.SchemaProps{
-							Default: 0,
-							Type:    []string{"integer"},
-							Format:  "int32",
-						},
-					},
-					"outputTokens": {
-						SchemaProps: spec.SchemaProps{
-							Default: 0,
-							Type:    []string{"integer"},
-							Format:  "int32",
-						},
-					},
-					"unlimitedInputTokens": {
-						SchemaProps: spec.SchemaProps{
-							Default: false,
-							Type:    []string{"boolean"},
-							Format:  "",
-						},
-					},
-					"unlimitedOutputTokens": {
-						SchemaProps: spec.SchemaProps{
-							Default: false,
-							Type:    []string{"boolean"},
-							Format:  "",
-						},
-					},
-				},
-				Required: []string{"inputTokens", "outputTokens", "unlimitedInputTokens", "unlimitedOutputTokens"},
-			},
-		},
 	}
 }
 

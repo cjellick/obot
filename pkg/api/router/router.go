@@ -681,11 +681,7 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("PUT /api/model-proxy", modelProxy.Update)
 	mux.HandleFunc("GET /api/model-proxy/usage", modelProxy.Usage)
 	mux.HandleFunc("GET /api/model-providers/{model_provider_id}", modelProviders.ByID)
-	mux.HandleFunc("POST /api/model-providers/{model_provider_id}/configure", modelProviders.Configure)
-	mux.HandleFunc("POST /api/model-providers/{model_provider_id}/deconfigure", modelProviders.Deconfigure)
 	mux.HandleFunc("POST /api/model-providers/{model_provider_id}/refresh-models", modelProviders.RefreshModels)
-	mux.HandleFunc("POST /api/model-providers/{model_provider_id}/reveal", modelProviders.Reveal)
-	mux.HandleFunc("POST /api/model-providers/{model_provider_id}/validate", modelProviders.Validate)
 
 	// Auth providers
 	mux.HandleFunc("GET /api/auth-providers", authProviders.List)

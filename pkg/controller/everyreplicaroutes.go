@@ -15,19 +15,17 @@ func (c *Controller) setupEveryReplicaRoutes() {
 		return
 	}
 
-	var reloadGateway providersync.GatewayReloader
-	if engine := c.services.BifrostEngine; engine != nil {
-		reloadGateway = func(ctx context.Context, revision int64) (bool, error) {
-			reloaded, err := engine.Reload(revision)
-			if reloaded {
-				// The leader lists the gateway's models; have it list them again now that
-				// its gateway has the new configuration.
-				if err := bifrost.TriggerModelSync(ctx, c.services.StorageClient); err != nil {
-					slog.Warn("failed to trigger LLM gateway model sync after a reload", "error", err)
-				}
+	engine := c.services.BifrostEngine
+	reloadGateway := func(ctx context.Context, revision int64) (bool, error) {
+		reloaded, err := engine.Reload(revision)
+		if reloaded {
+			// The leader lists the gateway's models; have it list them again now that its
+			// gateway has the new configuration.
+			if err := bifrost.TriggerModelSync(ctx, c.services.StorageClient); err != nil {
+				slog.Warn("failed to trigger LLM gateway model sync after a reload", "error", err)
 			}
-			return reloaded, err
 		}
+		return reloaded, err
 	}
 	providerSync := providersync.New(c.services.ProviderDispatcher, c.services.LicenseProvider, reloadGateway)
 	c.services.EveryReplicaRouter.Type(&v1.ProviderSync{}).

@@ -508,7 +508,8 @@ func TestRunLLMAuditPersistenceLoopFlushesQueuedEntries(t *testing.T) {
 		c.LogLLMAuditEntry(types.LLMAuditLog{
 			ID:            uuid.New().String(),
 			CreatedAt:     time.Now().UTC(),
-			ModelProvider: system.OpenAIModelProvider,
+			ModelProvider: system.LLMGatewayModelProvider,
+			RequestPath:   "/api/llm-proxy/v1/responses",
 			RequestBody:   json.RawMessage(fmt.Sprintf(`{"prompt":"secret-%d"}`, i)),
 		}, []byte(`data: {"type":"response.created","response":{"id":"resp_async","output":[]}}`+"\n"))
 	}

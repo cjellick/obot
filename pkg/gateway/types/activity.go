@@ -54,13 +54,6 @@ type TokenUsage struct {
 	TotalSpend float64
 }
 
-type RemainingTokenUsage struct {
-	InputTokens           int
-	OutputTokens          int
-	UnlimitedInputTokens  bool
-	UnlimitedOutputTokens bool
-}
-
 func ConvertAPIActivity(a APIActivity) types2.APIActivity {
 	return types2.APIActivity{
 		UserID: a.UserID,
@@ -86,20 +79,5 @@ func ConvertTokenActivity(a RunTokenActivity) types2.TokenUsage {
 		CacheWriteSpend:  a.Usage.CacheWriteSpend,
 		OutputSpend:      a.Usage.OutputSpend,
 		TotalSpend:       a.Usage.TotalSpend,
-	}
-}
-
-func (r RemainingTokenUsage) IsDepleted() bool {
-	return !r.UnlimitedInputTokens && r.InputTokens <= 0 ||
-		!r.UnlimitedOutputTokens && r.OutputTokens <= 0
-}
-
-func ConvertRemainingTokenUsage(userID string, r *RemainingTokenUsage) types2.RemainingTokenUsage {
-	return types2.RemainingTokenUsage{
-		UserID:                userID,
-		InputTokens:           r.InputTokens,
-		OutputTokens:          r.OutputTokens,
-		UnlimitedInputTokens:  r.UnlimitedInputTokens,
-		UnlimitedOutputTokens: r.UnlimitedOutputTokens,
 	}
 }

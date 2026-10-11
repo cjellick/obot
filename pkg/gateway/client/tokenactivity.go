@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	types2 "github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/gateway/types"
 	"gorm.io/gorm"
 )
@@ -48,62 +47,6 @@ func (c *Client) TokenUsageSeriesInRange(ctx context.Context, start, end time.Ti
 		Order("created_at DESC").
 		Find(&activities).Error
 	return activities, err
-}
-
-func (c *Client) RemainingTokenUsageForUser(ctx context.Context, userID string, period time.Duration, inputTokenLimit, outputTokenLimit int) (*types.RemainingTokenUsage, error) {
-	r := &types.RemainingTokenUsage{}
-
-	user, err := c.UserByID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if user.Role.HasRole(types2.RoleAdmin) {
-		// Admins always have unlimited tokens.
-		r.UnlimitedInputTokens = true
-		r.UnlimitedOutputTokens = true
-		return r, nil
-	}
-
-	// Resolve the effective per-dimension limit, folding in the per-user setting: a positive
-	// per-user limit overrides the server limit, 0 inherits it, and a negative one disables it.
-	inputLimit, inputUnlimited := effectiveTokenLimit(inputTokenLimit, user.DailyInputTokensLimit)
-	outputLimit, outputUnlimited := effectiveTokenLimit(outputTokenLimit, user.DailyOutputTokensLimit)
-	r.UnlimitedInputTokens = inputUnlimited
-	r.UnlimitedOutputTokens = outputUnlimited
-	if inputUnlimited && outputUnlimited {
-		return r, nil
-	}
-
-	// Seed with the full limit so a user with no usage this period sees their whole budget.
-	r.InputTokens = inputLimit
-	r.OutputTokens = outputLimit
-
-	end := time.Now()
-	activity, err := c.tokenUsageByUser(ctx, userID, end.Add(-period), end)
-	if err != nil || len(activity) == 0 {
-		return r, err
-	}
-
-	// Remaining = limit - used. A negative value is how far over the limit the user went
-	// (only meaningful for limited dimensions; ignore it when the Unlimited flag is set).
-	r.InputTokens = inputLimit - activity[0].Usage.InputTokens
-	r.OutputTokens = outputLimit - activity[0].Usage.OutputTokens
-
-	return r, nil
-}
-
-// effectiveTokenLimit resolves one dimension's daily token limit. A positive per-user limit
-// overrides the server limit; a per-user limit of 0 inherits the server limit; any negative
-// limit (server or per-user) disables the limit (unlimited).
-func effectiveTokenLimit(serverLimit, userLimit int) (limit int, unlimited bool) {
-	if userLimit > 0 {
-		return userLimit, false
-	}
-	if userLimit < 0 || serverLimit < 0 {
-		return 0, true
-	}
-	return serverLimit, false
 }
 
 func (c *Client) tokenUsageByUser(ctx context.Context, userID string, start, end time.Time) ([]types.RunTokenActivity, error) {

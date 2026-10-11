@@ -148,9 +148,6 @@ func defaultDialect(manifest types.ModelManifest) llmtypes.Dialect {
 	if manifest.Dialect != "" {
 		return llmtypes.Dialect(manifest.Dialect)
 	}
-	if manifest.ModelProvider == system.AnthropicModelProvider {
-		return llmtypes.DialectAnthropicMessages
-	}
 	return llmtypes.DialectOpenAIResponses
 }
 

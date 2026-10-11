@@ -109,95 +109,6 @@ func TestChooseModelPrefersSuggestedOrder(t *testing.T) {
 	}
 }
 
-func TestNanobotParseModelProviderNamedRoutes(t *testing.T) {
-	h := &Handler{serverURL: "https://obot.example.com"}
-
-	for _, tc := range []struct {
-		provider    string
-		dialect     llmtypes.Dialect
-		wantBaseURL string
-	}{
-		{
-			provider:    system.AnthropicModelProvider,
-			dialect:     llmtypes.DialectAnthropicMessages,
-			wantBaseURL: "https://obot.example.com/api/llm-proxy/anthropic/v1",
-		},
-		{
-			provider:    system.OpenAIModelProvider,
-			dialect:     llmtypes.DialectOpenAIResponses,
-			wantBaseURL: "https://obot.example.com/api/llm-proxy/openai/v1",
-		},
-		{
-			provider:    system.OpenAIModelProvider,
-			dialect:     llmtypes.DialectOpenAIChatCompletions,
-			wantBaseURL: "https://obot.example.com/api/llm-proxy/openai/v1",
-		},
-		{
-			provider:    system.GenericResponsesModelProvider,
-			dialect:     llmtypes.DialectOpenResponses,
-			wantBaseURL: "https://obot.example.com/api/llm-proxy/generic-responses/v1",
-		},
-	} {
-		model := resolvedLLMModel{
-			Name:            "some-model",
-			ModelProvider:   tc.provider,
-			ProviderDialect: tc.dialect,
-		}
-		p, _, err := h.parseModelProvider(model)
-		if err != nil {
-			t.Fatalf("parseModelProvider: %v", err)
-		}
-		if p.BaseURL != tc.wantBaseURL {
-			t.Errorf("dialect %s: baseURL = %q, want %q", tc.dialect, p.BaseURL, tc.wantBaseURL)
-		}
-		if p.Dialect != tc.dialect {
-			t.Errorf("dialect %s: provider dialect = %q, want same", tc.dialect, p.Dialect)
-		}
-	}
-}
-
-func TestNanobotParseModelProviderBuiltinFallbacks(t *testing.T) {
-	h := &Handler{serverURL: "https://obot.example.com"}
-
-	for _, tc := range []struct {
-		modelProvider string
-		wantDialect   llmtypes.Dialect
-		wantBaseURL   string
-	}{
-		{
-			modelProvider: system.OpenAIModelProvider,
-			wantDialect:   llmtypes.DialectOpenAIResponses,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/openai/v1",
-		},
-		{
-			modelProvider: system.AnthropicModelProvider,
-			wantDialect:   llmtypes.DialectAnthropicMessages,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/anthropic/v1",
-		},
-		{
-			modelProvider: system.GenericResponsesModelProvider,
-			wantDialect:   llmtypes.DialectOpenResponses,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/generic-responses/v1",
-		},
-	} {
-		model := resolvedLLMModel{Name: "my-model", ModelProvider: tc.modelProvider}
-		p, qualifiedName, err := h.parseModelProvider(model)
-		if err != nil {
-			t.Fatalf("parseModelProvider: %v", err)
-		}
-		if p.Dialect != tc.wantDialect {
-			t.Errorf("%s: dialect = %q, want %q", tc.modelProvider, p.Dialect, tc.wantDialect)
-		}
-		if p.BaseURL != tc.wantBaseURL {
-			t.Errorf("%s: baseURL = %q, want %q", tc.modelProvider, p.BaseURL, tc.wantBaseURL)
-		}
-		wantName := tc.modelProvider + "/my-model"
-		if qualifiedName != wantName {
-			t.Errorf("%s: qualified name = %q, want %q", tc.modelProvider, qualifiedName, wantName)
-		}
-	}
-}
-
 func TestNanobotParseModelProviderRejectsUnsupportedProvider(t *testing.T) {
 	h := &Handler{serverURL: "https://obot.example.com"}
 
@@ -208,117 +119,6 @@ func TestNanobotParseModelProviderRejectsUnsupportedProvider(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected unsupported provider error")
-	}
-}
-
-func TestNanobotParseModelProviderBedrockRoutes(t *testing.T) {
-	h := &Handler{serverURL: "https://obot.example.com"}
-
-	for _, tc := range []struct {
-		name          string
-		modelProvider string
-		dialect       llmtypes.Dialect
-		wantBaseURL   string
-	}{
-		{
-			name:          "static bedrock anthropic",
-			modelProvider: "amazon-bedrock-model-provider",
-			dialect:       llmtypes.DialectAnthropicMessages,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/aws-bedrock/v1",
-		},
-		{
-			name:          "static bedrock openai",
-			modelProvider: "amazon-bedrock-model-provider",
-			dialect:       llmtypes.DialectOpenAIResponses,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/aws-bedrock/v1",
-		},
-		{
-			name:          "api key bedrock anthropic",
-			modelProvider: "amazon-bedrock-api-key-model-provider",
-			dialect:       llmtypes.DialectAnthropicMessages,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/aws-bedrock-api-key/v1",
-		},
-		{
-			name:          "api key bedrock openai",
-			modelProvider: "amazon-bedrock-api-key-model-provider",
-			dialect:       llmtypes.DialectOpenAIResponses,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/aws-bedrock-api-key/v1",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			model := resolvedLLMModel{
-				Name:            "m1-bedrock-model",
-				ModelProvider:   tc.modelProvider,
-				ProviderDialect: tc.dialect,
-			}
-			p, qualifiedName, err := h.parseModelProvider(model)
-			if err != nil {
-				t.Fatalf("parseModelProvider: %v", err)
-			}
-			if p.BaseURL != tc.wantBaseURL {
-				t.Fatalf("BaseURL = %q, want %q", p.BaseURL, tc.wantBaseURL)
-			}
-			if p.Dialect != tc.dialect {
-				t.Fatalf("Dialect = %q, want %q", p.Dialect, tc.dialect)
-			}
-			wantQualifiedName := tc.modelProvider + "/m1-bedrock-model"
-			if qualifiedName != wantQualifiedName {
-				t.Fatalf("qualifiedName = %q, want %q", qualifiedName, wantQualifiedName)
-			}
-		})
-	}
-}
-
-func TestNanobotParseModelProviderAzureRoutes(t *testing.T) {
-	h := &Handler{serverURL: "https://obot.example.com"}
-
-	for _, tc := range []struct {
-		name          string
-		modelProvider string
-		dialect       llmtypes.Dialect
-		wantBaseURL   string
-	}{
-		{
-			name:          "API key Anthropic",
-			modelProvider: system.AzureModelProvider,
-			dialect:       llmtypes.DialectAnthropicMessages,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/azure/v1",
-		},
-		{
-			name:          "API key OpenAI",
-			modelProvider: system.AzureModelProvider,
-			dialect:       llmtypes.DialectOpenAIResponses,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/azure/v1",
-		},
-		{
-			name:          "Entra Anthropic",
-			modelProvider: system.AzureEntraModelProvider,
-			dialect:       llmtypes.DialectAnthropicMessages,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/azure-entra/v1",
-		},
-		{
-			name:          "Entra OpenAI",
-			modelProvider: system.AzureEntraModelProvider,
-			dialect:       llmtypes.DialectOpenAIResponses,
-			wantBaseURL:   "https://obot.example.com/api/llm-proxy/azure-entra/v1",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			p, _, err := h.parseModelProvider(resolvedLLMModel{
-				Name:            "azure-model",
-				ModelProvider:   tc.modelProvider,
-				ProviderDialect: tc.dialect,
-			})
-			if err != nil {
-				t.Fatalf("parseModelProvider: %v", err)
-			}
-			if p.BaseURL != tc.wantBaseURL {
-				t.Fatalf("BaseURL = %q, want %q", p.BaseURL, tc.wantBaseURL)
-			}
-			if p.Dialect != tc.dialect {
-				t.Fatalf("Dialect = %q, want %q", p.Dialect, tc.dialect)
-			}
-		})
 	}
 }
 
@@ -452,58 +252,6 @@ func TestResolveModelCarriesProviderAndDialect(t *testing.T) {
 	}
 }
 
-// TestMultipleProvidersWhenLLMAndMiniDiffer verifies that when the default LLM and
-// mini-LLM models are on different providers, both providers appear in the generated
-// nanobot config YAML.
-func TestMultipleProvidersWhenLLMAndMiniDiffer(t *testing.T) {
-	h := &Handler{serverURL: "https://obot.example.com"}
-
-	llmModel := resolvedLLMModel{
-		Name:          "anthropic-claude-sonnet-4-6",
-		ModelProvider: system.AnthropicModelProvider,
-	}
-	miniModel := resolvedLLMModel{
-		Name:          "openai-gpt-4.1-mini",
-		ModelProvider: system.OpenAIModelProvider,
-	}
-
-	llmProvider, llmDefault, err := h.parseModelProvider(llmModel)
-	if err != nil {
-		t.Fatalf("parseModelProvider LLM: %v", err)
-	}
-	miniProvider, miniDefault, err := h.parseModelProvider(miniModel)
-	if err != nil {
-		t.Fatalf("parseModelProvider mini LLM: %v", err)
-	}
-
-	if llmDefault != system.AnthropicModelProvider+"/anthropic-claude-sonnet-4-6" {
-		t.Errorf("llmDefault = %q, want %s/anthropic-claude-sonnet-4-6", llmDefault, system.AnthropicModelProvider)
-	}
-	if miniDefault != system.OpenAIModelProvider+"/openai-gpt-4.1-mini" {
-		t.Errorf("miniDefault = %q, want %s/openai-gpt-4.1-mini", miniDefault, system.OpenAIModelProvider)
-	}
-
-	yaml, err := buildNanobotProviderConfigYAML(llmProvider, miniProvider)
-	if err != nil {
-		t.Fatalf("buildNanobotProviderConfigYAML: %v", err)
-	}
-
-	var cfg agentConfig
-	if err := sigsyaml.Unmarshal([]byte(yaml), &cfg); err != nil {
-		t.Fatalf("failed to parse output YAML: %v", err)
-	}
-
-	if len(cfg.LLMProviders) != 2 {
-		t.Fatalf("expected 2 providers (one per model), got %d:\n%s", len(cfg.LLMProviders), yaml)
-	}
-	if _, ok := cfg.LLMProviders[system.AnthropicModelProvider]; !ok {
-		t.Errorf("anthropic-model-provider missing from YAML")
-	}
-	if _, ok := cfg.LLMProviders[system.OpenAIModelProvider]; !ok {
-		t.Errorf("openai-model-provider missing from YAML")
-	}
-}
-
 func TestChooseModelMiniFallsBackToResolvedLLM(t *testing.T) {
 	client := fake.NewClientBuilder().
 		WithScheme(storagescheme.Scheme).
@@ -580,5 +328,33 @@ func TestNanobotParseModelProviderLLMGateway(t *testing.T) {
 		if qualifiedName != system.LLMGatewayModelProvider+"/m1-gateway-model" {
 			t.Errorf("qualified name = %q", qualifiedName)
 		}
+	}
+}
+
+func TestLLMAndMiniShareTheGatewayProvider(t *testing.T) {
+	h := &Handler{serverURL: "https://obot.example.com"}
+
+	llmProvider, llmDefault, err := h.parseModelProvider(resolvedLLMModel{Name: "m1-sonnet", ModelProvider: system.LLMGatewayModelProvider, ProviderDialect: llmtypes.DialectAnthropicMessages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	miniProvider, miniDefault, err := h.parseModelProvider(resolvedLLMModel{Name: "m1-mini", ModelProvider: system.LLMGatewayModelProvider, ProviderDialect: llmtypes.DialectOpenAIResponses})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if llmDefault != system.LLMGatewayModelProvider+"/m1-sonnet" || miniDefault != system.LLMGatewayModelProvider+"/m1-mini" {
+		t.Fatalf("defaults = %q, %q", llmDefault, miniDefault)
+	}
+
+	yaml, err := buildNanobotProviderConfigYAML(llmProvider, miniProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg agentConfig
+	if err := sigsyaml.Unmarshal([]byte(yaml), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.LLMProviders) != 1 {
+		t.Fatalf("expected one gateway provider, got %d:\n%s", len(cfg.LLMProviders), yaml)
 	}
 }

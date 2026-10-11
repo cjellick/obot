@@ -48,27 +48,16 @@ groupIDPrefix: github/
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objs) != 2 {
-		t.Fatalf("expected 2 provider objects, got %d", len(objs))
+	// Registries still ship model providers, which the LLM gateway replaced; they're ignored.
+	if len(objs) != 1 {
+		t.Fatalf("expected 1 provider object, got %d", len(objs))
 	}
 
-	var foundModel, foundAuth bool
+	var foundAuth bool
 	for _, obj := range objs {
 		switch provider := obj.(type) {
 		case *v1.ModelProvider:
-			foundModel = true
-			if provider.Name != "openai-model-provider" {
-				t.Fatalf("expected model provider name openai-model-provider, got %q", provider.Name)
-			}
-			if provider.Spec.Name != "OpenAI" {
-				t.Fatalf("expected model provider display name OpenAI, got %q", provider.Spec.Name)
-			}
-			if provider.Spec.Command != filepath.Join(dir, "bin/openai-model-provider") {
-				t.Fatalf("expected model provider command %q, got %q", filepath.Join(dir, "bin/openai-model-provider"), provider.Spec.Command)
-			}
-			if provider.Spec.Dialect != "OpenAIResponses" {
-				t.Fatalf("expected model provider dialect OpenAIResponses, got %q", provider.Spec.Dialect)
-			}
+			t.Fatalf("model provider %q from the registry should be ignored", provider.Name)
 		case *v1.AuthProvider:
 			foundAuth = true
 			if provider.Name != "github-auth-provider" {
@@ -87,8 +76,8 @@ groupIDPrefix: github/
 			t.Fatalf("unexpected object type %T", obj)
 		}
 	}
-	if !foundModel || !foundAuth {
-		t.Fatalf("expected both model and auth providers, foundModel=%v foundAuth=%v", foundModel, foundAuth)
+	if !foundAuth {
+		t.Fatal("expected the auth provider")
 	}
 }
 
@@ -114,7 +103,7 @@ func TestAppendProvidersSkipsInvalidGroupIDPrefix(t *testing.T) {
 		},
 	}
 
-	objects := appendProviders("/registry", providers, nil)
+	objects := appendProviders("/registry", providers)
 	if len(objects) != 1 {
 		t.Fatalf("providers = %d, want 1", len(objects))
 	}

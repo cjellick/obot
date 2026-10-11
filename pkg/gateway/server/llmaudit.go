@@ -280,10 +280,6 @@ func extractLLMClientSessionID(dialect llmtypes.Dialect, headers http.Header, bo
 
 func extractLLMReasoningEffort(modelProvider string, body []byte) string {
 	switch modelProvider {
-	case system.OpenAIModelProvider:
-		return gjson.GetBytes(body, "reasoning.effort").String()
-	case system.AnthropicModelProvider:
-		return gjson.GetBytes(body, "output_config.effort").String()
 	case system.LLMGatewayModelProvider:
 		if effort := gjson.GetBytes(body, "reasoning.effort").String(); effort != "" {
 			return effort
