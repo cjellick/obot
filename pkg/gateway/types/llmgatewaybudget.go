@@ -88,3 +88,12 @@ func (LLMGatewayBudgetSubject) TableName() string {
 func (LLMGatewayBudgetUsage) TableName() string {
 	return "llm_gateway_budget_usage"
 }
+
+// LLMGatewaySettings are the LLM gateway settings Obot enforces itself, as opposed to the
+// engine's own configuration.
+type LLMGatewaySettings struct {
+	// SubscriptionPassthrough lets Claude Code users signed in with a Claude subscription use
+	// it through the gateway: their Anthropic OAuth token is forwarded to Anthropic for Claude
+	// models instead of a configured provider key.
+	SubscriptionPassthrough bool `json:"subscriptionPassthrough"`
+}

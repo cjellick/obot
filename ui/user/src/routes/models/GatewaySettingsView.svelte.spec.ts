@@ -64,6 +64,10 @@ function mockGateway({
 		http.post('/api/llm-gateway/admin/plugins', () => HttpResponse.json({})),
 		http.put('/api/llm-gateway/admin/plugins/:name', () => HttpResponse.json({})),
 		http.put('/api/llm-gateway/admin/config', () => HttpResponse.json({})),
+		http.get('/api/llm-gateway/settings', () =>
+			HttpResponse.json({ subscriptionPassthrough: false })
+		),
+		http.put('/api/llm-gateway/settings', () => HttpResponse.json({})),
 		http.get('/api/llm-gateway/admin/providers', () =>
 			HttpResponse.json({
 				providers: [
@@ -104,6 +108,29 @@ describe('Models gateway settings tab', () => {
 				page.getByRole('switch', { name: "Reject requests when a provider's queue is full" })
 			)
 			.not.toBeChecked();
+	});
+
+	it('loads and saves whether Claude subscriptions are allowed', async () => {
+		mockGateway();
+		const saved = vi.fn();
+		worker.use(
+			http.get('/api/llm-gateway/settings', () =>
+				HttpResponse.json({ subscriptionPassthrough: false })
+			),
+			http.put('/api/llm-gateway/settings', async ({ request }) => {
+				saved(await request.json());
+				return HttpResponse.json({});
+			})
+		);
+		await renderSettingsPage();
+
+		const toggle = page.getByRole('switch', { name: 'Allow Claude subscriptions' });
+		await expect.element(toggle).not.toBeChecked();
+		await toggle.click();
+		await save().click();
+
+		await vi.waitFor(() => expect(saved).toHaveBeenCalledOnce());
+		expect(saved).toHaveBeenCalledWith({ subscriptionPassthrough: true });
 	});
 
 	it('sends the full client and framework config when saving', async () => {

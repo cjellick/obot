@@ -272,7 +272,7 @@ func TestStripCallerCredentials(t *testing.T) {
 			model := &v1.Model{}
 			model.Spec.Manifest.TargetModel = tt.target
 
-			(&bifrostProviderBackend{subscriptionPassthrough: tt.passthrough}).stripCallerCredentials(req, model)
+			stripCallerCredentials(req, model, tt.passthrough)
 
 			if got := req.Header.Get("Authorization"); got != tt.wantAuth {
 				t.Errorf("Authorization = %q, want %q", got, tt.wantAuth)

@@ -5,15 +5,19 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	types2 "github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/bifrost"
 	"github.com/obot-platform/obot/pkg/gateway/client"
+	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
 	"github.com/obot-platform/obot/pkg/guardrails"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 	"github.com/obot-platform/obot/pkg/principal"
@@ -43,10 +47,35 @@ var (
 // quotas, and records audit logs and usage; Bifrost then routes to the upstream provider
 // with load balancing, fallbacks, governance, and its own request logging.
 type bifrostProviderBackend struct {
-	engine *bifrost.Engine
-	// subscriptionPassthrough forwards a caller's Anthropic OAuth token (a Claude
-	// subscription signed in to Claude Code) to Anthropic in place of a configured key.
-	subscriptionPassthrough bool
+	engine   *bifrost.Engine
+	settings settingsCache
+}
+
+// settingsCacheTTL is how long the proxy uses the LLM gateway settings it read, so a change
+// reaches every replica within seconds without a database read per request.
+const settingsCacheTTL = 5 * time.Second
+
+// settingsCache holds the LLM gateway settings the proxy last read.
+type settingsCache struct {
+	lock     sync.Mutex
+	settings gatewaytypes.LLMGatewaySettings
+	read     time.Time
+}
+
+func (c *settingsCache) get(ctx context.Context, gatewayClient *client.Client) gatewaytypes.LLMGatewaySettings {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if time.Since(c.read) < settingsCacheTTL {
+		return c.settings
+	}
+	settings, err := gatewayClient.GetLLMGatewaySettings(ctx)
+	if err != nil {
+		// Keep the last settings read; they are the safest guess until the next read.
+		slog.Warn("failed to read LLM gateway settings", "error", err)
+		return c.settings
+	}
+	c.settings, c.read = settings, time.Now()
+	return settings
 }
 
 // bifrostRoute maps a client path under /api/llm-proxy/v1 to a Bifrost route.
@@ -88,7 +117,7 @@ func (s *Server) newBifrostLLMProviderProxy() *llmProviderProxy {
 	return &llmProviderProxy{
 		dailyUserInputTokenLimit:  s.dailyUserInputTokenLimit,
 		dailyUserOutputTokenLimit: s.dailyUserOutputTokenLimit,
-		backend:                   &bifrostProviderBackend{engine: s.llmGateway, subscriptionPassthrough: s.subscriptionPassthrough},
+		backend:                   &bifrostProviderBackend{engine: s.llmGateway},
 		mapHelper:                 s.mapHelper,
 		// Guardrails, which include LLM-judge policies, run inside the gateway instead.
 	}
@@ -310,11 +339,11 @@ func isAnthropicOAuthBearer(header string) bool {
 }
 
 // stripCallerCredentials removes the caller's credentials and engine headers. A caller's
-// Claude subscription token is kept, when allowed, for an Anthropic model: it is then the
-// upstream credential, which the engine forwards to Anthropic for Claude Code requests
-// instead of choosing a configured key.
-func (b *bifrostProviderBackend) stripCallerCredentials(req *http.Request, model *v1.Model) {
-	subscription := b.subscriptionPassthrough && model != nil &&
+// Claude subscription token is kept, when an admin allows it, for an Anthropic model: it is
+// then the upstream credential, which the engine forwards to Anthropic for Claude Code
+// requests instead of choosing a configured key.
+func stripCallerCredentials(req *http.Request, model *v1.Model, subscriptionPassthrough bool) {
+	subscription := subscriptionPassthrough && model != nil &&
 		strings.HasPrefix(model.Spec.Manifest.TargetModel, "anthropic/") &&
 		isAnthropicOAuthBearer(req.Header.Get("Authorization"))
 	for _, h := range []string{"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key", "Cookie", guardrails.HeaderRequestToken, HeaderObotAPIKey} {
@@ -334,7 +363,7 @@ func (b *bifrostProviderBackend) stripCallerCredentials(req *http.Request, model
 // decorateRequest removes the caller's Obot credential and adds the identity headers
 // Bifrost uses for request logs and caching, and the guardrails token.
 func (b *bifrostProviderBackend) decorateRequest(ctx context.Context, gatewayClient *client.Client, req *http.Request, user kuser.Info, model *v1.Model) (func(), error) {
-	b.stripCallerCredentials(req, model)
+	stripCallerCredentials(req, model, b.settings.get(ctx, gatewayClient).SubscriptionPassthrough)
 	for client, engine := range clientGatewayHeaders {
 		if v := req.Header.Get(client); v != "" {
 			req.Header.Set(engine, v)

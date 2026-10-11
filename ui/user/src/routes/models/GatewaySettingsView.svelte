@@ -22,6 +22,9 @@
 
 	const CACHE_PLUGIN = 'semantic_cache';
 
+	// Settings Obot enforces itself, rather than the engine's configuration.
+	type ObotSettings = { subscriptionPassthrough: boolean };
+
 	type FullConfig = {
 		client_config: ClientConfig;
 		framework_config: Record<string, unknown>;
@@ -31,6 +34,7 @@
 
 	let status = $state<GatewayStatus>();
 	let config = $state<FullConfig>();
+	let obotSettings = $state<ObotSettings>({ subscriptionPassthrough: false });
 	let plugins = $state<Plugin[]>([]);
 	let providers = $state<Provider[]>([]);
 	let loading = $state(true);
@@ -59,10 +63,11 @@
 		try {
 			status = await getStatus();
 			if (!status.ready) return;
-			[config, plugins, providers] = await Promise.all([
+			[config, plugins, providers, obotSettings] = await Promise.all([
 				doGet('/llm-gateway/admin/config') as Promise<FullConfig>,
 				listPlugins(),
-				listProviders()
+				listProviders(),
+				doGet('/llm-gateway/settings') as Promise<ObotSettings>
 			]);
 			const c = (cachePlugin?.config ?? {}) as Record<string, unknown>;
 			cacheEnabled = !!cachePlugin?.enabled;
@@ -113,6 +118,7 @@
 				client_config: config.client_config,
 				framework_config: config.framework_config
 			});
+			await doPut('/llm-gateway/settings', obotSettings);
 			if (config.is_cache_connected) {
 				await upsertPlugin(
 					{ name: CACHE_PLUGIN, enabled: cacheEnabled, config: cacheConfig() },
@@ -191,6 +197,26 @@
 					</span>
 				</div>
 			</div>
+		</section>
+
+		<section class="paper">
+			<div>
+				<h2 class="text-lg font-semibold">Claude subscriptions</h2>
+				<p class="text-muted-content text-sm">
+					Let Claude Code users signed in with a Claude Pro, Max, Team or Enterprise subscription
+					use it through the gateway. Their requests to Claude models are billed to their
+					subscription instead of a configured provider key. Obot still requires their Obot API key,
+					which they send in the <code>X-Obot-Api-Key</code> header, and applies model access, budgets
+					and guardrails.
+				</p>
+			</div>
+			<Toggle
+				label="Allow Claude subscriptions"
+				labelInline
+				checked={obotSettings.subscriptionPassthrough}
+				disabled={readonly}
+				onChange={(v) => (obotSettings.subscriptionPassthrough = v)}
+			/>
 		</section>
 
 		<section class="paper">

@@ -16,8 +16,6 @@ type Options struct {
 
 	DailyUserInputTokenLimit  int `usage:"The maximum number of daily user input tokens to allow, < 0 disables the limit" default:"10000000"` // default is 10 million
 	DailyUserOutputTokenLimit int `usage:"The maximum number of daily user output tokens to allow, < 0 disables the limit" default:"100000"`  // default is 100 thousand
-
-	LLMGatewaySubscriptionPassthrough bool `usage:"Let Claude Code users signed in with a Claude subscription use it through the LLM gateway: their Anthropic OAuth token is forwarded to Anthropic instead of a configured provider key. They send their Obot API key in the X-Obot-Api-Key header" name:"llm-gateway-subscription-passthrough" env:"OBOT_SERVER_LLM_GATEWAY_SUBSCRIPTION_PASSTHROUGH"`
 }
 
 type Server struct {
@@ -31,8 +29,6 @@ type Server struct {
 	dailyUserInputTokenLimit  int
 	dailyUserOutputTokenLimit int
 	llmGateway                *bifrost.Engine
-	// subscriptionPassthrough forwards callers' Anthropic OAuth tokens to Anthropic.
-	subscriptionPassthrough bool
 }
 
 func New(db *db.DB, tokenService *persistent.TokenService, modelProviderDispatcher *dispatcher.Dispatcher, acrHelper *accesscontrolrule.Helper, mapHelper *modelaccesspolicy.Helper, messagePolicyHelper *messagepolicy.Helper, opts Options) (*Server, error) {
@@ -47,7 +43,6 @@ func New(db *db.DB, tokenService *persistent.TokenService, modelProviderDispatch
 		messagePolicyHelper:       messagePolicyHelper,
 		dailyUserInputTokenLimit:  opts.DailyUserInputTokenLimit,
 		dailyUserOutputTokenLimit: opts.DailyUserOutputTokenLimit,
-		subscriptionPassthrough:   opts.LLMGatewaySubscriptionPassthrough,
 	}
 
 	return s, nil

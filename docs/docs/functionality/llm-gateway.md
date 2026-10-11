@@ -331,7 +331,7 @@ Inside Claude Code:
 
 ### Claude Code with a Claude subscription
 
-When the server is started with `--llm-gateway-subscription-passthrough` (`OBOT_SERVER_LLM_GATEWAY_SUBSCRIPTION_PASSTHROUGH=true`), users signed in to Claude Code with a Claude Pro, Max, Team or Enterprise subscription can use it through the gateway. Their requests to Claude models are billed to their subscription instead of a provider key configured in Obot. Obot still authenticates the user, enforces model access, budgets and guardrails, and records the requests.
+When an administrator turns on **Allow Claude subscriptions** in the **Settings** tab of the **Models** page, users signed in to Claude Code with a Claude Pro, Max, Team or Enterprise subscription can use it through the gateway. Their requests to Claude models are billed to their subscription instead of a provider key configured in Obot. Obot still authenticates the user, enforces model access, budgets and guardrails, and records the requests.
 
 The user keeps their Claude Code login and sends their Obot API key in the `X-Obot-Api-Key` header:
 

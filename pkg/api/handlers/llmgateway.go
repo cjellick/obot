@@ -324,6 +324,27 @@ func (h *LLMGatewayHandler) SyncModels(req api.Context) error {
 	return nil
 }
 
+// GetSettings returns the LLM gateway settings Obot enforces.
+func (h *LLMGatewayHandler) GetSettings(req api.Context) error {
+	settings, err := req.GatewayClient.GetLLMGatewaySettings(req.Context())
+	if err != nil {
+		return err
+	}
+	return req.Write(settings)
+}
+
+// UpdateSettings replaces the LLM gateway settings Obot enforces.
+func (h *LLMGatewayHandler) UpdateSettings(req api.Context) error {
+	var settings gatewaytypes.LLMGatewaySettings
+	if err := req.Read(&settings); err != nil {
+		return types.NewErrBadRequest("invalid settings: %v", err)
+	}
+	if err := req.GatewayClient.SetLLMGatewaySettings(req.Context(), settings); err != nil {
+		return err
+	}
+	return req.Write(settings)
+}
+
 func (h *LLMGatewayHandler) ListBudgets(req api.Context) error {
 	budgets, err := req.GatewayClient.ListLLMGatewayBudgets(req.Context())
 	if err != nil {
