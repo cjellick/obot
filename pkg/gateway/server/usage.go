@@ -52,16 +52,6 @@ func (s *Server) totalUsageForUser(apiContext api.Context) error {
 	return apiContext.Write(types.ConvertTokenActivity(activity))
 }
 
-func (s *Server) remainingUsageForUser(apiContext api.Context) error {
-	userID := apiContext.PathValue("user_id")
-	remainingUsage, err := apiContext.GatewayClient.RemainingTokenUsageForUser(apiContext.Context(), userID, tokenUsageTimePeriod, s.dailyUserInputTokenLimit, s.dailyUserOutputTokenLimit)
-	if err != nil {
-		return err
-	}
-
-	return apiContext.Write(types.ConvertRemainingTokenUsage(userID, remainingUsage))
-}
-
 func (s *Server) systemTokenUsageByUser(apiContext api.Context) error {
 	requestedStart := apiContext.Request.URL.Query().Get("start")
 	requestedEnd := apiContext.Request.URL.Query().Get("end")

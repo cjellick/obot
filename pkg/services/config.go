@@ -76,7 +76,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	kvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apiserver/pkg/authentication/request/union"
-	kuser "k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/server/options/encryptionconfig"
 	k8sscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -225,7 +224,7 @@ type Services struct {
 	GatewayServer         *gserver.Server
 	Bootstrapper          *bootstrap.Bootstrap
 	LocalAuthProvider     *localauth.Provider
-	// BifrostEngine is the embedded LLM gateway. It is nil when the gateway is disabled.
+	// BifrostEngine is the embedded LLM gateway.
 	BifrostEngine *bifrost.Engine
 	// GuardrailEngine checks LLM gateway traffic and MCP tool calls.
 	GuardrailEngine               *guardrails.Engine
@@ -1106,28 +1105,15 @@ func New(ctx context.Context, config Config) (*Services, error) {
 
 	providerDispatcher := dispatcher.New(mcpSessionManager, storageClient, gatewayClient, licenseProvider, config.Hostname, fmt.Sprintf("http://localhost:%d", config.HTTPListenPort), postgresDSN)
 
-	var bifrostEngine *bifrost.Engine
-	if !config.DisableLLMGateway {
-		bifrostEngine = bifrost.New()
-		providerDispatcher.RegisterBuiltinModelProvider(system.DefaultNamespace, system.LLMGatewayModelProvider, bifrostEngine)
-	}
+	bifrostEngine := bifrost.New()
+	providerDispatcher.RegisterBuiltinModelProvider(system.DefaultNamespace, system.LLMGatewayModelProvider, bifrostEngine)
 
-	// Message policies are now guardrails: LLM-judge guardrails are evaluated with the message
-	// policy judge, and the legacy LLM proxy reads its policies from guardrails.
-	judge, err := messagepolicy.NewHelper(ctx, r.Backend(), storageClient, providerDispatcher, gatewayClient)
-	if err != nil {
-		return nil, err
-	}
-	if bifrostEngine != nil {
-		judge.SetLLMGateway(bifrostEngine)
-	}
+	// Message policies are now LLM judge guardrails, evaluated with the message policy judge.
+	judge := messagepolicy.NewHelper(storageClient, bifrostEngine)
 	guardrailEngine := guardrails.New(ctx, gatewayClient, judge)
-	judge.SetPolicySource(func(user kuser.Info, direction apiclienttypes.PolicyDirection) ([]messagepolicy.ApplicablePolicy, error) {
-		return guardrailEngine.JudgePolicies(ctx, guardrails.Identity{UserID: user.GetUID(), Groups: user.GetExtra()["auth_provider_groups"]}, direction)
-	})
 	go migrateMessagePolicies(ctx, storageClient, gatewayClient, guardrailEngine, config.EnableMessagePolicies)
 	go migrateMCPGuardrailRules(ctx, storageClient, gatewayClient, guardrailEngine)
-	if bifrostEngine != nil {
+	{
 		guardrailInput, guardrailOutput := guardrailEngine.Plugins()
 		dataDir := config.LLMGatewayDataDir
 		if dataDir == "" {
@@ -1178,19 +1164,17 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	}
 
 	gatewayOpts := gserver.Options(config.GatewayConfig)
-	gatewayServer, err := gserver.New(gatewayDB, persistentTokenServer, providerDispatcher, acrHelper, mapHelper, judge, gatewayOpts)
+	gatewayServer, err := gserver.New(gatewayDB, persistentTokenServer, providerDispatcher, acrHelper, mapHelper, gatewayOpts)
 	if err != nil {
 		return nil, err
 	}
-	if bifrostEngine != nil {
-		gatewayServer.SetLLMGateway(bifrostEngine)
-		// LLM gateway traffic is governed by budgets rather than the daily token quota, so
-		// carry the configured daily limits over as a default budget, once.
-		if err := gatewayClient.MigrateKinmIfNotRun(ctx, "llm_gateway_default_budget", func() error {
-			return gatewayClient.EnsureDefaultLLMGatewayBudget(ctx, config.DailyUserInputTokenLimit, config.DailyUserOutputTokenLimit)
-		}); err != nil {
-			return nil, fmt.Errorf("failed to create the default LLM gateway budget: %w", err)
-		}
+	gatewayServer.SetLLMGateway(bifrostEngine)
+	// LLM gateway traffic is governed by budgets rather than the daily token quota, so carry
+	// the configured daily limits over as a default budget, once.
+	if err := gatewayClient.MigrateKinmIfNotRun(ctx, "llm_gateway_default_budget", func() error {
+		return gatewayClient.EnsureDefaultLLMGatewayBudget(ctx, config.DailyUserInputTokenLimit, config.DailyUserOutputTokenLimit)
+	}); err != nil {
+		return nil, fmt.Errorf("failed to create the default LLM gateway budget: %w", err)
 	}
 
 	authenticators := gserver.NewGatewayTokenReviewer(gatewayClient, providerDispatcher)

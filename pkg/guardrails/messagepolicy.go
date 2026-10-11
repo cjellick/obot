@@ -4,18 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	gatewaytypes "github.com/obot-platform/obot/pkg/gateway/types"
-	"github.com/obot-platform/obot/pkg/messagepolicy"
-)
-
-const (
-	// legacyPolicySeparator joins a rule and profile ID into the policy ID the legacy LLM
-	// proxy reports violations with.
-	legacyPolicySeparator = "/"
 )
 
 // LegacyPolicy is a message policy to convert into a guardrail.
@@ -108,70 +99,4 @@ func MigrateMessagePolicies(ctx context.Context, store MigrationStore, policies 
 		}
 	}
 	return nil
-}
-
-// JudgePolicies returns the LLM judge policies that apply to a caller, as message policies,
-// for the legacy LLM proxy that still evaluates policies itself. Only enabled blocking rules
-// count, and rules with conditions are skipped when the condition can't be decided without
-// a model.
-func (e *Engine) JudgePolicies(ctx context.Context, identity Identity, direction types.PolicyDirection) ([]messagepolicy.ApplicablePolicy, error) {
-	rules, err := e.load(ctx)
-	if err != nil {
-		return nil, err
-	}
-	stage := StageInput
-	if direction == types.PolicyDirectionToolCalls {
-		stage = StageOutput
-	}
-	var out []messagepolicy.ApplicablePolicy
-	for _, r := range rules {
-		if r.rule.Target != gatewaytypes.GuardrailTargetLLM || r.rule.Action != gatewaytypes.GuardrailActionBlock ||
-			!stageMatches(r.rule.ApplyTo, stage) || !subjectsMatch(r.rule.Subjects, identity) {
-			continue
-		}
-		if ok, err := evalCondition(r.rule.Target, r.rule.Condition, identity, map[string]any{}); err != nil || !ok {
-			continue
-		}
-		for _, p := range r.profiles {
-			if p.profile.Type != JudgeType || p.err != nil {
-				continue
-			}
-			judge, ok := p.checker.(*judgeChecker)
-			if !ok || judge.definition == "" {
-				continue
-			}
-			out = append(out, messagepolicy.ApplicablePolicy{
-				ID: r.rule.ID + legacyPolicySeparator + p.profile.ID,
-				Manifest: types.MessagePolicyManifest{
-					DisplayName: r.rule.Name,
-					Definition:  judge.definition,
-					Direction:   direction,
-				},
-			})
-		}
-	}
-	return out, nil
-}
-
-// LegacyViolationEvent is the guardrail event for a violation found by the legacy LLM proxy.
-func LegacyViolationEvent(policyID, ruleName, userID, direction string) gatewaytypes.GuardrailEvent {
-	ruleID, profileID, _ := strings.Cut(policyID, legacyPolicySeparator)
-	stage := StageInput
-	if direction == string(types.PolicyDirectionToolCalls) {
-		stage = StageOutput
-	}
-	// The judge's explanation is free text that may quote the content, so it isn't stored.
-	findings, _ := json.Marshal([]Finding{{Category: "policy", Message: "Violates the policy"}})
-	return gatewaytypes.GuardrailEvent{
-		CreatedAt:   time.Now(),
-		RuleID:      ruleID,
-		RuleName:    ruleName,
-		ProfileID:   profileID,
-		ProfileType: JudgeType,
-		Target:      gatewaytypes.GuardrailTargetLLM,
-		Stage:       stage,
-		Outcome:     "blocked",
-		UserID:      userID,
-		Findings:    findings,
-	}
 }

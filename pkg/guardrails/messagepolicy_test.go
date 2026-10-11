@@ -2,7 +2,6 @@ package guardrails
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	apitypes "github.com/obot-platform/obot/apiclient/types"
@@ -73,30 +72,5 @@ func TestMigrateMessagePolicies(t *testing.T) {
 		if r.Enabled {
 			t.Fatalf("rules converted from unenforced policies must be disabled: %+v", r)
 		}
-	}
-
-	// The legacy LLM proxy reads the converted policies.
-	e := New(context.Background(), store, nil)
-	sales := Identity{UserID: "u1", Groups: []string{"sales"}}
-	got, err := e.JudgePolicies(context.Background(), sales, apitypes.PolicyDirectionUserMessage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Manifest.Definition != "Do not book travel." || got[0].ID != "mp-mp1/mp-mp1" {
-		t.Fatalf("unexpected user-message policies %+v", got)
-	}
-	got, _ = e.JudgePolicies(context.Background(), Identity{UserID: "u2"}, apitypes.PolicyDirectionToolCalls)
-	if len(got) != 1 || got[0].Manifest.DisplayName != "No deletes" {
-		t.Fatalf("unexpected tool-call policies %+v", got)
-	}
-	if got, _ := e.JudgePolicies(context.Background(), Identity{UserID: "u2"}, apitypes.PolicyDirectionUserMessage); len(got) != 0 {
-		t.Fatalf("policies must follow their subjects, got %+v", got)
-	}
-}
-
-func TestLegacyViolationEventOmitsTheExplanation(t *testing.T) {
-	ev := LegacyViolationEvent("mp-1/mp-1", "No travel", "u1", string(apitypes.PolicyDirectionUserMessage))
-	if strings.Contains(string(ev.Findings), "book") || ev.RuleID != "mp-1" || ev.ProfileID != "mp-1" || ev.Stage != StageInput {
-		t.Fatalf("unexpected event %+v (%s)", ev, ev.Findings)
 	}
 }

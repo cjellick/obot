@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/obot-platform/obot/pkg/gateway/bedrock"
 )
 
 const (
@@ -180,13 +179,7 @@ func (c *bedrockChecker) Check(ctx context.Context, in CheckInput) (Result, erro
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to get AWS credentials: %w", err)
 	}
-	if err := bedrock.SignRequest(req, bedrock.StaticAuth{
-		Region:          c.region,
-		SigningService:  "bedrock",
-		AccessKeyID:     creds.AccessKeyID,
-		SecretAccessKey: creds.SecretAccessKey,
-		SessionToken:    creds.SessionToken,
-	}, time.Now()); err != nil {
+	if err := signAWSRequest(req, creds, "bedrock", c.region, time.Now()); err != nil {
 		return Result{}, fmt.Errorf("failed to sign Bedrock request: %w", err)
 	}
 

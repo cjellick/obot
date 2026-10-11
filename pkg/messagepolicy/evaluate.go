@@ -15,13 +15,9 @@ import (
 	"github.com/obot-platform/obot/pkg/bifrost"
 
 	"github.com/tidwall/gjson"
-	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/alias"
-	"github.com/obot-platform/obot/pkg/gateway/azure"
-	"github.com/obot-platform/obot/pkg/gateway/bedrock"
-	"github.com/obot-platform/obot/pkg/gateway/server/dispatcher"
 	llmtypes "github.com/obot-platform/obot/pkg/llm"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
@@ -79,21 +75,6 @@ type chatCompletionRequest struct {
 	Model    string        `json:"model"`
 	Messages []chatMessage `json:"messages"`
 	Stream   bool          `json:"stream"`
-}
-
-type anthropicMessagesRequest struct {
-	Model     string        `json:"model"`
-	System    string        `json:"system,omitempty"`
-	Messages  []chatMessage `json:"messages"`
-	MaxTokens int           `json:"max_tokens"`
-	Stream    bool          `json:"stream"`
-}
-
-type openAIResponsesRequest struct {
-	Model        string        `json:"model"`
-	Instructions string        `json:"instructions,omitempty"`
-	Input        []chatMessage `json:"input"`
-	Stream       bool          `json:"stream"`
 }
 
 // reviewResult holds the outcome of a Stage 2 review.
@@ -234,152 +215,29 @@ func (h *Helper) resolveModelByAlias(ctx context.Context, aliasType types.Defaul
 		return nil, fmt.Errorf("model %q is not active", model.Spec.Manifest.Name)
 	}
 
-	var modelProvider v1.ModelProvider
-	if err := h.client.Get(ctx, kclient.ObjectKey{Namespace: system.DefaultNamespace, Name: model.Spec.Manifest.ModelProvider}, &modelProvider); err != nil {
-		return nil, fmt.Errorf("failed to get model provider: %w", err)
+	if model.Spec.Manifest.ModelProvider != system.LLMGatewayModelProvider {
+		return nil, fmt.Errorf("default model alias %q points to model %q, which the LLM gateway doesn't serve", aliasType, model.Name)
 	}
-
-	if modelProvider.Name == system.LLMGatewayModelProvider {
-		if h.llmGateway == nil {
-			return nil, fmt.Errorf("the LLM gateway is disabled")
-		}
-		// The gateway translates every dialect, and Chat Completions is the one every
-		// upstream provider supports.
-		u := h.llmGateway.BaseURL()
-		u.Path = "/v1"
-		return &resolvedModel{
-			targetModel:  model.Spec.Manifest.TargetModel,
-			providerName: modelProvider.Name,
-			providerURL:  u.String(),
-			credHeaders:  map[string]string{bifrost.HeaderLogUserID: "system:message-policy"},
-			dialect:      string(llmtypes.DialectOpenAIChatCompletions),
-			httpClient:   &http.Client{Transport: h.llmGateway.Transport()},
-		}, nil
+	if h.llmGateway == nil {
+		return nil, fmt.Errorf("the LLM gateway is not available")
 	}
-
-	credEnv, err := dispatcher.CredentialEnvForModelProvider(ctx, h.gatewayClient, modelProvider)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get model provider credentials: %w", err)
-	}
-
-	var (
-		providerURL string
-		credHeaders map[string]string
-		httpClient  *http.Client
-	)
-	dialect := llmtypes.Dialect(model.Spec.Manifest.Dialect)
-	if bedrock.IsProvider(modelProvider.Name) {
-		u, err := bedrock.BaseURL(modelProvider.Name, credEnv, dialect)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get Bedrock model provider URL: %w", err)
-		}
-		transport, err := bedrock.Transport(modelProvider.Name, credEnv, http.DefaultTransport)
-		if err != nil {
-			return nil, fmt.Errorf("failed to configure Bedrock model provider transport: %w", err)
-		}
-		providerURL = u.String()
-		httpClient = &http.Client{Transport: transport}
-	} else if azure.IsProvider(modelProvider.Name) {
-		u, err := azure.BaseURL(modelProvider.Name, credEnv, dialect)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get Azure model provider URL: %w", err)
-		}
-		transport, err := azure.Transport(modelProvider.Name, credEnv, &h.entraCredential)
-		if err != nil {
-			return nil, fmt.Errorf("failed to configure Azure model provider transport: %w", err)
-		}
-		providerURL = u.String()
-		httpClient = &http.Client{Transport: transport}
-	} else {
-		u, err := h.dispatcher.URLForModelProvider(ctx, system.DefaultNamespace, model.Spec.Manifest.ModelProvider)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get model provider URL: %w", err)
-		}
-		credHeaders = make(map[string]string, len(credEnv))
-		for k, v := range credEnv {
-			credHeaders[fmt.Sprintf("X-Obot-%s", k)] = v
-		}
-		// Only add /v1 if the URL has no path.
-		if u.Path == "" || u.Path == "/" {
-			u.Path = "/v1"
-		}
-		providerURL = u.String()
-	}
-
+	// The gateway translates every dialect, and Chat Completions is the one every upstream
+	// provider supports.
+	u := h.llmGateway.BaseURL()
+	u.Path = "/v1"
 	return &resolvedModel{
 		targetModel:  model.Spec.Manifest.TargetModel,
-		providerName: modelProvider.Name,
-		providerURL:  providerURL,
-		credHeaders:  credHeaders,
-		dialect:      model.Spec.Manifest.Dialect,
-		httpClient:   httpClient,
+		providerName: system.LLMGatewayModelProvider,
+		providerURL:  u.String(),
+		credHeaders:  map[string]string{bifrost.HeaderLogUserID: "system:message-policy"},
+		dialect:      string(llmtypes.DialectOpenAIChatCompletions),
+		httpClient:   &http.Client{Transport: h.llmGateway.Transport()},
 	}, nil
 }
 
-// callLLM makes a streaming LLM call to the resolved model provider, using the
-// appropriate API format for the provider's dialect.
+// callLLM makes a streaming LLM call through the LLM gateway.
 func (h *Helper) callLLM(ctx context.Context, resolved *resolvedModel, messages []chatMessage) (string, error) {
-	if bedrock.IsProvider(resolved.providerName) || azure.IsProvider(resolved.providerName) {
-		switch llmtypes.Dialect(resolved.dialect) {
-		case llmtypes.DialectAnthropicMessages:
-			return h.callLLMAnthropicMessages(ctx, resolved, messages)
-		case llmtypes.DialectOpenAIResponses, llmtypes.DialectOpenResponses:
-			return h.callLLMOpenAIResponses(ctx, resolved, messages)
-		default:
-			return "", fmt.Errorf("unsupported dedicated model provider dialect %q", resolved.dialect)
-		}
-	}
-	switch llmtypes.Dialect(resolved.dialect) {
-	case llmtypes.DialectOpenAIResponses, llmtypes.DialectOpenResponses:
-		return h.callLLMOpenAIResponses(ctx, resolved, messages)
-	case "", llmtypes.DialectAnthropicMessages, llmtypes.DialectOpenAIChatCompletions:
-		return h.callLLMChatCompletions(ctx, resolved, messages)
-	default:
-		return "", fmt.Errorf("unsupported model provider dialect %q", resolved.dialect)
-	}
-}
-
-func (h *Helper) callLLMAnthropicMessages(ctx context.Context, resolved *resolvedModel, messages []chatMessage) (string, error) {
-	systemPrompt, input := splitSystemMessages(messages)
-	return h.callStreamingLLM(ctx, resolved, "/messages", anthropicMessagesRequest{
-		Model:     resolved.targetModel,
-		System:    systemPrompt,
-		Messages:  input,
-		MaxTokens: 1024,
-		Stream:    true,
-	}, func(data string) gjson.Result {
-		return gjson.Get(data, "delta.text")
-	})
-}
-
-func (h *Helper) callLLMOpenAIResponses(ctx context.Context, resolved *resolvedModel, messages []chatMessage) (string, error) {
-	systemPrompt, input := splitSystemMessages(messages)
-	return h.callStreamingLLM(ctx, resolved, "/responses", openAIResponsesRequest{
-		Model:        resolved.targetModel,
-		Instructions: systemPrompt,
-		Input:        input,
-		Stream:       true,
-	}, func(data string) gjson.Result {
-		if gjson.Get(data, "type").String() == "response.output_text.delta" {
-			return gjson.Get(data, "delta")
-		}
-		return gjson.Result{}
-	})
-}
-
-func splitSystemMessages(messages []chatMessage) (string, []chatMessage) {
-	var (
-		systemPrompts []string
-		input         []chatMessage
-	)
-	for _, message := range messages {
-		if message.Role == "system" {
-			systemPrompts = append(systemPrompts, message.Content)
-		} else {
-			input = append(input, message)
-		}
-	}
-	return strings.Join(systemPrompts, "\n\n"), input
+	return h.callLLMChatCompletions(ctx, resolved, messages)
 }
 
 func (h *Helper) callStreamingLLM(ctx context.Context, resolved *resolvedModel, endpoint string, reqBody any, extractDelta func(string) gjson.Result) (string, error) {

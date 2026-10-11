@@ -119,22 +119,13 @@ func (s *Server) LLMGateway() *bifrost.Engine {
 
 func (s *Server) newBifrostLLMProviderProxy() *llmProviderProxy {
 	return &llmProviderProxy{
-		dailyUserInputTokenLimit:  s.dailyUserInputTokenLimit,
-		dailyUserOutputTokenLimit: s.dailyUserOutputTokenLimit,
-		backend:                   &bifrostProviderBackend{engine: s.llmGateway},
-		mapHelper:                 s.mapHelper,
-		// Guardrails, which include LLM-judge policies, run inside the gateway instead.
+		backend:   &bifrostProviderBackend{engine: s.llmGateway},
+		mapHelper: s.mapHelper,
 	}
 }
 
 func (b *bifrostProviderBackend) modelProviderName() string {
 	return system.LLMGatewayModelProvider
-}
-
-// requiresCredential reports that the gateway has no Obot-managed credential: upstream
-// keys live in Bifrost.
-func (b *bifrostProviderBackend) requiresCredential() bool {
-	return false
 }
 
 // resolveBifrostRoute decides which Bifrost route serves a client path. Only model-bearing
@@ -171,7 +162,7 @@ func resolveBifrostRoute(req *http.Request) (bifrostRoute, error) {
 	}
 }
 
-func (b *bifrostProviderBackend) upstreamURL(req *http.Request, _ map[string]string) (url.URL, llmtypes.Dialect, error) {
+func (b *bifrostProviderBackend) upstreamURL(req *http.Request) (url.URL, llmtypes.Dialect, error) {
 	if b.engine == nil {
 		return url.URL{}, "", types2.NewErrHTTP(http.StatusServiceUnavailable, "the LLM gateway is disabled")
 	}
@@ -190,7 +181,7 @@ func (b *bifrostProviderBackend) upstreamURL(req *http.Request, _ map[string]str
 	return u, route.dialect, nil
 }
 
-func (b *bifrostProviderBackend) transport(v1.ModelProvider, map[string]string) (http.RoundTripper, error) {
+func (b *bifrostProviderBackend) transport() (http.RoundTripper, error) {
 	return sanitizingTransport{next: b.engine.Transport()}, nil
 }
 
