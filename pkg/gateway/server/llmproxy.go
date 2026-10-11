@@ -70,9 +70,9 @@ type responseModifier struct {
 
 	// Token usage and model access gating
 	tokenUsageTracker *threadSafeTokenUsageTracker
-	// budgetIDs are the LLM gateway budgets the request was admitted under; its usage is
-	// recorded against each. modelID is the resolved Model's ID.
-	budgetIDs []string
+	// gateway tracks an LLM gateway request: the budgets its usage counts against, which
+	// are those of the model that served it. It is nil for other backends.
+	gateway   gatewayRequest
 	modelID   string
 	mapHelper *modelaccesspolicy.Helper
 
@@ -123,16 +123,22 @@ type extraModelAuthorizingBackend interface {
 	authorizeExtraModels(l *llmProviderProxy, req api.Context, body []byte) ([]byte, error)
 }
 
-// budgetEnforcingBackend is implemented by backends whose traffic is governed by LLM
-// gateway budgets instead of the daily token quota. admit returns the budgets the request
-// counts against, or an error if one of them is exhausted.
-type budgetEnforcingBackend interface {
-	admit(ctx context.Context, gatewayClient *client.Client, user kuser.Info, model *v1.Model) ([]string, error)
+// gatewayRequest is what the LLM gateway backend tracks about one request. The gateway's
+// routing rules and fallbacks choose the model that serves it, and its traffic is governed by
+// budgets, which apply to that model, instead of the daily token quota.
+type gatewayRequest interface {
+	// release ends the request once its response has been delivered.
+	release()
+	// budgetIDs are the budgets a response served by model ("provider/model") counts against.
+	budgetIDs(model string) []string
+	// budgetExceeded is the budget that refused the last attempt, if one did.
+	budgetExceeded() *client.LLMGatewayBudgetExceeded
 }
 
-// requestDecoratingBackend is implemented by backends that add headers for the upstream.
+// requestDecoratingBackend is implemented by the LLM gateway backend, which adds headers for
+// the upstream and checks each model the gateway tries for the request.
 type requestDecoratingBackend interface {
-	decorateRequest(l *llmProviderProxy, req api.Context, model *v1.Model) (release func(), err error)
+	decorateRequest(l *llmProviderProxy, req api.Context, model *v1.Model) (gatewayRequest, error)
 }
 
 type llmProviderProxy struct {
@@ -247,6 +253,7 @@ func (r *responseModifier) modifyResponse(resp *http.Response) error {
 	if r.inputPolicyReplacement != "" {
 		resp.Header.Set("X-Obot-Message-Policy-Replacement", r.inputPolicyReplacement)
 	}
+	r.rewriteBudgetExceeded(resp)
 	r.applyServedModel(resp)
 	r.audit.recordResponse(resp)
 
@@ -309,6 +316,9 @@ func servedModelChange(header http.Header, requested string, resolve func(string
 	}
 	return m
 }
+
+// budgetExceededType is the error type of a request refused because a budget is exhausted.
+const budgetExceededType = "budget_exceeded"
 
 func shouldWrapLLMResponse(resp *http.Response) bool {
 	if resp.StatusCode != http.StatusOK {
@@ -858,8 +868,10 @@ func (r *responseModifier) Close() error {
 		if err := r.client.InsertTokenUsage(context.Background(), activity); err != nil {
 			slog.Warn("failed to save token usage for user", "userID", r.user.GetUID(), "error", err)
 		}
-		if err := r.client.RecordLLMGatewayBudgetUsage(context.Background(), r.budgetIDs, activity.UserID, r.modelID, usage); err != nil {
-			slog.Warn("failed to record LLM gateway budget usage", "userID", activity.UserID, "error", err)
+		if r.gateway != nil {
+			if err := r.client.RecordLLMGatewayBudgetUsage(context.Background(), r.gateway.budgetIDs(r.model), activity.UserID, r.modelID, usage); err != nil {
+				slog.Warn("failed to record LLM gateway budget usage", "userID", activity.UserID, "error", err)
+			}
 		}
 	}
 	// ReverseProxy does not return body-copy errors to the handler, so Close is
@@ -1221,18 +1233,9 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 	// rather than escaping accounting altogether.
 	usageUserID := principal.ResourceOwnerID(req.User)
 
-	var budgetIDs []string
-	if enforcer, ok := l.backend.(budgetEnforcingBackend); ok {
-		if resolvedModel != nil {
-			var err error
-			if budgetIDs, err = enforcer.admit(req.Context(), req.GatewayClient, req.User, resolvedModel); err != nil {
-				if exceeded := (*client.LLMGatewayBudgetExceeded)(nil); errors.As(err, &exceeded) {
-					writeBudgetExceeded(req.ResponseWriter, req.URL.Path, exceeded, time.Now())
-					return nil
-				}
-				return err
-			}
-		}
+	decorator, isGateway := l.backend.(requestDecoratingBackend)
+	if isGateway {
+		// Budgets are checked for each model the gateway tries, when it tries it.
 	} else if remainingUsage, err := req.GatewayClient.RemainingTokenUsageForUser(
 		req.Context(),
 		usageUserID,
@@ -1245,12 +1248,13 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 		return types2.NewErrHTTP(http.StatusTooManyRequests, fmt.Sprintf("no tokens remaining (input tokens remaining: %d, output tokens remaining: %d)", remainingUsage.InputTokens, remainingUsage.OutputTokens))
 	}
 
-	if decorator, ok := l.backend.(requestDecoratingBackend); ok {
-		release, err := decorator.decorateRequest(l, req, resolvedModel)
-		if err != nil {
+	var gateway gatewayRequest
+	if isGateway {
+		var err error
+		if gateway, err = decorator.decorateRequest(l, req, resolvedModel); err != nil {
 			return err
 		}
-		defer release()
+		defer gateway.release()
 	}
 
 	transport, err := l.backend.transport(*modelProvider, credEnv)
@@ -1265,7 +1269,7 @@ func (l *llmProviderProxy) proxy(req api.Context) (retErr error) {
 		routeDialect:           routeDialect,
 		client:                 req.GatewayClient,
 		tokenUsageTracker:      prepared.tokenUsageTracker,
-		budgetIDs:              budgetIDs,
+		gateway:                gateway,
 		modelID:                modelName(resolvedModel),
 		mapHelper:              l.mapHelper,
 		inputPolicyReplacement: inputPolicyReplacement,
@@ -1392,10 +1396,10 @@ func modelName(model *v1.Model) string {
 	return model.Name
 }
 
-// writeBudgetExceeded answers a request an exhausted budget refuses, as a JSON error in the
-// API format the client speaks, so SDKs and tools like Claude Code show the message. Clients
-// are told not to retry: a budget frees up when its window moves on, not in seconds.
-func writeBudgetExceeded(w http.ResponseWriter, path string, exceeded *client.LLMGatewayBudgetExceeded, now time.Time) {
+// budgetExceededResponse is the response to a request refused because a budget is
+// exhausted: a 429 in the client's API format, with X-Should-Retry: false so clients such
+// as Claude Code don't retry it, and Retry-After when the budget's window resets.
+func budgetExceededResponse(path string, exceeded *client.LLMGatewayBudgetExceeded, now time.Time) (http.Header, []byte) {
 	var body any
 	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/messages/count_tokens") {
 		body = map[string]any{
@@ -1404,14 +1408,41 @@ func writeBudgetExceeded(w http.ResponseWriter, path string, exceeded *client.LL
 		}
 	} else {
 		body = map[string]any{
-			"error": map[string]any{"message": exceeded.Error(), "type": "budget_exceeded", "code": "budget_exceeded"},
+			"error": map[string]any{"message": exceeded.Error(), "type": budgetExceededType, "code": budgetExceededType},
 		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Should-Retry", "false")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("X-Should-Retry", "false")
 	if !exceeded.ResetAt.IsZero() && exceeded.ResetAt.After(now) {
-		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(exceeded.ResetAt.Sub(now).Seconds()))))
+		header.Set("Retry-After", strconv.Itoa(int(math.Ceil(exceeded.ResetAt.Sub(now).Seconds()))))
 	}
-	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(body)
+	data, _ := json.Marshal(body)
+	return header, append(data, '\n')
+}
+
+// rewriteBudgetExceeded turns the gateway's refusal of a request whose budgets are exhausted
+// into the budget error clients are given.
+func (r *responseModifier) rewriteBudgetExceeded(resp *http.Response) {
+	if r.gateway == nil || resp.StatusCode != http.StatusTooManyRequests {
+		return
+	}
+	exceeded := r.gateway.budgetExceeded()
+	if exceeded == nil {
+		return
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil || (gjson.GetBytes(body, "error.type").String() != budgetExceededType && gjson.GetBytes(body, "type").String() != budgetExceededType) {
+		// A provider's own rate limit, after a budget refused an earlier attempt.
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		return
+	}
+	header, data := budgetExceededResponse(resp.Request.URL.Path, exceeded, time.Now())
+	for k, v := range header {
+		resp.Header[k] = v
+	}
+	resp.Header.Set("Content-Length", strconv.Itoa(len(data)))
+	resp.ContentLength = int64(len(data))
+	resp.Body = io.NopCloser(bytes.NewReader(data))
 }

@@ -327,22 +327,64 @@ func (b *bifrostProviderBackend) authorizeModel(l *llmProviderProxy, req api.Con
 	return model, nil
 }
 
-// modelAccess checks the models the gateway tries for a request. Its routing rules and
-// fallbacks can serve a request with a model other than the requested one, and a caller
-// may only be served by models they may use, whatever routed them there.
-func (b *bifrostProviderBackend) modelAccess(l *llmProviderProxy, req api.Context, requested *v1.Model) guardrails.ModelAccess {
+// gatewayAttempts tracks the models the gateway tries for one request. Its routing rules and
+// fallbacks can serve a request with another model than the requested one, so each attempt
+// is checked against the caller's access and the budgets of the model it tries.
+type gatewayAttempts struct {
+	unbind func()
+
+	lock     sync.Mutex
+	budgets  map[string][]string
+	exceeded *client.LLMGatewayBudgetExceeded
+}
+
+func (a *gatewayAttempts) release() { a.unbind() }
+
+// budgetIDs are the budgets that admitted the attempt on model ("provider/model").
+func (a *gatewayAttempts) budgetIDs(model string) []string {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	return a.budgets[model]
+}
+
+// budgetExceeded is the budget that refused the last attempt, if one did.
+func (a *gatewayAttempts) budgetExceeded() *client.LLMGatewayBudgetExceeded {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+	return a.exceeded
+}
+
+// check admits one attempt: the caller must be allowed to use the attempted model, and every
+// budget that applies to it must have room. A caller may only be served by models they may
+// use, whatever routed them there, and spends the budgets of the model that serves them.
+func (a *gatewayAttempts) check(b *bifrostProviderBackend, l *llmProviderProxy, apiReq api.Context, requested *v1.Model) guardrails.AttemptCheck {
 	return func(_ context.Context, reference string) error {
-		if requested != nil && reference == requested.Spec.Manifest.TargetModel {
-			// Already checked before the request was sent.
-			return nil
+		model := requested
+		if requested == nil || reference != requested.Spec.Manifest.TargetModel {
+			// The requested model was checked before the request was sent.
+			var err error
+			if model, err = b.authorizeModel(l, apiReq, reference, "model"); err != nil {
+				var httpErr *types2.ErrHTTP
+				if errors.As(err, &httpErr) {
+					// The gateway reports the message with its own status.
+					return &guardrails.AttemptError{Status: httpErr.Code, Type: "permission_denied", Message: httpErr.Message}
+				}
+				return err
+			}
 		}
-		_, err := b.authorizeModel(l, req, reference, "model")
-		var httpErr *types2.ErrHTTP
-		if errors.As(err, &httpErr) {
-			// The gateway reports the message with its own status.
-			return errors.New(httpErr.Message)
+		ids, err := b.admit(apiReq.Context(), apiReq.GatewayClient, apiReq.User, model)
+		if exceeded := (*client.LLMGatewayBudgetExceeded)(nil); errors.As(err, &exceeded) {
+			a.lock.Lock()
+			a.exceeded = exceeded
+			a.lock.Unlock()
+			return &guardrails.AttemptError{Status: http.StatusTooManyRequests, Type: budgetExceededType, Message: exceeded.Error()}
+		} else if err != nil {
+			return &guardrails.AttemptError{Status: http.StatusInternalServerError, Type: "api_error", Message: "failed to check LLM gateway budgets"}
 		}
-		return err
+		a.lock.Lock()
+		a.budgets[reference] = ids
+		a.lock.Unlock()
+		return nil
 	}
 }
 
@@ -405,7 +447,7 @@ func stripCallerCredentials(req *http.Request, model *v1.Model, subscriptionPass
 
 // decorateRequest removes the caller's Obot credential and adds the identity headers
 // Bifrost uses for request logs and caching, and the guardrails token.
-func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api.Context, model *v1.Model) (func(), error) {
+func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api.Context, model *v1.Model) (gatewayRequest, error) {
 	ctx, gatewayClient, req, user := apiReq.Context(), apiReq.GatewayClient, apiReq.Request, apiReq.User
 	stripCallerCredentials(req, model, b.settings.get(ctx, gatewayClient).SubscriptionPassthrough)
 	for client, engine := range clientGatewayHeaders {
@@ -435,9 +477,11 @@ func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api
 	if err != nil {
 		return nil, err
 	}
-	token, release := guardrails.BindRequest(guardrails.Identity{UserID: userID, Groups: groups}, b.modelAccess(l, apiReq, model))
+	attempts := &gatewayAttempts{budgets: map[string][]string{}}
+	token, unbind := guardrails.BindRequest(guardrails.Identity{UserID: userID, Groups: groups}, attempts.check(b, l, apiReq, model))
+	attempts.unbind = unbind
 	req.Header.Set(guardrails.HeaderRequestToken, token)
-	return release, nil
+	return attempts, nil
 }
 
 // admit enforces LLM gateway budgets. It replaces the daily token quota for gateway traffic:

@@ -53,7 +53,7 @@ func TestGatewayChecksRoutedModelAccess(t *testing.T) {
 	tests := []struct {
 		name       string
 		tier       string
-		access     ModelAccess
+		access     AttemptCheck
 		wantStatus int
 		wantModel  string
 		wantError  string
@@ -75,6 +75,20 @@ func TestGatewayChecksRoutedModelAccess(t *testing.T) {
 			name:       "routed to a forbidden model, served by an allowed fallback",
 			tier:       "trial",
 			access:     openAIOnly,
+			wantStatus: http.StatusOK,
+			wantModel:  "gpt-4o-mini",
+		},
+		{
+			name:       "routed to a model whose budget is spent",
+			tier:       "premium",
+			access:     budgetSpentFor("anthropic/"),
+			wantStatus: http.StatusTooManyRequests,
+			wantError:  `"type":"budget_exceeded"`,
+		},
+		{
+			name:       "routed to a model whose budget is spent, served by a fallback with budget",
+			tier:       "trial",
+			access:     budgetSpentFor("anthropic/"),
 			wantStatus: http.StatusOK,
 			wantModel:  "gpt-4o-mini",
 		},
@@ -109,7 +123,17 @@ func TestGatewayChecksRoutedModelAccess(t *testing.T) {
 	}
 }
 
-func callWithAccess(t *testing.T, gw *bifrost.Engine, body, tier string, access ModelAccess) (int, string) {
+// budgetSpentFor refuses models with prefix as an exhausted budget would.
+func budgetSpentFor(prefix string) AttemptCheck {
+	return func(_ context.Context, model string) error {
+		if strings.HasPrefix(model, prefix) {
+			return &AttemptError{Status: http.StatusTooManyRequests, Type: "budget_exceeded", Message: "budget \"Opus\" exhausted"}
+		}
+		return nil
+	}
+}
+
+func callWithAccess(t *testing.T, gw *bifrost.Engine, body, tier string, access AttemptCheck) (int, string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

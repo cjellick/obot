@@ -193,7 +193,7 @@ func (f fakeRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return f.resp, nil
 }
 
-func TestWriteBudgetExceeded(t *testing.T) {
+func TestBudgetExceededResponse(t *testing.T) {
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	exceeded := &client.LLMGatewayBudgetExceeded{
 		Budget:  gatewaytypes.LLMGatewayBudget{Name: "Daily", PerUser: true},
@@ -211,10 +211,9 @@ func TestWriteBudgetExceeded(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			writeBudgetExceeded(rec, tt.path, exceeded, now)
-			if rec.Code != http.StatusTooManyRequests || rec.Header().Get("X-Should-Retry") != "false" || rec.Header().Get("Retry-After") != "90" {
-				t.Fatalf("unexpected response %d %v", rec.Code, rec.Header())
+			header, data := budgetExceededResponse(tt.path, exceeded, now)
+			if header.Get("X-Should-Retry") != "false" || header.Get("Retry-After") != "90" || header.Get("Content-Type") != "application/json" {
+				t.Fatalf("unexpected headers %v", header)
 			}
 			var body struct {
 				Error struct {
@@ -222,8 +221,8 @@ func TestWriteBudgetExceeded(t *testing.T) {
 					Message string `json:"message"`
 				} `json:"error"`
 			}
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Error.Type != tt.wantType || !strings.Contains(body.Error.Message, `"Daily"`) {
-				t.Fatalf("unexpected body %s", rec.Body.String())
+			if err := json.Unmarshal(data, &body); err != nil || body.Error.Type != tt.wantType || !strings.Contains(body.Error.Message, `"Daily"`) {
+				t.Fatalf("unexpected body %s", data)
 			}
 		})
 	}

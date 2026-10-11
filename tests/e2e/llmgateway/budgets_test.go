@@ -111,6 +111,10 @@ func TestBudgets(t *testing.T) {
 		if res.Header.Get("Retry-After") == "" {
 			t.Errorf("the 429 has no Retry-After header")
 		}
+		// Clients such as Claude Code would otherwise retry it until they give up.
+		if got := res.Header.Get("X-Should-Retry"); got != "false" {
+			t.Errorf("the 429 has X-Should-Retry %q, want false", got)
+		}
 		expectExhausted(t, u, replicas[(n+1)%2], "openai/gpt-e2e-a", b, "request over the limit on the other replica")
 		// Anthropic clients get the error in their format.
 		msg := callLLM(t, u.Gateway(env.A), apiMessages, "anthropic/claude-e2e-a", "hi", false, nil)

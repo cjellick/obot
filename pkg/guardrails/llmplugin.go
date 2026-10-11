@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -55,26 +56,36 @@ type OutputPlugin struct {
 	engine *Engine
 }
 
-// ModelAccess reports whether the caller of a request may use a model, named
-// "provider/model", returning an error that explains why not.
-type ModelAccess func(ctx context.Context, model string) error
+// AttemptCheck reports whether a request may be served by a model, named "provider/model":
+// whether the caller may use it and has budget left for it. An *AttemptError sets the
+// status and error type of a refusal; other errors refuse it as forbidden.
+type AttemptCheck func(ctx context.Context, model string) error
+
+// AttemptError refuses an attempt, such as with 429 budget_exceeded.
+type AttemptError struct {
+	Status  int
+	Type    string
+	Message string
+}
+
+func (e *AttemptError) Error() string { return e.Message }
 
 // requestBinding is what Obot knows about a request it sent to the gateway.
 type requestBinding struct {
-	identity    Identity
-	modelAccess ModelAccess
+	identity     Identity
+	attemptCheck AttemptCheck
 }
 
 // BindRequest registers the identity of a request that is about to be sent to the gateway
-// and returns the token to send in HeaderRequestToken. modelAccess, when set, is checked
+// and returns the token to send in HeaderRequestToken. attemptCheck, when set, is checked
 // for every model the gateway tries: the gateway's routing rules and fallbacks can serve a
 // request with a model other than the one the caller asked for. Call release once the
 // response has been fully delivered.
-func BindRequest(identity Identity, modelAccess ModelAccess) (token string, release func()) {
+func BindRequest(identity Identity, attemptCheck AttemptCheck) (token string, release func()) {
 	buf := make([]byte, 16)
 	_, _ = rand.Read(buf)
 	token = hex.EncodeToString(buf)
-	requestBindings.Store(token, requestBinding{identity: identity, modelAccess: modelAccess})
+	requestBindings.Store(token, requestBinding{identity: identity, attemptCheck: attemptCheck})
 	return token, func() { requestBindings.Delete(token) }
 }
 
@@ -126,25 +137,27 @@ func identityFromContext(ctx *schemas.BifrostContext) (Identity, map[string]stri
 	return binding.identity, visible, true
 }
 
-// modelAccessError refuses an attempt on a model the caller may not use. Fallbacks stay
-// allowed, so the gateway goes on to the next model, which is checked the same way.
-func modelAccessError(message string) *schemas.BifrostError {
-	status := http.StatusForbidden
-	errType := "permission_denied"
+// attemptError refuses an attempt. Fallbacks stay allowed, so the gateway goes on to the
+// next model, which is checked the same way.
+func attemptError(err error) *schemas.BifrostError {
+	status, errType := http.StatusForbidden, "permission_denied"
+	if refusal := (*AttemptError)(nil); errors.As(err, &refusal) {
+		status, errType = refusal.Status, refusal.Type
+	}
 	allowFallbacks := true
 	return &schemas.BifrostError{
 		Type:           &errType,
 		StatusCode:     &status,
 		AllowFallbacks: &allowFallbacks,
-		Error:          &schemas.ErrorField{Type: &errType, Message: message},
+		Error:          &schemas.ErrorField{Type: &errType, Message: err.Error()},
 	}
 }
 
-// checkModelAccess refuses an attempt on a model the caller may not use. It runs for every
-// attempt, after the gateway's routing rules chose the model and for each fallback.
-func checkModelAccess(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) *schemas.LLMPluginShortCircuit {
+// checkAttempt refuses an attempt on a model the request may not be served by. It runs for
+// every attempt, after the gateway's routing rules chose the model and for each fallback.
+func checkAttempt(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) *schemas.LLMPluginShortCircuit {
 	binding, ok := bindingFromContext(ctx)
-	if !ok || binding.modelAccess == nil {
+	if !ok || binding.attemptCheck == nil {
 		return nil
 	}
 	if _, name, _ := req.GetRequestFields(); name == "" {
@@ -152,8 +165,8 @@ func checkModelAccess(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) 
 		return nil
 	}
 	model, _ := requestFields(req)
-	if err := binding.modelAccess(ctx, model); err != nil {
-		return &schemas.LLMPluginShortCircuit{Error: modelAccessError(err.Error())}
+	if err := binding.attemptCheck(ctx, model); err != nil {
+		return &schemas.LLMPluginShortCircuit{Error: attemptError(err)}
 	}
 	return nil
 }
@@ -190,9 +203,9 @@ func (p *InputPlugin) PreRequestHook(*schemas.BifrostContext, *schemas.BifrostRe
 }
 
 func (p *InputPlugin) PreLLMHook(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
-	// The input plugin runs first, so no other plugin or provider sees an attempt on a model
-	// the caller may not use.
-	if denied := checkModelAccess(ctx, req); denied != nil {
+	// The input plugin runs first, so no other plugin or provider sees an attempt the request
+	// may not be served by.
+	if denied := checkAttempt(ctx, req); denied != nil {
 		return req, denied, nil
 	}
 	identity, headers, ok := identityFromContext(ctx)

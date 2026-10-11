@@ -77,11 +77,11 @@ Whichever model ends up serving a request:
 
   A routing rule therefore can't give anyone a model their access policy doesn't include. To route requests for one model to another, grant the target model to the same users and groups. This also covers rules that match a request header: a client can set any header, but the header can only route it to models it may already use.
 
-- **Usage is recorded against the model that served it.** The LLM audit log, usage reports and budgets record that model and price the request at its rates. A request that was refused is recorded against the model that was requested.
+- **Its budgets must have room.** Every budget that applies to the caller and the model being tried is checked for each attempt, so a budget limited to a model applies whenever that model serves a request, however the request reached it. An attempt whose budget is exhausted is refused, and the gateway tries the next fallback, if any. If none can serve the request, the caller gets the budget's 429.
+
+- **Usage is recorded against the model that served it.** The LLM audit log, usage reports and budgets record that model, price the request at its rates, and charge the budgets that apply to it. A request that was refused is recorded against the model that was requested.
 
 The gateway's request log (**Audit Logs** → **Gateway Requests**) shows the routing rule that matched and the fallback that served each request.
-
-Budgets limited to specific models are chosen by the requested model when the request is admitted.
 
 ## Per-provider routes
 
