@@ -31,7 +31,7 @@ describe('legacy LLM gateway redirects', () => {
 		{ from: 'guardrails/rules/r1', to: '/models/guardrails/r1' },
 		{ from: 'guardrails/profiles', to: '/guardrails?view=detectors' },
 		{ from: 'guardrails/profiles/p1', to: '/guardrails/detectors/p1' },
-		{ from: 'guardrails/events', to: '/guardrails?view=events' },
+		{ from: 'guardrails/events', to: '/guardrail-events' },
 		{ from: 'routing', to: '/models?view=routing' },
 		{ from: 'logs', to: '/audit-logs?view=gateway' },
 		{ from: 'settings', to: '/models?view=settings' },

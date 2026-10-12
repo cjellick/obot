@@ -29,7 +29,7 @@ describe('message policy redirects', () => {
 	it('sends policy violations to guardrail events', () => {
 		expect(redirectOf(policyViolationsLoad as () => unknown)).toEqual({
 			status: 307,
-			location: '/guardrails?view=events'
+			location: '/guardrail-events'
 		});
 	});
 });

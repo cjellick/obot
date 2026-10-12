@@ -52,11 +52,13 @@ afterEach(() => {
 });
 
 describe('Guardrails page', () => {
-	it('shows the Detectors and Events tabs', async () => {
+	it('shows the detectors', async () => {
 		await renderGuardrailsPage('detectors');
 
-		await expect.element(page.getByRole('button', { name: 'Detectors' })).toBeInTheDocument();
-		await expect.element(page.getByRole('button', { name: 'Events' })).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('heading', { name: 'Guardrail Detectors' }))
+			.toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Events' })).not.toBeInTheDocument();
 		await expect.element(page.getByText('Common PII')).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('link', { name: 'Models → Guardrails' }))
@@ -73,17 +75,6 @@ describe('Guardrails page', () => {
 		await page.getByRole('button', { name: /Custom Regex/ }).click();
 
 		expect(goto).toHaveBeenCalledWith('/guardrails/detectors/new?type=regex');
-	});
-
-	it('shows guardrail events on the Events tab without a primary action', async () => {
-		await renderGuardrailsPage('events');
-
-		await expect
-			.element(page.getByRole('heading', { name: 'No guardrail events' }))
-			.toBeInTheDocument();
-		await expect
-			.element(page.getByRole('button', { name: 'Add Detector' }))
-			.not.toBeInTheDocument();
 	});
 
 	it('hides Add Detector from auditors', async () => {

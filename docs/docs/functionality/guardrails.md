@@ -23,8 +23,8 @@ Where to find them:
 | --- | --- |
 | Rules for model traffic | **AI Resources > Models > Guardrails** |
 | Guardrail filters for MCP traffic | **AI Resources > MCP Servers > Filters** |
-| Detectors | **Manage Detectors** on either of those tabs, then **Detectors** |
-| Events for both | **Manage Detectors** on either of those tabs, then **Events** |
+| Detectors | **Manage Detectors** on either of those tabs |
+| Events for both | **Operations > Guardrail Events** |
 
 ## Detectors
 

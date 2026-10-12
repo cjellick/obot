@@ -48,7 +48,7 @@ export function legacyGatewayLocation(path: string, search = new URLSearchParams
 					: withView('/guardrails', 'detectors', search);
 			}
 			if (kind === 'events') {
-				return withView('/guardrails', 'events', search);
+				return withSearch('/guardrail-events', search);
 			}
 			if (kind === 'rules' && target) {
 				return withSearch(`/models/guardrails/${target}`, search);

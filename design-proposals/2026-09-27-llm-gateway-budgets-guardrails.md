@@ -28,8 +28,8 @@ into Obot instead:
   become one kind of guardrail.
 
 The gateway is managed from the existing **Models** page (new tabs), a
-**Guardrails** page for detectors and events (opened from the guardrail tabs,
-not the navigation), and the Usage and Audit Logs pages.
+detectors page (opened from the guardrail tabs, not the navigation), a
+**Guardrail Events** page, and the Usage and Audit Logs pages.
 
 A working prototype exists on the `bifrost-llm-gateway` branch of
 `obot-platform/obot`, with ADRs `2026-09-26-embed-bifrost-llm-gateway.md` and
@@ -589,7 +589,8 @@ shared table, filters and empty-state components, and the same forms.
 | Where | What |
 | --- | --- |
 | **AI Resources → Models** | Tabs: Models (with client setup for Claude Code, Codex, the SDKs and `curl`), Providers (gateway providers), Routing, Budgets & Limits, Guardrails (model rules), Access Policies, Settings |
-| **Manage Detectors**, on Models → Guardrails and MCP Servers → Filters | Detectors (with a test panel) and Events, shared by model rules and guardrail filters. The page has no navigation entry of its own. |
+| **Manage Detectors**, on Models → Guardrails and MCP Servers → Filters | Detectors (with a test panel), shared by model rules and guardrail filters. The page has no navigation entry of its own. |
+| **Operations → Guardrail Events** | What guardrails blocked, redacted or logged, for model and MCP traffic |
 | **AI Resources → MCP Servers → Filters** | Guardrail filters next to the other filter types |
 | **Operations → Usage → Gateway** | Requests, success rate, latency, tokens, cost, cost by provider, top models |
 | **Operations → Audit Logs → Gateway Requests** | Every routed request with retries, fallbacks, key, cost and latency |

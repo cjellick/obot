@@ -24,7 +24,7 @@ const children = createRawSnippet(() => ({ render: () => '<div></div>' }));
 
 const sharedLinks = ['/vmcps', '/skills', '/models', '/audit-logs', '/usage', '/identity-access'];
 
-const adminOnlyLinks = ['/admin/enforcement-events', '/admin/platform'];
+const adminOnlyLinks = ['/guardrail-events', '/admin/enforcement-events', '/admin/platform'];
 
 function createProfile(groups: string[]): Profile {
 	return {

@@ -112,6 +112,6 @@ describe('/mcp-servers/filters/[id]', () => {
 		await expect.element(page.getByText(/findings are recorded as guardrail events/)).toBeVisible();
 		await expect
 			.element(page.getByRole('link', { name: 'View guardrail events' }))
-			.toHaveAttribute('href', expect.stringContaining('/guardrails?view=events'));
+			.toHaveAttribute('href', expect.stringContaining('/guardrail-events'));
 	});
 });

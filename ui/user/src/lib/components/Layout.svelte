@@ -291,6 +291,11 @@
 								beta: true
 							},
 							{
+								id: 'guardrail-events',
+								label: 'Guardrail Events',
+								href: '/guardrail-events'
+							},
+							{
 								id: 'enforcement-events',
 								label: 'Enforcement Events',
 								href: '/admin/enforcement-events',

@@ -141,9 +141,7 @@
 							<span>
 								This filter runs inside Obot, so its findings are recorded as guardrail events, not
 								in these audit logs.
-								<a href={resolve('/guardrails?view=events')} class="text-link"
-									>View guardrail events</a
-								>
+								<a href={resolve('/guardrail-events')} class="text-link">View guardrail events</a>
 							</span>
 						</div>
 					{/if}

@@ -3,7 +3,6 @@
 	import { profile } from '$lib/stores';
 	import { goto } from '$lib/url';
 	import DetectorsView from './DetectorsView.svelte';
-	import EventsView from './EventsView.svelte';
 	import { Plus } from '@lucide/svelte';
 
 	let hasAdminAccess = $derived(Boolean(profile.current.hasAdminAccess?.()));
@@ -21,21 +20,16 @@
 	}
 
 	let views = $derived<TabView[]>(
-		hasAdminAccess
-			? [
-					{ label: 'Detectors', value: 'detectors', content: detectors },
-					{ label: 'Events', value: 'events', content: events }
-				]
-			: []
+		hasAdminAccess ? [{ label: 'Detectors', value: 'detectors', content: detectors }] : []
 	);
 </script>
 
 <svelte:head>
-	<title>Obot | Guardrails</title>
+	<title>Obot | Guardrail Detectors</title>
 </svelte:head>
 
 <TabLayout
-	title="Guardrails"
+	title="Guardrail Detectors"
 	defaultView="detectors"
 	showBackButton
 	onBackButtonClick={back}
@@ -57,8 +51,4 @@
 
 {#snippet detectors()}
 	<DetectorsView bind:this={detectorsView} />
-{/snippet}
-
-{#snippet events()}
-	<EventsView />
 {/snippet}
