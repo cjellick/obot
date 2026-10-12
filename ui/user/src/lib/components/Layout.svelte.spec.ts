@@ -24,7 +24,7 @@ const children = createRawSnippet(() => ({ render: () => '<div></div>' }));
 
 const sharedLinks = ['/vmcps', '/skills', '/models', '/audit-logs', '/usage', '/identity-access'];
 
-const adminOnlyLinks = ['/guardrails', '/admin/enforcement-events', '/admin/platform'];
+const adminOnlyLinks = ['/admin/enforcement-events', '/admin/platform'];
 
 function createProfile(groups: string[]): Profile {
 	return {
@@ -151,20 +151,8 @@ describe('Layout.svelte', () => {
 	});
 
 	describe('guardrails navigation', () => {
-		it('shows Guardrails under AI Resources to administrators', async () => {
+		it('has no Guardrails entry; detectors are reached from the guardrail tabs', async () => {
 			await renderLayout([Group.ADMIN]);
-			await expandSection('ai-resources', '/models');
-			await expectLink('/guardrails');
-		});
-
-		it('shows Guardrails to auditors', async () => {
-			await renderLayout([Group.USER, Group.AUDITOR]);
-			await expandSection('ai-resources', '/models');
-			await expectLink('/guardrails');
-		});
-
-		it('hides Guardrails from basic users', async () => {
-			await renderLayout([Group.USER]);
 			await expandSection('ai-resources', '/models');
 			await expectNoLink('/guardrails');
 		});

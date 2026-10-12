@@ -71,6 +71,20 @@ describe('Models page', () => {
 		expect(goto).toHaveBeenCalledWith(expect.stringContaining('?view=access-policies&new=true'));
 	});
 
+	it('links the guardrails tab to the detectors', async () => {
+		worker.use(
+			http.get('/api/llm-gateway/guardrails/rules', () => HttpResponse.json({ items: [] })),
+			http.get('/api/llm-gateway/guardrails/profiles', () => HttpResponse.json({ items: [] }))
+		);
+		await renderModelsTab('guardrails', [Group.USER, Group.AUDITOR]);
+
+		// Read-only admins can view the detectors, but not add rules.
+		await expect.element(page.getByRole('button', { name: 'Add Rule' })).not.toBeInTheDocument();
+		await page.getByRole('button', { name: 'Manage Detectors' }).click();
+
+		expect(goto).toHaveBeenCalledWith('/guardrails');
+	});
+
 	it('hides create actions from read-only admins', async () => {
 		mockBudgets();
 		await renderModelsTab('budgets', [Group.USER, Group.AUDITOR]);

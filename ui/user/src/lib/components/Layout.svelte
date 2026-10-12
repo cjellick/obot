@@ -263,16 +263,7 @@
 					id: 'models',
 					label: 'Models',
 					href: '/models'
-				},
-				...(profile.current.hasAdminAccess?.()
-					? [
-							{
-								id: 'guardrails',
-								label: 'Guardrails',
-								href: '/guardrails'
-							}
-						]
-					: [])
+				}
 			]
 		},
 		{

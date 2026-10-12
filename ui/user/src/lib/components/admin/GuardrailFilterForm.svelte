@@ -331,7 +331,7 @@
 						</p>
 					</div>
 					<a href={resolve('/guardrails?view=detectors')} class="text-link shrink-0 text-xs"
-						>Manage detectors</a
+						>Manage Detectors</a
 					>
 				</div>
 				<div
@@ -372,7 +372,7 @@
 								</label>
 							{:else}
 								<p class="text-muted-content text-sm">
-									No detectors yet. Create one from "Manage detectors".
+									No detectors yet. Create one from "Manage Detectors".
 								</p>
 							{/each}
 						</div>

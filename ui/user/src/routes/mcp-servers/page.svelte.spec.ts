@@ -151,6 +151,14 @@ describe('MCP Servers Page', () => {
 				.toBeEnabled();
 		});
 
+		it('links to the guardrail detectors', async () => {
+			await renderMcpServersPage({ view: 'filters' });
+
+			await expect
+				.element(page.getByRole('button', { name: 'Manage Detectors' }))
+				.toBeInTheDocument();
+		});
+
 		it('opens the guardrail filter form for new=guardrail', async () => {
 			appPage.url.searchParams.set('new', 'guardrail');
 			await renderMcpServersPage({ view: 'filters' });

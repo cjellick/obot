@@ -68,7 +68,7 @@ describe('GuardrailFilterForm.svelte', () => {
 		await expect.element(page.getByText('Secrets detection')).toBeVisible();
 		await expect.element(page.getByText('Content moderation')).toBeVisible();
 		await expect
-			.element(page.getByRole('link', { name: 'Manage detectors' }))
+			.element(page.getByRole('link', { name: 'Manage Detectors' }))
 			.toHaveAttribute('href', expect.stringContaining('/guardrails?view=detectors'));
 	});
 

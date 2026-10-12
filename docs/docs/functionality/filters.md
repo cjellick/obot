@@ -51,7 +51,7 @@ To create one, select **Add New Filter > Create Guardrail** under **MCP Servers 
 
 - **Name**: A descriptive name. It names the filter in block messages, the MCP audit log and guardrail events.
 - **MCP servers and selectors**: Which servers and which methods, tools, prompts or resources the filter applies to, as for any filter.
-- **Detectors**: One or more guardrail detectors. Use **Manage detectors** to create or test them.
+- **Detectors**: One or more guardrail detectors. Use **Manage Detectors** to create or test them.
 - **Action**:
   - **Block** rejects the message with an error naming the filter and what was found. You can replace that message with your own.
   - **Redact** replaces what was found with a label such as `[REDACTED:EMAIL]` and lets the rest through. Some detectors can only tell that content is a problem, not where it is. A redacting filter blocks when one of those finds something.

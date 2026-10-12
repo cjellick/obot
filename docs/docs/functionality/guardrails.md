@@ -21,10 +21,10 @@ Where to find them:
 
 | What | Where |
 | --- | --- |
-| Detectors | **AI Resources > Guardrails > Detectors** |
 | Rules for model traffic | **AI Resources > Models > Guardrails** |
 | Guardrail filters for MCP traffic | **AI Resources > MCP Servers > Filters** |
-| Events for both | **AI Resources > Guardrails > Events** |
+| Detectors | **Manage Detectors** on either of those tabs, then **Detectors** |
+| Events for both | **Manage Detectors** on either of those tabs, then **Events** |
 
 ## Detectors
 

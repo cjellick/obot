@@ -119,13 +119,20 @@
 		>
 			<Plus class="size-4" /> Add Budget
 		</button>
-	{:else if !isAdminReadonly && view === 'guardrails'}
-		<button
-			class="btn btn-primary flex items-center gap-1 text-sm"
-			onclick={() => goto('/models/guardrails/new')}
-		>
-			<Plus class="size-4" /> Add Rule
-		</button>
+	{:else if view === 'guardrails'}
+		<div class="flex items-center gap-2">
+			<button class="btn btn-secondary text-sm" onclick={() => goto('/guardrails')}>
+				Manage Detectors
+			</button>
+			{#if !isAdminReadonly}
+				<button
+					class="btn btn-primary flex items-center gap-1 text-sm"
+					onclick={() => goto('/models/guardrails/new')}
+				>
+					<Plus class="size-4" /> Add Rule
+				</button>
+			{/if}
+		</div>
 	{:else if !isAdminReadonly && view === 'access-policies'}
 		<button class="btn btn-primary flex items-center gap-1 text-sm" onclick={showCreate}>
 			<Plus class="size-4" /> Add Access Policy

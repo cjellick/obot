@@ -275,45 +275,52 @@
 		>
 			<Plus class="size-4" /> Add Source URL
 		</button>
-	{:else if view === 'filters' && !isAdminReadonly}
+	{:else if view === 'filters'}
 		{#if filtersLoading}
 			<Loading class="size-4" />
 		{/if}
-		<DotDotDot
-			class="btn btn-block btn-primary w-full text-sm md:w-fit"
-			placement="bottom"
-			classes={{ popover: 'z-50' }}
-			id={MCP_FILTERS_FIELD_IDS.addFilterBtn}
-			ariaLabel="Add New Filter"
-		>
-			{#snippet icon()}
-				<span class="flex items-center justify-center gap-1">
-					<Plus class="size-4" /> Add New Filter
-				</span>
-			{/snippet}
-			<button
-				id={MCP_FILTERS_FIELD_IDS.createCustomBtn}
-				class="menu-button"
-				onclick={() => openCreate('filters')}
-			>
-				Create Custom
+		{#if hasAdminAccess}
+			<button class="btn btn-secondary text-sm" onclick={() => goto('/guardrails')}>
+				Manage Detectors
 			</button>
-			<button
-				id={MCP_FILTERS_FIELD_IDS.createBuiltInBtn}
-				class="menu-button"
-				disabled={data.systemCatalogEntries.length === 0}
-				onclick={() => filtersTab?.openBuiltInPicker()}
+		{/if}
+		{#if !isAdminReadonly}
+			<DotDotDot
+				class="btn btn-block btn-primary w-full text-sm md:w-fit"
+				placement="bottom"
+				classes={{ popover: 'z-50' }}
+				id={MCP_FILTERS_FIELD_IDS.addFilterBtn}
+				ariaLabel="Add New Filter"
 			>
-				Create From Built-in
-			</button>
-			<button
-				id={MCP_FILTERS_FIELD_IDS.createGuardrailBtn}
-				class="menu-button"
-				onclick={() => openCreate('filters', 'guardrail')}
-			>
-				Create Guardrail
-			</button>
-		</DotDotDot>
+				{#snippet icon()}
+					<span class="flex items-center justify-center gap-1">
+						<Plus class="size-4" /> Add New Filter
+					</span>
+				{/snippet}
+				<button
+					id={MCP_FILTERS_FIELD_IDS.createCustomBtn}
+					class="menu-button"
+					onclick={() => openCreate('filters')}
+				>
+					Create Custom
+				</button>
+				<button
+					id={MCP_FILTERS_FIELD_IDS.createBuiltInBtn}
+					class="menu-button"
+					disabled={data.systemCatalogEntries.length === 0}
+					onclick={() => filtersTab?.openBuiltInPicker()}
+				>
+					Create From Built-in
+				</button>
+				<button
+					id={MCP_FILTERS_FIELD_IDS.createGuardrailBtn}
+					class="menu-button"
+					onclick={() => openCreate('filters', 'guardrail')}
+				>
+					Create Guardrail
+				</button>
+			</DotDotDot>
+		{/if}
 	{:else if view === 'tunnels' && !isAdminReadonly}
 		<button
 			class="btn btn-primary flex items-center gap-1 text-sm"
