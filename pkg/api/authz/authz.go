@@ -302,6 +302,8 @@ var (
 
 		types.GroupAPI: {
 			"POST /api/token-request/verify",
+			// Whether Claude subscriptions may be used, for the gateway's setup instructions.
+			"GET /api/llm-gateway/settings",
 			"POST /api/local-agent-audit-logs",
 			"GET /api/models",
 			"GET /api/model-providers",

@@ -62,9 +62,9 @@ describe('ModelsView', () => {
 			.element(page.getByText('2 models across every configured provider', { exact: false }))
 			.toBeInTheDocument();
 		await expect.element(page.getByText('openai/gpt-4o', { exact: true })).toBeInTheDocument();
-		// Client snippets use the gateway's own models.
+		// Client setup points at this server's gateway.
 		await expect
-			.element(page.getByText('ANTHROPIC_MODEL="anthropic/claude-opus-4-5"', { exact: false }))
+			.element(page.getByText('export ANTHROPIC_BASE_URL=', { exact: false }))
 			.toBeInTheDocument();
 	});
 

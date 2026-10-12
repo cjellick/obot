@@ -42,17 +42,42 @@ describe('GatewayConnect', () => {
 				})
 			)
 			.toBeInTheDocument();
-		// Falls back to a placeholder model without any available models.
+		// Claude Code picks its own Claude models; no model is set.
 		await expect
-			.element(page.getByText('ANTHROPIC_MODEL="anthropic/claude-sonnet-4-5"', { exact: false }))
+			.element(page.getByText('ANTHROPIC_MODEL', { exact: false }))
+			.not.toBeInTheDocument();
+		// Without Claude subscriptions allowed, there is only the API key setup.
+		await expect
+			.element(page.getByText('ANTHROPIC_CUSTOM_HEADERS', { exact: false }))
+			.not.toBeInTheDocument();
+	});
+
+	it('shows the Claude subscription setup when subscriptions are allowed', async () => {
+		render(GatewayConnect, { obotURL, subscriptionPassthrough: true });
+
+		await expect
+			.element(page.getByText('With a Claude subscription (Pro, Max, Team or Enterprise)'))
 			.toBeInTheDocument();
+		await expect
+			.element(
+				page.getByText(
+					'export ANTHROPIC_CUSTOM_HEADERS="X-Obot-Api-Key: $(obot login --url https://obot.example.com --scope llm --print-token)"',
+					{ exact: false }
+				)
+			)
+			.toBeInTheDocument();
+		await expect
+			.element(page.getByText('unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN', { exact: false }))
+			.toBeInTheDocument();
+		await expect.element(page.getByText('With an Obot API key')).toBeInTheDocument();
 	});
 
 	it('uses the first available model of each API format in the examples', async () => {
 		render(GatewayConnect, { obotURL, models });
 
+		await page.getByRole('tab', { name: 'Anthropic SDK' }).click();
 		await expect
-			.element(page.getByText('ANTHROPIC_MODEL="anthropic/claude-opus-4-5"', { exact: false }))
+			.element(page.getByText('model="anthropic/claude-opus-4-5"', { exact: false }))
 			.toBeInTheDocument();
 
 		await page.getByRole('tab', { name: 'Codex CLI' }).click();

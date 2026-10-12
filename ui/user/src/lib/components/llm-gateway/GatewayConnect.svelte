@@ -6,10 +6,17 @@
 	interface Props {
 		obotURL: string;
 		models?: Model[];
+		// Whether an administrator allows Claude subscriptions through the gateway.
+		subscriptionPassthrough?: boolean;
 		class?: string;
 	}
 
-	let { obotURL, models = [], class: klass = '' }: Props = $props();
+	let {
+		obotURL,
+		models = [],
+		subscriptionPassthrough = false,
+		class: klass = ''
+	}: Props = $props();
 
 	type Tab = 'claude-code' | 'codex' | 'openai-sdk' | 'anthropic-sdk' | 'curl';
 	let tab = $state<Tab>('claude-code');
@@ -36,19 +43,33 @@
 
 	let blocks = $derived.by(() => {
 		switch (tab) {
-			case 'claude-code':
+			case 'claude-code': {
+				const apiKey = {
+					language: 'bash' as const,
+					code: [
+						`export ANTHROPIC_BASE_URL="${baseURL}"`,
+						`export ANTHROPIC_AUTH_TOKEN="${token}"`,
+						'claude'
+					].join('\n')
+				};
+				if (!subscriptionPassthrough) {
+					return [apiKey];
+				}
 				return [
 					{
+						title: 'With a Claude subscription (Pro, Max, Team or Enterprise)',
 						language: 'bash' as const,
 						code: [
+							'# Keep your Claude Code login; these would replace it:',
+							'unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN',
 							`export ANTHROPIC_BASE_URL="${baseURL}"`,
-							`export ANTHROPIC_AUTH_TOKEN="${token}"`,
-							`# Any gateway model works, including non-Anthropic ones:`,
-							`export ANTHROPIC_MODEL="${anthropicModel}"`,
+							`export ANTHROPIC_CUSTOM_HEADERS="X-Obot-Api-Key: ${token}"`,
 							'claude'
 						].join('\n')
-					}
+					},
+					{ ...apiKey, title: 'With an Obot API key' }
 				];
+			}
 			case 'codex':
 				return [
 					{
