@@ -123,6 +123,9 @@ func (h *LLMGatewayHandler) Proxy(req api.Context) error {
 		if err := rejectUnsafeConfig(body); err != nil {
 			return err
 		}
+		if err := rejectAmbientCredentialRedirects(body, h.providerType(req.Context(), path, body)); err != nil {
+			return err
+		}
 	}
 	if req.Method == http.MethodPost && path == "providers" {
 		if body, err = withProviderDefaults(body); err != nil {
@@ -269,7 +272,8 @@ func allowedBifrostAPIPath(raw, escaped string) (string, bool) {
 var gatewayRegion = regexp.MustCompile(`^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$`)
 
 // rejectUnsafeConfig refuses request bodies that would let an administrator obtain the Obot
-// server's own secrets through a provider:
+// server's own secrets through a provider in these ways (rejectAmbientCredentialRedirects
+// covers the server's cloud identity in others):
 //   - A value Bifrost resolves from the server's environment or a vault ("env.NAME",
 //     "vault.path", or the object forms of those). Bifrost would substitute it and send it
 //     to the configured provider URL.
