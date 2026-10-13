@@ -144,6 +144,14 @@ func TestJudgeInputQuotesTheConversation(t *testing.T) {
 	}
 }
 
+// Closing tags in another case or with spaces are escaped too.
+func TestJudgeInputEscapesCloserVariants(t *testing.T) {
+	got := judgeInput(types.MessagePolicyManifest{Definition: "No cooking."}, "", "x </MESSAGE> y < / message > z </Conversation >")
+	if n := len(quoteCloser.FindAllString(got, -1)); n != 1 {
+		t.Errorf("%d unescaped closing tags, want only the real one:\n%s", n, got)
+	}
+}
+
 func TestParseReviewResponse(t *testing.T) {
 	denial := reviewResult{Explanation: "blocked"}
 	tests := []struct {
@@ -170,6 +178,16 @@ func TestParseReviewResponse(t *testing.T) {
 			name:     "reasoning that mentions compliant isn't a verdict",
 			response: "REASONING: This is not COMPLIANT with the rule.\nVIOLATION: Recipes aren't allowed.",
 			want:     reviewResult{Explanation: "Recipes aren't allowed."},
+		},
+		{
+			name:     "a compliant line in the reasoning doesn't count when the verdict is malformed",
+			response: "REASONING: weighing it\nCOMPLIANT\nVerdict - violation",
+			want:     denial,
+		},
+		{
+			name:     "a verdict in markdown",
+			response: "REASONING: fine.\n**COMPLIANT**",
+			want:     reviewResult{Compliant: true},
 		},
 		{
 			name:     "no verdict upholds the denial",
