@@ -119,7 +119,7 @@ func init() {
 			{Name: "location", Label: "Location", Type: FieldText, Destination: true, Required: true, Description: "The template's location, such as us-central1."},
 			{Name: "template", Label: "Template ID", Type: FieldText, Required: true},
 			{Name: "serviceAccountJSON", Label: "Service account key (JSON)", Type: FieldTextarea, Sensitive: true, Description: "Leave empty to use application default credentials. The account needs the Model Armor User role."},
-			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Destination: true, Description: "Overrides the Model Armor endpoint. Defaults to https://modelarmor.<location>.rep.googleapis.com. An endpoint outside googleapis.com requires a service account key."},
+			{Name: "endpoint", Label: "Endpoint", Type: FieldText, Destination: true, Description: "Overrides the Model Armor endpoint. Defaults to https://modelarmor.<location>.rep.googleapis.com. Without a service account key, only Model Armor endpoints on googleapis.com are allowed."},
 		},
 	}, newModelArmorChecker)
 }
@@ -128,16 +128,20 @@ func init() {
 // built from.
 var modelArmorLocation = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-// isGoogleAPIsEndpoint reports whether endpoint is an https URL on a googleapis.com host,
-// including regional and Private Service Connect endpoints.
+// isGoogleAPIsEndpoint reports whether endpoint is an https URL on a Model Armor host:
+// modelarmor.googleapis.com, a regional modelarmor.<location>.rep.googleapis.com, or a
+// Private Service Connect endpoint (*.p.googleapis.com). Other googleapis.com hosts are
+// refused too: some, such as Cloud Storage buckets, are named by their users.
 func isGoogleAPIsEndpoint(endpoint string) bool {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.User != nil {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
-	return host == "googleapis.com" || strings.HasSuffix(host, ".googleapis.com")
+	return modelArmorHost.MatchString(strings.TrimSuffix(strings.ToLower(u.Hostname()), "."))
 }
+
+// modelArmorHost matches the hosts default credentials may be sent to (see isGoogleAPIsEndpoint).
+var modelArmorHost = regexp.MustCompile(`^(modelarmor\.googleapis\.com|modelarmor\.[a-z0-9-]+\.rep\.googleapis\.com|[a-z0-9-]+\.p\.googleapis\.com)$`)
 
 func newModelArmorChecker(config map[string]any, secrets map[string]string, deps Deps) (Checker, error) {
 	project := ConfigString(config, "project", "")
@@ -157,7 +161,7 @@ func newModelArmorChecker(config map[string]any, secrets map[string]string, deps
 	if saJSON == "" && !isGoogleAPIsEndpoint(endpoint) {
 		// Application default credentials are the Obot server's own Google Cloud identity,
 		// which must only ever be sent to Google.
-		return nil, fmt.Errorf("a custom endpoint outside googleapis.com requires a service account key; application default credentials are only sent to Google Cloud")
+		return nil, fmt.Errorf("a custom endpoint outside googleapis.com requires a service account key; application default credentials are only sent to Model Armor's own endpoints")
 	}
 	return &modelArmorChecker{
 		base:     providerHTTPClient(deps),

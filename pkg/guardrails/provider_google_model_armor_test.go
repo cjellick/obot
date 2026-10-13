@@ -215,6 +215,12 @@ func TestModelArmorKeepsDefaultCredentialsOnGoogle(t *testing.T) {
 			wantErr:  true,
 		},
 		{
+			name:     "another googleapis.com host",
+			location: "us-central1",
+			endpoint: "https://my-bucket.storage.googleapis.com",
+			wantErr:  true,
+		},
+		{
 			name:     "plain http",
 			location: "us-central1",
 			endpoint: "http://modelarmor.us-central1.rep.googleapis.com",
