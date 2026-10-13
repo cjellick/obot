@@ -78,6 +78,8 @@ Setting a default model does not grant anyone access to it. A [Model Access Poli
 - **OpenAI and Anthropic keys at startup.** When the server's `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variable is set, Obot configures the gateway's `openai` or `anthropic` provider with that key at startup, and updates the key when the value changes. See [Server Configuration](../configuration/server-configuration.md).
 - **Amazon Bedrock.** Add the **AWS Bedrock** provider with a Bedrock API key or an access key ID and secret access key, and the region. Anthropic models on Bedrock require you to submit Anthropic's use case details form in your AWS account first. Until you do, requests can fail with `Model use case details have not been submitted for this account`. See the [AWS model access documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html). Model availability depends on region; see the [AWS Bedrock Anthropic model cards](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards-anthropic.html).
 - **Azure.** Add the **Azure OpenAI / AI Foundry** provider with the resource endpoint and either an API key or the tenant ID, client ID and client secret of a Microsoft Entra service principal. Assign the service principal **Cognitive Services User** or **Foundry User** (formerly Azure AI User) on the Foundry resource. **Cognitive Services OpenAI User** can allow OpenAI requests while Anthropic requests fail with `Principal does not have access to API/Operation`. See [Configure keyless authentication with Microsoft Entra ID](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/configure-entra-id).
+
+  A key with neither uses Obot's own managed or workload identity. Its endpoint must then be an Azure OpenAI or AI Services host (`https://<resource>.openai.azure.com`, `.cognitiveservices.azure.com` or `.services.ai.azure.com`), and it can't request other scopes. Certificate checks can't be turned off, and a custom CA can't be added, on Azure, Vertex AI and Bedrock providers, since they may use Obot's own cloud identity.
 - **Ollama, vLLM and other self-hosted models.** Add the built-in **Ollama** or **vLLM** provider with the server URL; they don't need a key. For other OpenAI-compatible services, such as LiteLLM, add a custom OpenAI-compatible provider with its base URL. When Obot runs in Docker and Ollama runs on the host, start Ollama with `OLLAMA_HOST=0.0.0.0` and use `http://host.docker.internal:11434` as the server URL. On Linux, also start the Obot container with `--add-host=host.docker.internal:host-gateway`.
 
 ### Server configuration
@@ -207,9 +209,15 @@ export ANTHROPIC_CUSTOM_HEADERS="X-Obot-Api-Key: $(obot login --url https://obot
 claude
 ```
 
-Only requests from Claude Code to Anthropic models use the subscription. The subscription token is never sent to another provider; requests to other models use Obot's configured keys.
+The gateway still needs the **Anthropic** provider configured with a working key. It lists Claude models through that key, and Claude Code's model names only resolve once they're listed.
 
-Budgets don't apply to requests the subscription pays for: they aren't refused when a budget is exhausted, and they don't count toward any budget. Budgets still apply to everything else the user sends, including a fallback or routing rule that serves the request with a model from another provider, since that uses Obot's keys.
+Only requests from Claude Code to Anthropic models use the subscription, and the subscription token is only ever sent to Anthropic:
+
+- It's only forwarded while the Anthropic provider sends requests straight to `https://api.anthropic.com`, with certificate checks on. If an administrator changes the provider's base URL or TLS settings, the token isn't forwarded and requests use Obot's key instead.
+- A routing rule or fallback can't send a subscription request to another provider, including a custom provider built on Anthropic's API. That attempt is refused with HTTP 403.
+- Requests the user sends to other models use Obot's configured keys.
+
+Budgets don't apply to requests the subscription pays for: they aren't refused when a budget is exhausted, and they don't count toward any budget. Budgets still apply to everything else the user sends.
 
 See the Claude Code documentation for details:
 

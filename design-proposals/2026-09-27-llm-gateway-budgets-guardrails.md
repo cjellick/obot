@@ -294,6 +294,12 @@ when an administrator turns this on (`PUT /api/llm-gateway/settings`,
   Claude Code to Anthropic models, and only while the setting is on. It is
   stripped from every other request, so it never reaches another provider.
   Without the setting, caller credentials are always stripped.
+- **Only to Anthropic.** The token is kept only while the Anthropic provider
+  sends straight to `https://api.anthropic.com` with certificate checks on,
+  checked on each request, so an administrator can't redirect users' tokens to
+  a server of their own. An attempt that would carry the token to any other
+  provider (a routing target, a fallback, or a custom provider built on
+  Anthropic's API) is refused.
 - **Controls.** Access policies, guardrails, the audit log and usage apply as
   for any request.
 - **Budgets don't apply** to an attempt the caller's subscription pays for,
@@ -637,7 +643,11 @@ The Helm chart's persistence note now also covers the gateway data dir.
   checked by decoding each value the way the engine decodes a secret, with field
   names in any case, so the check can't disagree with the engine. Regions must
   be plain region names, because some providers build their host from the
-  region and authenticate with the server's own cloud identity.
+  region and authenticate with the server's own cloud identity. For the same
+  reason, an Azure key without credentials (which uses the server's managed or
+  workload identity) must point at an Azure AI host with the default scope,
+  and Azure, Vertex and Bedrock providers can't turn off certificate checks or
+  trust another CA.
 - **Credentials at rest.** Provider keys are encrypted in the gateway store.
   Guardrail profile secrets are in Obot's encrypted credential store and never
   returned. Changing a profile's destination (endpoint, base URL or region)
@@ -645,7 +655,7 @@ The Helm chart's persistence note now also covers the gateway data dir.
   redirected to another host and read back through a test. A secret that
   isn't a string is refused, not read as omitted. A Model Armor profile
   without a service account key uses the server's own Google credentials, so
-  it only sends them to `googleapis.com` endpoints.
+  it only sends them to Model Armor's own endpoints.
 - **Guardrail identity can't be spoofed** (see identity binding above).
 - **Routing can't widen access.** Each model the engine tries is checked
   against the caller's access, so a routing rule, even one that matches a
