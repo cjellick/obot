@@ -27,6 +27,20 @@
 		models.find((m) => m.dialect === 'AnthropicMessages')?.targetModel ??
 			'anthropic/claude-sonnet-4-5'
 	);
+	// Claude Code asks for Claude models by Anthropic's own names, which only resolve to the
+	// gateway's Anthropic provider. Without one (a Bedrock-, Azure- or OpenAI-only gateway),
+	// the setup names a gateway model for Claude Code to use instead, preferring a Claude model.
+	let claudeCodeModel = $derived.by(() => {
+		if (models.length === 0 || models.some((m) => m.targetModel?.startsWith('anthropic/'))) {
+			return undefined;
+		}
+		const llm = models.filter((m) => !m.usage || m.usage === 'llm');
+		return (
+			llm.find((m) => m.targetModel?.includes('claude'))?.targetModel ??
+			llm[0]?.targetModel ??
+			models[0]?.targetModel
+		);
+	});
 	let openaiModel = $derived(
 		models.find((m) => m.dialect !== 'AnthropicMessages')?.targetModel ??
 			models[0]?.targetModel ??
@@ -49,6 +63,12 @@
 					code: [
 						`export ANTHROPIC_BASE_URL="${baseURL}"`,
 						`export ANTHROPIC_AUTH_TOKEN="${token}"`,
+						...(claudeCodeModel
+							? [
+									'# This gateway has no Anthropic provider, so name one of its models:',
+									`export ANTHROPIC_MODEL="${claudeCodeModel}"`
+								]
+							: []),
 						'claude'
 					].join('\n')
 				};

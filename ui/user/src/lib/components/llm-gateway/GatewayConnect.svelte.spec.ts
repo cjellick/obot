@@ -52,6 +52,52 @@ describe('GatewayConnect', () => {
 			.not.toBeInTheDocument();
 	});
 
+	it('leaves the model to Claude Code when the gateway has Anthropic models', async () => {
+		render(GatewayConnect, { obotURL, models });
+
+		await expect
+			.element(page.getByText('export ANTHROPIC_BASE_URL', { exact: false }))
+			.toBeInTheDocument();
+		await expect
+			.element(page.getByText('ANTHROPIC_MODEL', { exact: false }))
+			.not.toBeInTheDocument();
+	});
+
+	it('names a gateway model for Claude Code without an Anthropic provider', async () => {
+		const bedrockOnly = [
+			{
+				id: 'm3',
+				name: 'embed',
+				targetModel: 'bedrock/amazon.titan-embed-text-v2:0',
+				usage: 'text-embedding'
+			},
+			{
+				id: 'm4',
+				name: 'nova',
+				targetModel: 'bedrock/amazon.nova-pro-v1:0',
+				usage: 'llm'
+			},
+			{
+				id: 'm5',
+				name: 'claude',
+				targetModel: 'bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0',
+				usage: 'llm'
+			}
+		] as unknown as Model[];
+		render(GatewayConnect, { obotURL, models: bedrockOnly });
+
+		await expect
+			.element(
+				page.getByText(
+					'export ANTHROPIC_MODEL="bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"',
+					{
+						exact: false
+					}
+				)
+			)
+			.toBeInTheDocument();
+	});
+
 	it('shows the Claude subscription setup when subscriptions are allowed', async () => {
 		render(GatewayConnect, { obotURL, subscriptionPassthrough: true });
 
