@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -308,6 +309,25 @@ func TestSubscriptionAttemptsSpendNoBudget(t *testing.T) {
 		t.Fatalf("served %q with budgets %v, want %q with none", model, budgets, sonnet.Spec.Manifest.TargetModel)
 	}
 
+}
+
+// A request carrying a caller's subscription token can't be routed to a provider other than
+// Anthropic, which would receive the token.
+func TestSubscriptionRequestsStayOnAnthropic(t *testing.T) {
+	sonnet := &v1.Model{}
+	sonnet.Spec.Manifest.TargetModel = "anthropic/claude-sonnet-4-5"
+	attempts := &gatewayAttempts{budgets: map[string][]string{}, subscription: true}
+	check := attempts.check(nil, nil, api.Context{}, sonnet)
+	for _, routed := range []string{"my-anthropic/claude-sonnet-4-5", "openai/gpt-5-mini"} {
+		err := check(context.Background(), guardrails.Attempt{Model: routed})
+		var refused *guardrails.AttemptError
+		if !errors.As(err, &refused) || refused.Status != http.StatusForbidden {
+			t.Errorf("%s: got %v, want a 403 refusal", routed, err)
+		}
+	}
+	if model, _ := attempts.served(); model != "" {
+		t.Fatalf("admitted %q", model)
+	}
 }
 
 func TestServedModelChange(t *testing.T) {

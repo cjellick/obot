@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -352,6 +353,12 @@ func (a *gatewayAttempts) budgetExceeded() *client.LLMGatewayBudgetExceeded {
 func (a *gatewayAttempts) check(b *bifrostProviderBackend, l *llmProviderProxy, apiReq api.Context, requested *v1.Model) guardrails.AttemptCheck {
 	return func(_ context.Context, attempt guardrails.Attempt) error {
 		reference := attempt.Model
+		if a.subscription && !strings.HasPrefix(reference, "anthropic/") {
+			// The engine would send the caller's subscription token with this attempt, and only
+			// Anthropic may receive it: a routing rule or fallback can't carry it elsewhere,
+			// such as to a custom provider built on Anthropic's API.
+			return &guardrails.AttemptError{Status: http.StatusForbidden, Type: "permission_denied", Message: fmt.Sprintf("requests made with a Claude subscription can only be served by Anthropic models, not %q", reference)}
+		}
 		model := requested
 		if requested == nil || reference != requested.Spec.Manifest.TargetModel {
 			// The requested model was checked before the request was sent.
@@ -451,7 +458,12 @@ func stripCallerCredentials(req *http.Request, model *v1.Model, subscriptionPass
 // Bifrost uses for request logs and caching, and the guardrails token.
 func (b *bifrostProviderBackend) decorateRequest(l *llmProviderProxy, apiReq api.Context, model *v1.Model) (gatewayRequest, error) {
 	ctx, gatewayClient, req, user := apiReq.Context(), apiReq.GatewayClient, apiReq.Request, apiReq.User
-	subscription := stripCallerCredentials(req, model, b.settings.get(ctx, gatewayClient).SubscriptionPassthrough)
+	allowSubscription := b.settings.get(ctx, gatewayClient).SubscriptionPassthrough
+	if allowSubscription && isAnthropicOAuthBearer(req.Header.Get("Authorization")) {
+		// Checked per request, not cached, so a provider change can't redirect the token.
+		allowSubscription = b.engine.AnthropicIsDirect(ctx)
+	}
+	subscription := stripCallerCredentials(req, model, allowSubscription)
 	for client, engine := range clientGatewayHeaders {
 		if v := req.Header.Get(client); v != "" {
 			req.Header.Set(engine, v)
