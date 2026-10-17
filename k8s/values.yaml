@@ -1,0 +1,28 @@
+# Helm values for an HA QA install: 2 replicas on the in-cluster Postgres.
+# Works with the PR's chart and with the latest released chart (the upgrade test).
+# up.sh/upgrade scripts add the image and the existing secret (DSN, keys, owner bootstrap).
+fullnameOverride: obot
+replicaCount: 2
+
+image:
+  # Images are loaded into kind with `kind load docker-image`; never pull them.
+  pullPolicy: IfNotPresent
+
+secret:
+  # Created by the scripts from $QA_ENV_FILE plus OBOT_SERVER_DSN and the owner setup token.
+  existingSecret: obot-qa
+
+# Each replica keeps its own /data. With Postgres, the LLM gateway's state lives in the
+# database, so nothing has to be shared between replicas.
+persistence:
+  enabled: false
+
+config:
+  OBOT_SERVER_ENABLE_AUTHENTICATION: true
+  # Reached with `kubectl port-forward svc/obot 8080:80`.
+  OBOT_SERVER_HOSTNAME: "localhost:8080"
+  OBOT_SERVER_LLM_GATEWAY_LOG_LEVEL: "info"
+  # Older releases ignore it.
+  OBOT_SERVER_LLM_GATEWAY_MODEL_DATA_URL: "https://raw.githubusercontent.com/cjellick/obot/qa-kit/model-data"
+  # MCP servers run as pods in the cluster (the chart's default).
+  OBOT_SERVER_MCPRUNTIME_BACKEND: "kubernetes"
