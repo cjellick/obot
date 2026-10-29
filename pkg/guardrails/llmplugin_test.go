@@ -97,7 +97,13 @@ func startGateway(t *testing.T, store *fakeStore) (*llmengine.Engine, *upstream)
 	t.Helper()
 	up := newUpstream(t)
 	t.Cleanup(up.Close)
+	return startGatewayAt(t, store, up.URL), up
+}
 
+// startGatewayAt starts a gateway with the guardrail plugins whose OpenAI and Anthropic
+// providers are served by the mock provider at baseURL.
+func startGatewayAt(t *testing.T, store *fakeStore, baseURL string) *llmengine.Engine {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	// Guardrails are registered as part of startup, as Obot does, so the gateway never
@@ -113,7 +119,7 @@ func startGateway(t *testing.T, store *fakeStore) (*llmengine.Engine, *upstream)
 	}
 	if err := gw.Do(ctx, http.MethodPost, "/api/providers", map[string]any{
 		"provider":       "openai",
-		"network_config": map[string]any{"base_url": up.URL, "allow_private_network": true, "default_request_timeout_in_seconds": 30},
+		"network_config": map[string]any{"base_url": baseURL, "allow_private_network": true, "default_request_timeout_in_seconds": 30},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +129,7 @@ func startGateway(t *testing.T, store *fakeStore) (*llmengine.Engine, *upstream)
 
 	if err := gw.Do(ctx, http.MethodPost, "/api/providers", map[string]any{
 		"provider":       "anthropic",
-		"network_config": map[string]any{"base_url": up.URL, "allow_private_network": true, "default_request_timeout_in_seconds": 30},
+		"network_config": map[string]any{"base_url": baseURL, "allow_private_network": true, "default_request_timeout_in_seconds": 30},
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +147,7 @@ func startGateway(t *testing.T, store *fakeStore) (*llmengine.Engine, *upstream)
 	if order[0] != InputPluginName || pos[OutputPluginName] < pos["logging"] {
 		t.Fatalf("guardrail plugins must surround request logging, got %v", order)
 	}
-	return gw, up
+	return gw
 }
 
 func call(t *testing.T, gw *llmengine.Engine, body string, bind bool) (int, string) {

@@ -86,6 +86,9 @@ type chatCompletionRequest struct {
 	Model    string        `json:"model"`
 	Messages []chatMessage `json:"messages"`
 	Stream   bool          `json:"stream"`
+	// ResponseFormat constrains the output ({"type": "json_schema", ...}); the gateway
+	// translates it for every provider.
+	ResponseFormat any `json:"response_format,omitempty"`
 }
 
 // reviewResult holds the outcome of a Stage 2 review.
@@ -252,15 +255,21 @@ func (h *Helper) callLLM(ctx context.Context, resolved *resolvedModel, messages 
 
 // callLLMChatCompletions calls the provider using the OpenAI chat completions format.
 func (h *Helper) callLLMChatCompletions(ctx context.Context, resolved *resolvedModel, messages []chatMessage) (string, error) {
-	reqBody := chatCompletionRequest{
+	text, _, err := h.postChatCompletion(ctx, resolved, chatCompletionRequest{
 		Model:    resolved.targetModel,
 		Messages: messages,
 		Stream:   true,
-	}
+	})
+	return text, err
+}
 
+// postChatCompletion posts a chat completion through the gateway and returns the streamed
+// text. The status is the HTTP status the gateway answered with (0 when it did not answer),
+// for callers that retry on a refused request.
+func (h *Helper) postChatCompletion(ctx context.Context, resolved *resolvedModel, reqBody chatCompletionRequest) (string, int, error) {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", 0, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	reqURL := resolved.providerURL + "/chat/completions"
@@ -268,7 +277,7 @@ func (h *Helper) callLLMChatCompletions(ctx context.Context, resolved *resolvedM
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -280,19 +289,20 @@ func (h *Helper) callLLMChatCompletions(ctx context.Context, resolved *resolvedM
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		slog.Error("LLM call failed", "model", resolved.targetModel, "error", err)
-		return "", fmt.Errorf("LLM call failed: %w", err)
+		return "", 0, fmt.Errorf("LLM call failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		slog.Error("LLM call returned non-OK status", "model", resolved.targetModel, "status", resp.StatusCode, "body", string(respBody))
-		return "", fmt.Errorf("LLM call returned status %d: %s", resp.StatusCode, string(respBody))
+		return "", resp.StatusCode, fmt.Errorf("LLM call returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return readStreamingResponse(resp.Body, func(data string) gjson.Result {
+	text, err := readStreamingResponse(resp.Body, func(data string) gjson.Result {
 		return gjson.Get(data, "choices.0.delta.content")
 	})
+	return text, resp.StatusCode, err
 }
 
 // readStreamingResponse reads a generic SSE stream, calling extractDelta for each data line.
