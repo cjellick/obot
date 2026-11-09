@@ -140,7 +140,7 @@ func ReplayInput(ev Event, s *Session, settings Settings) PolicyInput {
 	action := *ev.Action
 	return PolicyInput{
 		Subject: subject, Action: action, Session: &at, Settings: settings, Now: ev.At,
-		ActionLabels: ev.Labels, Lineage: ev.Lineage, Honeytoken: ev.Decision.Honeytoken,
+		ActionLabels: ev.Labels, Lineage: ev.Lineage,
 	}
 }
 

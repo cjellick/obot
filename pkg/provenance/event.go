@@ -242,9 +242,6 @@ type Decision struct {
 	// Killed reports that the session, user or organization was killed and the
 	// action was denied for that reason alone.
 	Killed bool `json:"killed,omitempty"`
-	// Honeytoken reports that a planted canary was found in the action's
-	// content. This is definitive exfiltration evidence.
-	Honeytoken bool `json:"honeytoken,omitempty"`
 	// Redactions are the spans to remove when the effect is redact, as offsets
 	// into Action.Text.
 	Redactions []Span `json:"-"`

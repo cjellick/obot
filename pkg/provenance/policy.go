@@ -24,7 +24,7 @@ import (
 //	action    {surface, kind, tool, server, server_id, model, provider, host, method, path,
 //	           command, file, capabilities, sink{external, destination, writes, exec},
 //	           source{private, untrusted}, labels, lineage{hit, exact, count, labels},
-//	           honeytoken, trifecta, text}
+//	           trifecta, text}
 //	session   {id, labels, risk, events, tool_calls, denied, duration_seconds, surfaces,
 //	           trifecta, warrant{present, task, scopes, drifted, covers}, killed}
 //	org       {approved_destinations, trusted_hosts}
@@ -157,7 +157,6 @@ type PolicyInput struct {
 	// ActionLabels are the sensitivity labels found in the action's content.
 	ActionLabels Labels
 	Lineage      []LineageHit
-	Honeytoken   bool
 }
 
 func init() {
@@ -288,7 +287,7 @@ func CompilePolicy(expr string) (cel.Program, error) {
 	if issues != nil && issues.Err() != nil {
 		return nil, issues.Err()
 	}
-	// Fields of the map-typed variables (action.honeytoken, session.killed)
+	// Fields of the map-typed variables (action.trifecta, session.killed)
 	// are dyn at compile time; the boolean requirement is enforced at
 	// evaluation for them.
 	if out := ast.OutputType(); out != cel.BoolType && out != cel.DynType {
@@ -372,8 +371,7 @@ func (in PolicyInput) Vars() map[string]any {
 			"count":  lineageCount,
 			"labels": lineageLabels.Anys(),
 		},
-		"honeytoken": in.Honeytoken,
-		"text":       a.Text,
+		"text": a.Text,
 	}
 
 	st := SessionState{}
@@ -475,8 +473,12 @@ func EvalPolicy(p *Policy, in PolicyInput) (bool, error) {
 	return b, nil
 }
 
+// retiredBuiltInPolicies are built-in policies Obot once seeded and no longer
+// ships. Seed deletes them, since their conditions may no longer compile.
+var retiredBuiltInPolicies = []string{"builtin-honeytoken"}
+
 // BuiltInPolicies are seeded when the policy store is empty. They start in
-// shadow mode, except the honeytoken rule, which has no false positives.
+// shadow mode, except the killed-session rule.
 func BuiltInPolicies(now time.Time) []Policy {
 	mk := func(id, name, desc, cond string, effect Effect, mode string, prio int, guidance string) Policy {
 		return Policy{
@@ -485,9 +487,6 @@ func BuiltInPolicies(now time.Time) []Policy {
 		}
 	}
 	return []Policy{
-		mk("builtin-honeytoken", "Honeytoken exfiltration",
-			"A planted canary credential or record is leaving the session. This is definitive exfiltration evidence.",
-			`action.honeytoken`, EffectDeny, ModeEnforce, 1000, ""),
 		mk("builtin-lethal-trifecta", "Lethal trifecta",
 			"The session has read untrusted content and confidential data, and this action sends data to an external destination.",
 			`action.trifecta`, EffectRequireApproval, ModeShadow, 900, ""),

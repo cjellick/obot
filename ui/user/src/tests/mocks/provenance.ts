@@ -242,13 +242,13 @@ export const narrative: Narrative = {
 
 export const policies: Policy[] = [
 	{
-		id: 'builtin-honeytoken',
-		name: 'Honeytoken exfiltration',
-		description: 'A planted canary is leaving the session.',
-		condition: 'action.honeytoken',
+		id: 'builtin-killed',
+		name: 'Killed session',
+		description: 'The session, user or organization was killed with the kill switch.',
+		condition: 'session.killed',
 		effect: 'deny',
 		mode: 'enforce',
-		priority: 1000,
+		priority: 2000,
 		enabled: true,
 		builtIn: true,
 		createdAt: minutesAgo(10000),
@@ -472,17 +472,17 @@ export const supervisorInsights: SupervisorInsights = {
 			}
 		},
 		{
-			id: 'ins-honeytoken',
-			kind: 'honeytoken-tripped',
+			id: 'ins-risky',
+			kind: 'open-risky-session',
 			severity: 'critical',
-			title: 'A honeytoken left a session',
-			detail: 'The AWS canary key appeared in outbound content.',
+			title: 'ada@example.com is open at risk 92',
+			detail: 'The session has read untrusted content and pii data.',
 			sessionID: 'ses-risky',
 			action: {
 				label: 'Kill session',
 				method: 'POST',
 				path: '/api/provenance/kills',
-				body: { scope: 'session', target: 'ses-risky', reason: 'Honeytoken tripped' }
+				body: { scope: 'session', target: 'ses-risky', reason: 'Stopped from the Supervisor' }
 			}
 		},
 		{

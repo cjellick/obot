@@ -317,9 +317,6 @@ func (st *SessionState) Recompute() {
 	if st.Labels.Has(LabelSecret) {
 		risk += 15
 	}
-	if st.Labels.Has(LabelHoneytoken) {
-		risk += 40
-	}
 	if st.ExternalOut > 0 {
 		risk += 10
 	}
@@ -369,9 +366,6 @@ func (st *SessionState) Explain() string {
 		if st.Labels.Has(label) {
 			describe(label, string(label)+" data")
 		}
-	}
-	if st.Labels.Has(LabelHoneytoken) {
-		describe(LabelHoneytoken, "a honeytoken")
 	}
 	if len(parts) == 0 {
 		return "the session has read nothing sensitive"

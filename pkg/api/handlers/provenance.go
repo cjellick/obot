@@ -2,10 +2,8 @@ package handlers
 
 import (
 	"cmp"
-	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"net/url"
 	"slices"
@@ -35,14 +33,11 @@ const (
 	provenanceDefaultHours   = 24
 	provenanceMaxHours       = 24 * 366
 	provenanceDefaultSince   = 720
-	honeytokenEmailDomain    = "honeytoken.obot.ai"
-	honeytokenUpperDigits    = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	honeytokenLowerDigits    = "abcdefghijklmnopqrstuvwxyz0123456789"
 )
 
 // ProvenanceHandler serves the cross-surface session graph and the Obot
 // Policy engine: sessions and their replay, the decisions feed, policies,
-// approvals, the kill switch, honeytokens, tool labels and settings.
+// approvals, the kill switch, tool labels and settings.
 type ProvenanceHandler struct {
 	engine *provenance.Engine
 	// insights caches the Supervisor's insights (provenance_supervisor.go).
@@ -131,18 +126,6 @@ type killRequest struct {
 	Target     string `json:"target"`
 	Reason     string `json:"reason"`
 	TTLSeconds int    `json:"ttlSeconds"`
-}
-
-type honeytokenRequest struct {
-	Kind  string `json:"kind"`
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-type honeytokenResponse struct {
-	Honeytoken provenance.Honeytoken `json:"honeytoken"`
-	// Value is returned once, at creation; only its hash is stored.
-	Value string `json:"value"`
 }
 
 type toolLabelRequest struct {
@@ -824,92 +807,6 @@ func (h *ProvenanceHandler) DeleteKill(req api.Context) error {
 	if err := h.engine.Unkill(req.Context(), req.PathValue("id")); err != nil {
 		return err
 	}
-	return writeNoContent(req)
-}
-
-// ---- honeytokens ----
-
-func (h *ProvenanceHandler) ListHoneytokens(req api.Context) error {
-	tokens, err := h.engine.Store().ListHoneytokens(req.Context())
-	if err != nil {
-		return err
-	}
-	if tokens == nil {
-		tokens = []provenance.Honeytoken{}
-	}
-	return req.Write(map[string]any{"items": tokens})
-}
-
-// generateHoneytokenValue makes a believable canary for the kind, or returns
-// "" for kinds whose value the administrator must supply.
-func generateHoneytokenValue(kind string) (string, error) {
-	switch kind {
-	case "aws-key":
-		suffix, err := randomString(honeytokenUpperDigits, 16)
-		return "AKIA" + suffix, err
-	case "api-key":
-		suffix, err := randomString(honeytokenLowerDigits, 32)
-		return "sk-obot-" + suffix, err
-	case "email":
-		local, err := randomString(honeytokenLowerDigits, 8)
-		return "canary-" + local + "@" + honeytokenEmailDomain, err
-	}
-	return "", nil
-}
-
-func randomString(alphabet string, n int) (string, error) {
-	out := make([]byte, n)
-	maxIndex := big.NewInt(int64(len(alphabet)))
-	for i := range out {
-		idx, err := rand.Int(rand.Reader, maxIndex)
-		if err != nil {
-			return "", err
-		}
-		out[i] = alphabet[idx.Int64()]
-	}
-	return string(out), nil
-}
-
-func (h *ProvenanceHandler) CreateHoneytoken(req api.Context) error {
-	var in honeytokenRequest
-	if err := req.Read(&in); err != nil {
-		return types.NewErrBadRequest("invalid request: %v", err)
-	}
-	switch in.Kind {
-	case "aws-key", "api-key", "email", "record", "custom":
-	default:
-		return types.NewErrBadRequest("invalid kind %q: expected aws-key, api-key, email, record or custom", in.Kind)
-	}
-	if strings.TrimSpace(in.Name) == "" {
-		return types.NewErrBadRequest("name is required")
-	}
-	value := strings.TrimSpace(in.Value)
-	if value == "" {
-		generated, err := generateHoneytokenValue(in.Kind)
-		if err != nil {
-			return err
-		}
-		if generated == "" {
-			return types.NewErrBadRequest("a value is required for a %s honeytoken", in.Kind)
-		}
-		value = generated
-	}
-	if len(value) < 8 {
-		return types.NewErrBadRequest("a honeytoken value must be at least 8 characters so it is recognized reliably")
-	}
-	token := provenance.NewHoneytoken(in.Kind, in.Name, value, callerIdentity(req), time.Now().UTC())
-	if err := h.engine.Store().PutHoneytoken(req.Context(), &token); err != nil {
-		return err
-	}
-	h.engine.Invalidate()
-	return req.WriteCreated(honeytokenResponse{Honeytoken: token, Value: value})
-}
-
-func (h *ProvenanceHandler) DeleteHoneytoken(req api.Context) error {
-	if err := h.engine.Store().DeleteHoneytoken(req.Context(), req.PathValue("id")); err != nil {
-		return err
-	}
-	h.engine.Invalidate()
 	return writeNoContent(req)
 }
 

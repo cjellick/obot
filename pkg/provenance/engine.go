@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	// cacheTTL bounds how long policy, kill, honeytoken and settings changes
+	// cacheTTL bounds how long policy, kill and settings changes
 	// take to apply on other replicas.
 	cacheTTL = 5 * time.Second
 	// sessionCacheIdle is how long an idle session stays in memory.
@@ -40,7 +40,6 @@ type Engine struct {
 	refLoadedAt time.Time
 	policies    []Policy
 	kills       []Kill
-	honeytokens []Honeytoken
 	toolLabels  map[string]ToolLabel
 	settings    Settings
 
@@ -181,7 +180,7 @@ func (e *Engine) ContentClassifier() ContentClassifier { return e.contentClassif
 // Supervisor.
 func (e *Engine) SetContentClassifier(c ContentClassifier) { e.contentClassifier = c }
 
-// Invalidate makes the next call reload policies, kills, honeytokens, tool
+// Invalidate makes the next call reload policies, kills, tool
 // labels and settings.
 func (e *Engine) Invalidate() {
 	e.refLock.Lock()
@@ -198,7 +197,8 @@ func (e *Engine) Forget(sessionID string) {
 }
 
 // Seed installs the built-in policies and default settings when the store
-// has none. It is called once at startup.
+// has none, and removes built-in policies Obot no longer ships. It is called
+// once at startup.
 func (e *Engine) Seed(ctx context.Context) error {
 	policies, err := e.store.ListPolicies(ctx)
 	if err != nil {
@@ -206,6 +206,12 @@ func (e *Engine) Seed(ctx context.Context) error {
 	}
 	existing := map[string]bool{}
 	for _, p := range policies {
+		if slices.Contains(retiredBuiltInPolicies, p.ID) {
+			if err := e.store.DeletePolicy(ctx, p.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		existing[p.ID] = true
 	}
 	for _, p := range BuiltInPolicies(e.now()) {
@@ -241,10 +247,6 @@ func (e *Engine) loadRefs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	tokens, err := e.store.ListHoneytokens(ctx)
-	if err != nil {
-		return err
-	}
 	labels, err := e.store.ListToolLabels(ctx)
 	if err != nil {
 		return err
@@ -259,7 +261,7 @@ func (e *Engine) loadRefs(ctx context.Context) error {
 	for _, l := range labels {
 		byTool[toolLabelKey(l.Server, l.Tool)] = l
 	}
-	e.policies, e.kills, e.honeytokens, e.toolLabels, e.settings = policies, kills, tokens, byTool, settings
+	e.policies, e.kills, e.toolLabels, e.settings = policies, kills, byTool, settings
 	e.refLoadedAt = time.Now()
 	return nil
 }
@@ -527,9 +529,6 @@ func (e *Engine) Ingest(ctx context.Context, in IngestRequest) (*Event, error) {
 	if in.Capabilities.Has(CapCredentialBearing) {
 		labels = labels.Add(LabelSecret)
 	}
-	if hit := e.honeytokenHit(ctx, in.Content); hit != nil {
-		labels = labels.Add(LabelHoneytoken)
-	}
 	labels = labels.Normalize()
 
 	summary := in.Summary
@@ -618,7 +617,6 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 		lineage[i].OriginSummary = e.originSummary(state, lineage[i].OriginEventID)
 	}
 	class := Classify(a.Text)
-	honeytoken := e.honeytokenHit(ctx, a.Text)
 
 	e.refLock.Lock()
 	policies := slices.Clone(e.policies)
@@ -629,7 +627,7 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 	now := e.now()
 	input := PolicyInput{
 		Subject: in.Subject, Action: a, Session: s, Settings: settings, Now: now,
-		ActionLabels: class.Labels, Lineage: lineage, Honeytoken: honeytoken != nil,
+		ActionLabels: class.Labels, Lineage: lineage,
 	}
 
 	// Kills are checked before policies so a killed session is denied even
@@ -643,7 +641,7 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 	}
 	input.Session.State.Killed = state.Killed || killed
 
-	decision := e.evaluate(ctx, policies, input, honeytoken, in.Budget, start)
+	decision := e.evaluate(ctx, policies, input, in.Budget, start)
 	decision.Labels = state.Labels
 	decision.Risk = state.Risk
 	decision.Lineage = lineage
@@ -716,9 +714,6 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 	snapshot := *s
 	e.lock.Unlock()
 
-	if honeytoken != nil {
-		e.tripHoneytoken(ctx, honeytoken)
-	}
 	if err := e.persist(ctx, &snapshot, ev); err != nil {
 		return nil, Decision{}, err
 	}
@@ -737,7 +732,7 @@ func (e *Engine) originSummary(state SessionState, eventID string) string {
 }
 
 // evaluate runs the policies and resolves the strongest enforced effect.
-func (e *Engine) evaluate(ctx context.Context, policies []Policy, in PolicyInput, honeytoken *Honeytoken, budget time.Duration, start time.Time) Decision {
+func (e *Engine) evaluate(ctx context.Context, policies []Policy, in PolicyInput, budget time.Duration, start time.Time) Decision {
 	var matched []PolicyMatch
 	var enforced, shadowed []*Policy
 	for i := range policies {
@@ -777,7 +772,7 @@ func (e *Engine) evaluate(ctx context.Context, policies []Policy, in PolicyInput
 		matched = append(matched, PolicyMatch{PolicyID: p.ID, PolicyName: p.Name, Effect: p.Effect, Shadow: true})
 	}
 
-	d := Decision{Allow: true, Effect: EffectAllow, Matched: matched, Honeytoken: honeytoken != nil}
+	d := Decision{Allow: true, Effect: EffectAllow, Matched: matched}
 	var winner *Policy
 	shadow := false
 	switch {
@@ -800,7 +795,7 @@ func (e *Engine) evaluate(ctx context.Context, policies []Policy, in PolicyInput
 	d.Effect = effect
 	d.PolicyID, d.PolicyName = winner.ID, winner.Name
 	d.Shadow = shadow
-	d.Reason = e.explain(winner, in, honeytoken, rationale)
+	d.Reason = e.explain(winner, in, rationale)
 	if shadow {
 		d.Allow = true
 		d.Reason = "would " + string(effect) + " (shadow): " + d.Reason
@@ -869,7 +864,7 @@ func (e *Engine) judge(ctx context.Context, p *Policy, in PolicyInput, budget ti
 }
 
 // explain builds the human-readable reason for a decision.
-func (e *Engine) explain(p *Policy, in PolicyInput, honeytoken *Honeytoken, rationale string) string {
+func (e *Engine) explain(p *Policy, in PolicyInput, rationale string) string {
 	var b strings.Builder
 	b.WriteString(p.Name)
 	if p.Description != "" {
@@ -897,9 +892,6 @@ func (e *Engine) explain(p *Policy, in PolicyInput, honeytoken *Honeytoken, rati
 		}
 		b.WriteString(strings.Join(parts, "; "))
 		b.WriteString(".")
-	}
-	if honeytoken != nil {
-		fmt.Fprintf(&b, " Honeytoken %q (%s) is in the outbound content.", honeytoken.Name, honeytoken.Kind)
 	}
 	if rationale != "" {
 		b.WriteString(" ")
@@ -1255,74 +1247,6 @@ func (e *Engine) Unkill(ctx context.Context, id string) error {
 	}
 	e.lock.Unlock()
 	return nil
-}
-
-// honeytokenHit reports which planted honeytoken, if any, appears in text.
-func (e *Engine) honeytokenHit(ctx context.Context, text string) *Honeytoken {
-	if text == "" {
-		return nil
-	}
-	if err := e.loadRefs(ctx); err != nil {
-		return nil
-	}
-	e.refLock.Lock()
-	tokens := e.honeytokens
-	e.refLock.Unlock()
-	if len(tokens) == 0 {
-		return nil
-	}
-	byHash := make(map[uint64]*Honeytoken, len(tokens))
-	for i := range tokens {
-		byHash[tokens[i].Hash] = &tokens[i]
-	}
-	class := Classify(text)
-	for _, ids := range class.Identifiers {
-		for _, id := range ids {
-			if t, ok := byHash[hashExact(id)]; ok {
-				return t
-			}
-		}
-	}
-	for _, tok := range strings.FieldsFunc(text, func(r rune) bool {
-		return r == ' ' || r == '\n' || r == '\t' || r == '"' || r == '\'' || r == ',' || r == ';' || r == '=' || r == ':' || r == '&'
-	}) {
-		if len(tok) < 8 {
-			continue
-		}
-		if t, ok := byHash[hashExact(tok)]; ok {
-			return t
-		}
-	}
-	return nil
-}
-
-func (e *Engine) tripHoneytoken(ctx context.Context, t *Honeytoken) {
-	now := e.now()
-	current, err := e.store.ListHoneytokens(ctx)
-	if err != nil {
-		return
-	}
-	for i := range current {
-		if current[i].ID == t.ID {
-			current[i].Tripped++
-			current[i].LastTrip = &now
-			if err := e.store.PutHoneytoken(ctx, &current[i]); err != nil {
-				e.logger.Warn("provenance: recording honeytoken trip", "error", err)
-			}
-			e.Invalidate()
-			return
-		}
-	}
-}
-
-// NewHoneytoken creates a honeytoken record for a value. The value is hashed;
-// the caller plants it.
-func NewHoneytoken(kind, name, value, createdBy string, now time.Time) Honeytoken {
-	hint := value
-	if len(hint) > 6 {
-		hint = hint[:6] + "..."
-	}
-	return Honeytoken{ID: NewID("hny"), Kind: kind, Name: name, Hash: hashExact(value), Hint: hint, CreatedAt: now, CreatedBy: createdBy}
 }
 
 // persist writes the session state and appends an event.

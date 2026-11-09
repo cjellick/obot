@@ -49,12 +49,11 @@ const (
 	insightSeverityWarning  = "warning"
 	insightSeverityInfo     = "info"
 
-	insightShadowPolicy      = "shadow-policy"
-	insightOpenRiskySession  = "open-risky-session"
-	insightHoneytokenTripped = "honeytoken-tripped"
-	insightApprovalsAging    = "approvals-aging"
-	insightCoverageGap       = "coverage-gap"
-	insightUnlabeledTools    = "unlabeled-tools"
+	insightShadowPolicy     = "shadow-policy"
+	insightOpenRiskySession = "open-risky-session"
+	insightApprovalsAging   = "approvals-aging"
+	insightCoverageGap      = "coverage-gap"
+	insightUnlabeledTools   = "unlabeled-tools"
 
 	supervisorNotConfigured = "the Supervisor is not configured"
 )
@@ -179,7 +178,6 @@ type supervisorSnapshot struct {
 	pending     []provenance.Approval
 	approvals   []provenance.Approval // created in the window
 	policies    []provenance.Policy
-	honeytokens []provenance.Honeytoken
 	toolLabels  []provenance.ToolLabel
 	kills       []provenance.Kill
 	lastDecided *time.Time
@@ -357,9 +355,6 @@ func (h *ProvenanceHandler) supervisorSnapshot(ctx context.Context) (*supervisor
 	if snap.policies, err = store.ListPolicies(ctx); err != nil {
 		return nil, err
 	}
-	if snap.honeytokens, err = store.ListHoneytokens(ctx); err != nil {
-		return nil, err
-	}
 	if snap.toolLabels, err = store.ListToolLabels(ctx); err != nil {
 		return nil, err
 	}
@@ -477,7 +472,6 @@ func supervisorModelNames(ctx context.Context, snap *supervisorSnapshot) (text, 
 
 func supervisorInsightItems(snap *supervisorSnapshot) []SupervisorInsight {
 	var items []SupervisorInsight
-	items = append(items, honeytokenInsights(snap)...)
 	items = append(items, riskySessionInsights(snap)...)
 	items = append(items, agingApprovalInsights(snap)...)
 	items = append(items, shadowPolicyInsights(snap)...)
@@ -565,7 +559,7 @@ func riskySessionInsights(snap *supervisorSnapshot) []SupervisorInsight {
 	var out []SupervisorInsight
 	for _, s := range risky[:min(len(risky), supervisorItemsPerKind)] {
 		severity := insightSeverityWarning
-		if s.State.Risk >= supervisorCriticalRisk || s.State.Labels.Has(provenance.LabelHoneytoken) {
+		if s.State.Risk >= supervisorCriticalRisk {
 			severity = insightSeverityCritical
 		}
 		who := sessionOwner(s)
@@ -592,51 +586,6 @@ func riskySessionInsights(snap *supervisorSnapshot) []SupervisorInsight {
 			SessionID: s.ID,
 			Action:    killSessionAction(s.ID, "stopped from the Supervisor's insight: "+title),
 		})
-	}
-	return out
-}
-
-func honeytokenInsights(snap *supervisorSnapshot) []SupervisorInsight {
-	var tripped []provenance.Honeytoken
-	for _, t := range snap.honeytokens {
-		if t.LastTrip != nil && !t.LastTrip.Before(snap.since) {
-			tripped = append(tripped, t)
-		}
-	}
-	// The session that tripped a token is only known for certain when one
-	// token tripped.
-	var session *provenance.Session
-	if len(tripped) == 1 {
-		for _, ev := range snap.events {
-			if ev.Decision.Honeytoken {
-				for i := range snap.sessions {
-					if snap.sessions[i].ID == ev.SessionID {
-						session = &snap.sessions[i]
-						break
-					}
-				}
-				break
-			}
-		}
-	}
-	var out []SupervisorInsight
-	for _, t := range tripped {
-		item := SupervisorInsight{
-			ID:       insightHoneytokenTripped + ":" + t.ID,
-			Kind:     insightHoneytokenTripped,
-			Severity: insightSeverityCritical,
-			Title:    fmt.Sprintf("Honeytoken %q was tripped", t.Name),
-			Detail: fmt.Sprintf("A planted %s canary showed up in an outbound action %s, most recently at %s. That is definitive exfiltration evidence.",
-				t.Kind, plural(t.Tripped, "time", "times"), t.LastTrip.UTC().Format(time.RFC3339)),
-		}
-		if session != nil {
-			item.SessionID = session.ID
-			item.Detail += " I traced it to " + sessionOwner(*session) + "."
-			if snap.active(*session) {
-				item.Action = killSessionAction(session.ID, "stopped from the Supervisor's insight: "+item.Title)
-			}
-		}
-		out = append(out, item)
 	}
 	return out
 }

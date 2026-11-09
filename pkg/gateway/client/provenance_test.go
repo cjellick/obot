@@ -720,27 +720,6 @@ func TestProvenanceStoreRecords(t *testing.T) {
 		t.Fatalf("kill should be deleted, got %+v", kills)
 	}
 
-	// Honeytokens, including a hash above the signed 64-bit range.
-	h := provenance.NewHoneytoken("aws-key", "repo .env", "AKIAIOSFODNN7EXAMPLE", "admin", now)
-	h.Hash = ^uint64(0) - 7
-	if err := store.PutHoneytoken(ctx, &h); err != nil {
-		t.Fatal(err)
-	}
-	h.Tripped = 2
-	if err := store.PutHoneytoken(ctx, &h); err != nil {
-		t.Fatal(err)
-	}
-	tokens, err := store.ListHoneytokens(ctx)
-	if err != nil || len(tokens) != 1 || tokens[0].Hash != h.Hash || tokens[0].Tripped != 2 || tokens[0].Hint != "AKIAIO..." {
-		t.Fatalf("honeytoken round trip: %+v (%v)", tokens, err)
-	}
-	if err := store.DeleteHoneytoken(ctx, h.ID); err != nil {
-		t.Fatal(err)
-	}
-	if tokens, _ := store.ListHoneytokens(ctx); len(tokens) != 0 {
-		t.Fatalf("honeytoken should be deleted, got %+v", tokens)
-	}
-
 	// Tool labels upsert on server+tool.
 	for _, l := range []provenance.ToolLabel{
 		{Server: "github", Tool: "search_issues", Labels: provenance.NewLabels(provenance.CapReadsUntrusted), Source: "heuristic", UpdatedAt: now},

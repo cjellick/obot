@@ -113,25 +113,6 @@ type Kill struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
-// Honeytoken is a planted canary. Its value is stored hashed; Obot recognizes
-// it when it appears in an outbound action.
-type Honeytoken struct {
-	ID string `json:"id"`
-	// Kind is aws-key, api-key, email, record or custom.
-	Kind string `json:"kind"`
-	// Name says where it was planted ("CRM demo account", "repo .env").
-	Name string `json:"name"`
-	// Hash is hashExact of the value.
-	Hash uint64 `json:"hash"`
-	// Hint is the first few characters, for recognizing the token in lists.
-	Hint      string    `json:"hint,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	// Tripped counts how many times it was seen leaving.
-	Tripped   int        `json:"tripped"`
-	LastTrip  *time.Time `json:"lastTrip,omitempty"`
-	CreatedBy string     `json:"createdBy,omitempty"`
-}
-
 // ToolLabel is the capability labelling of one tool on one server.
 type ToolLabel struct {
 	// Server is the MCP server display name or catalog entry; Tool is the tool
@@ -184,10 +165,6 @@ type Store interface {
 	ListKills(ctx context.Context) ([]Kill, error)
 	PutKill(ctx context.Context, k *Kill) error
 	DeleteKill(ctx context.Context, id string) error
-
-	ListHoneytokens(ctx context.Context) ([]Honeytoken, error)
-	PutHoneytoken(ctx context.Context, h *Honeytoken) error
-	DeleteHoneytoken(ctx context.Context, id string) error
 
 	ListToolLabels(ctx context.Context) ([]ToolLabel, error)
 	PutToolLabel(ctx context.Context, l *ToolLabel) error

@@ -16,28 +16,26 @@ var (
 // MemStore is an in-memory Store. It backs tests and lets a surface adapter
 // run without a database.
 type MemStore struct {
-	lock        sync.Mutex
-	sessions    map[string]*Session
-	links       map[string]string
-	events      []Event
-	policies    map[string]*Policy
-	approvals   map[string]*Approval
-	kills       map[string]*Kill
-	honeytokens map[string]*Honeytoken
-	toolLabels  map[string]*ToolLabel
-	settings    *Settings
+	lock       sync.Mutex
+	sessions   map[string]*Session
+	links      map[string]string
+	events     []Event
+	policies   map[string]*Policy
+	approvals  map[string]*Approval
+	kills      map[string]*Kill
+	toolLabels map[string]*ToolLabel
+	settings   *Settings
 }
 
 // NewMemStore creates an empty store.
 func NewMemStore() *MemStore {
 	return &MemStore{
-		sessions:    map[string]*Session{},
-		links:       map[string]string{},
-		policies:    map[string]*Policy{},
-		approvals:   map[string]*Approval{},
-		kills:       map[string]*Kill{},
-		honeytokens: map[string]*Honeytoken{},
-		toolLabels:  map[string]*ToolLabel{},
+		sessions:   map[string]*Session{},
+		links:      map[string]string{},
+		policies:   map[string]*Policy{},
+		approvals:  map[string]*Approval{},
+		kills:      map[string]*Kill{},
+		toolLabels: map[string]*ToolLabel{},
 	}
 }
 
@@ -319,31 +317,6 @@ func (m *MemStore) DeleteKill(_ context.Context, id string) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	delete(m.kills, id)
-	return nil
-}
-
-func (m *MemStore) ListHoneytokens(context.Context) ([]Honeytoken, error) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	out := make([]Honeytoken, 0, len(m.honeytokens))
-	for _, h := range m.honeytokens {
-		out = append(out, *h)
-	}
-	return out, nil
-}
-
-func (m *MemStore) PutHoneytoken(_ context.Context, h *Honeytoken) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	c := *h
-	m.honeytokens[h.ID] = &c
-	return nil
-}
-
-func (m *MemStore) DeleteHoneytoken(_ context.Context, id string) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	delete(m.honeytokens, id)
 	return nil
 }
 

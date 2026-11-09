@@ -210,7 +210,6 @@ func (db *DB) AutoMigrate() (err error) {
 		types.ProvenancePolicy{},
 		types.ProvenanceApproval{},
 		types.ProvenanceKill{},
-		types.ProvenanceHoneytoken{},
 		types.ProvenanceToolLabel{},
 		types.ProvenanceSettings{},
 	); err != nil {

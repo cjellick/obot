@@ -14,7 +14,6 @@
 	import Table from '$lib/components/table/Table.svelte';
 	import { parseErrorContent } from '$lib/errors';
 	import { m } from '$lib/i18n';
-	import Loading from '$lib/icons/Loading.svelte';
 	import {
 		getOverview,
 		getSupervisorInsights,

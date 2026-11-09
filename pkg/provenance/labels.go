@@ -44,8 +44,6 @@ const (
 	// by someone outside the organization. Once it is in the context the
 	// model's instructions can no longer be assumed to be the user's.
 	LabelUntrusted Label = "untrusted"
-	// LabelHoneytoken: the content contained a planted canary.
-	LabelHoneytoken Label = "honeytoken"
 )
 
 var (
@@ -58,7 +56,7 @@ var (
 	// ContentLabels lists every sensitivity and trust label.
 	ContentLabels = Labels{
 		LabelPII, LabelSecret, LabelCustomerData, LabelSourceCode, LabelFinancial,
-		LabelHealth, LabelConfidential, LabelUntrusted, LabelHoneytoken,
+		LabelHealth, LabelConfidential, LabelUntrusted,
 	}
 
 	// ConfidentialLabels are the sensitivity labels that imply confidential.

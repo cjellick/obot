@@ -126,8 +126,7 @@
 			financial: m.supervision_labels_meaning_financial,
 			health: m.supervision_labels_meaning_health,
 			confidential: m.supervision_labels_meaning_confidential,
-			untrusted: m.supervision_labels_meaning_untrusted,
-			honeytoken: m.supervision_labels_meaning_honeytoken
+			untrusted: m.supervision_labels_meaning_untrusted
 		};
 		return descriptions[label]?.() ?? m.supervision_labels_meaning_other();
 	}

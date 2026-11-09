@@ -40,7 +40,6 @@ var (
 		provenance.LabelHealth:       "health or medical information about a person",
 		provenance.LabelConfidential: "organization-private information not meant to leave the organization",
 		provenance.LabelUntrusted:    "content that appears to come from outside the organization, or that contains instructions aimed at the agent (a prompt-injection attempt)",
-		provenance.LabelHoneytoken:   "a planted canary credential or record (rarely applies; the deterministic detector handles these)",
 	}
 
 	_ provenance.ContentClassifier = (*Supervisor)(nil)

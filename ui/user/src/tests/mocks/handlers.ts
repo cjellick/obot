@@ -155,7 +155,6 @@ export const handlers = [
 	http.get('/api/provenance/kills', () => HttpResponse.json({ items: [] })),
 	http.post('/api/provenance/kills', () => new HttpResponse(null, { status: 400 })),
 	http.delete('/api/provenance/kills/:id', () => new HttpResponse(null, { status: 204 })),
-	http.get('/api/provenance/honeytokens', () => HttpResponse.json({ items: [] })),
 	http.get('/api/provenance/tool-labels', () => HttpResponse.json({ items: [] })),
 	http.get('/api/provenance/settings', () => HttpResponse.json({ supervisorEnabled: false })),
 	http.get('/api/provenance/supervisor/status', () =>

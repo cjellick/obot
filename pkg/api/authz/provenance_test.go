@@ -195,11 +195,6 @@ func TestProvenanceRouteAuthorization(t *testing.T) {
 			path:   "/api/provenance/kills/kil-1",
 		},
 		{
-			name:   "plant honeytoken",
-			method: http.MethodPost,
-			path:   "/api/provenance/honeytokens",
-		},
-		{
 			name:   "label tool",
 			method: http.MethodPut,
 			path:   "/api/provenance/tool-labels",

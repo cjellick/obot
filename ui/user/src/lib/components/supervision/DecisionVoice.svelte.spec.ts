@@ -68,11 +68,6 @@ describe('DecisionVoice', () => {
 			text: 'I stopped tools/call github.search_issues. The kill switch is on.'
 		},
 		{
-			name: 'a honeytoken',
-			decision: { allow: false, effect: 'deny' as const, honeytoken: true },
-			text: 'I blocked tools/call github.search_issues. A honeytoken was in the outbound data.'
-		},
-		{
 			name: 'a shadow match',
 			decision: { effect: 'deny' as const, shadow: true, policyName: 'No pastes' },
 			text: 'I let tools/call github.search_issues through. If No pastes were enforced, the outcome would be: deny.'

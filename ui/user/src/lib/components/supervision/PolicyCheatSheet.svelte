@@ -46,7 +46,6 @@
 				'lineage.exact',
 				'lineage.count',
 				'lineage.labels',
-				'honeytoken',
 				'trifecta',
 				'text'
 			]
@@ -80,7 +79,6 @@
 	];
 
 	const examples = [
-		'action.honeytoken',
 		'action.trifecta',
 		'"secret" in action.lineage.labels && action.sink.external',
 		'"untrusted" in session.labels && ("destructive" in action.capabilities || action.sink.exec)',

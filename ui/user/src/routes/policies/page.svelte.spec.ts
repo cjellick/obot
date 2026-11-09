@@ -29,13 +29,13 @@ describe('Policies list', () => {
 		await renderPage();
 
 		await expect
-			.element(page.getByRole('link', { name: 'Honeytoken exfiltration' }))
-			.toHaveAttribute('href', '/policies/builtin-honeytoken');
+			.element(page.getByRole('link', { name: 'Killed session' }))
+			.toHaveAttribute('href', '/policies/builtin-killed');
 		await expect.element(page.getByText('Built-in').first()).toBeInTheDocument();
 		await expect.element(page.getByText('Require approval')).toBeInTheDocument();
 		await expect.element(page.getByText('egress', { exact: true })).toBeInTheDocument();
 		await expect
-			.element(page.getByRole('switch', { name: 'Enforce Honeytoken exfiltration' }))
+			.element(page.getByRole('switch', { name: 'Enforce Killed session' }))
 			.toBeChecked();
 		await expect
 			.element(page.getByRole('switch', { name: 'Enforce Lethal trifecta' }))
@@ -127,7 +127,7 @@ describe('Policies list', () => {
 				.element(suggests.getByText('Lethal trifecta would have held 3 actions', { exact: false }))
 				.toBeInTheDocument();
 			await expect
-				.element(suggests.getByText('A honeytoken left a session', { exact: false }))
+				.element(suggests.getByText('ada@example.com is open at risk 92', { exact: false }))
 				.not.toBeInTheDocument();
 			await suggests.getByRole('button', { name: 'Enforce policy' }).click();
 			await vi.waitFor(() =>
@@ -145,9 +145,7 @@ describe('Policies list', () => {
 			);
 			await renderPage();
 
-			await expect
-				.element(page.getByRole('link', { name: 'Honeytoken exfiltration' }))
-				.toBeInTheDocument();
+			await expect.element(page.getByRole('link', { name: 'Killed session' })).toBeInTheDocument();
 			await expect
 				.element(page.getByRole('region', { name: 'Supervisor suggests' }))
 				.not.toBeInTheDocument();

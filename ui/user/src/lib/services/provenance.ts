@@ -73,8 +73,7 @@ export const CONTENT_LABELS = [
 	'financial',
 	'health',
 	'confidential',
-	'untrusted',
-	'honeytoken'
+	'untrusted'
 ];
 
 export interface Actor {
@@ -146,7 +145,6 @@ export interface Decision {
 	labels?: string[];
 	risk: number;
 	killed?: boolean;
-	honeytoken?: boolean;
 	/** Set when the Supervisor decided the action itself (a judge effect it resolved). */
 	judged?: boolean;
 }
@@ -290,17 +288,6 @@ export interface Kill {
 	createdBy?: string;
 	createdAt: string;
 	expiresAt?: string;
-}
-
-export interface Honeytoken {
-	id: string;
-	kind: string;
-	name: string;
-	hint?: string;
-	createdAt: string;
-	tripped: number;
-	lastTrip?: string;
-	createdBy?: string;
 }
 
 export interface ToolLabel {
@@ -586,26 +573,7 @@ export async function deleteKill(id: string, opts?: Opts): Promise<void> {
 	await doDelete(`${B}/kills/${enc(id)}`, opts);
 }
 
-// Honeytokens, tool labels and settings
-
-export async function listHoneytokens(opts?: Opts): Promise<Honeytoken[]> {
-	const resp = (await doGet(`${B}/honeytokens`, opts)) as { items: Honeytoken[] | null };
-	return resp.items ?? [];
-}
-
-export async function createHoneytoken(
-	body: { kind: string; name: string; value?: string },
-	opts?: Opts
-): Promise<{ honeytoken: Honeytoken; value: string }> {
-	return (await doPost(`${B}/honeytokens`, body, opts)) as {
-		honeytoken: Honeytoken;
-		value: string;
-	};
-}
-
-export async function deleteHoneytoken(id: string, opts?: Opts): Promise<void> {
-	await doDelete(`${B}/honeytokens/${enc(id)}`, opts);
-}
+// Tool labels and settings
 
 export async function listToolLabels(opts?: Opts): Promise<ToolLabel[]> {
 	const resp = (await doGet(`${B}/tool-labels`, opts)) as { items: ToolLabel[] | null };
@@ -687,7 +655,6 @@ export interface SupervisorStatus {
 export type InsightKind =
 	| 'shadow-policy'
 	| 'open-risky-session'
-	| 'honeytoken-tripped'
 	| 'approvals-aging'
 	| 'coverage-gap'
 	| 'unlabeled-tools';
@@ -1014,7 +981,6 @@ export function supervisorLine(event: ProvenanceEvent): SupervisorLine | undefin
 	const line = (text: string, tone: VoiceTone) => ({ text, tone, judgement });
 
 	if (d.killed) return line(m.supervision_voice_killed({ action }), 'blocked');
-	if (d.honeytoken && !d.allow) return line(m.supervision_voice_honeytoken({ action }), 'blocked');
 	if (judgement.judged && !d.shadow) {
 		if (d.effect === 'require_approval' || d.approvalID) {
 			return line(m.supervision_voice_judged_hold({ action }), 'judged');

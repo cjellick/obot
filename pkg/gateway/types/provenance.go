@@ -104,17 +104,6 @@ type ProvenanceKill struct {
 	Payload   provenance.Kill `json:"payload" gorm:"serializer:json"`
 }
 
-// ProvenanceHoneytoken is a planted canary. The value's hash lives in the
-// payload: it is an unsigned 64-bit value, which a signed bigint column would
-// not hold.
-type ProvenanceHoneytoken struct {
-	ID        string                `json:"id" gorm:"primaryKey"`
-	Kind      string                `json:"kind" gorm:"index"`
-	Name      string                `json:"name"`
-	CreatedAt time.Time             `json:"createdAt"`
-	Payload   provenance.Honeytoken `json:"payload" gorm:"serializer:json"`
-}
-
 // ProvenanceToolLabel is the capability labelling of one tool on one server.
 type ProvenanceToolLabel struct {
 	ID        uint                          `json:"id" gorm:"primaryKey;autoIncrement"`

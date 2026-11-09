@@ -18,7 +18,7 @@
 	import DecisionVoice from './DecisionVoice.svelte';
 	import LabelBadges from './LabelBadges.svelte';
 	import SurfaceBadge from './SurfaceBadge.svelte';
-	import { ChevronDown, ChevronUp, Flag } from '@lucide/svelte';
+	import { ChevronDown, ChevronUp } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { twMerge } from 'tailwind-merge';
@@ -169,12 +169,6 @@
 							{event.summary || ''}
 						</span>
 						<LabelBadges labels={event.labels} max={4} />
-						{#if event.decision?.honeytoken}
-							<span class="badge badge-sm badge-error gap-1">
-								<Flag class="size-3" />
-								{m.supervision_session_event_honeytoken()}
-							</span>
-						{/if}
 						<DecisionPill
 							decision={event.decision}
 							approvalStatus={event.decision?.approvalID

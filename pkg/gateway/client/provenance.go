@@ -526,41 +526,6 @@ func (s *provenanceStore) DeleteKill(ctx context.Context, id string) error {
 	return s.db(ctx).Where("id = ?", id).Delete(&types.ProvenanceKill{}).Error
 }
 
-// ---- honeytokens ----
-
-func (s *provenanceStore) ListHoneytokens(ctx context.Context) ([]provenance.Honeytoken, error) {
-	var rows []types.ProvenanceHoneytoken
-	if err := s.db(ctx).Order("created_at DESC").Order("id DESC").Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	out := make([]provenance.Honeytoken, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.Payload)
-	}
-	return out, nil
-}
-
-func (s *provenanceStore) PutHoneytoken(ctx context.Context, h *provenance.Honeytoken) error {
-	if h.ID == "" {
-		h.ID = provenance.NewID("hny")
-	}
-	row := types.ProvenanceHoneytoken{
-		ID:        h.ID,
-		Kind:      h.Kind,
-		Name:      h.Name,
-		CreatedAt: h.CreatedAt,
-		Payload:   *h,
-	}
-	return s.db(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "id"}},
-		UpdateAll: true,
-	}).Create(&row).Error
-}
-
-func (s *provenanceStore) DeleteHoneytoken(ctx context.Context, id string) error {
-	return s.db(ctx).Where("id = ?", id).Delete(&types.ProvenanceHoneytoken{}).Error
-}
-
 // ---- tool labels ----
 
 func (s *provenanceStore) ListToolLabels(ctx context.Context) ([]provenance.ToolLabel, error) {

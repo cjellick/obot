@@ -12,7 +12,6 @@ const (
 	ReasonCodeDenied           = 100
 	ReasonCodeApprovalRequired = 101
 	ReasonCodeKilled           = 102
-	ReasonCodeHoneytoken       = 103
 
 	// Error codes returned with an ErrorResponse.
 	ErrorCodeInvalidRequest = 4000
@@ -65,7 +64,6 @@ type ActionDecision struct {
 	EventID    string            `json:"eventId,omitempty"`
 	Risk       int               `json:"risk,omitempty"`
 	Killed     bool              `json:"killed,omitempty"`
-	Honeytoken bool              `json:"honeytoken,omitempty"`
 }
 
 // Result is everything Obot decided for one call. It is the response's
@@ -95,7 +93,6 @@ func DecisionFor(action provenance.Action, ev *provenance.Event, d provenance.De
 		ApprovalID: d.ApprovalID,
 		Risk:       d.Risk,
 		Killed:     d.Killed,
-		Honeytoken: d.Honeytoken,
 	}
 	if ev != nil {
 		out.EventID = ev.ID
@@ -134,8 +131,6 @@ func (r Result) Response() Response {
 	switch {
 	case blocked.Killed:
 		resp.ReasonCode = ReasonCodeKilled
-	case blocked.Honeytoken:
-		resp.ReasonCode = ReasonCodeHoneytoken
 	case blocked.Effect == provenance.EffectRequireApproval:
 		resp.ReasonCode = ReasonCodeApprovalRequired
 	default:

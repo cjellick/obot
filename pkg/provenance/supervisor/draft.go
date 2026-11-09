@@ -28,7 +28,7 @@ var (
 		{"action", "surface, kind, tool, server, server_id, model, provider, host, method, path, command, file, " +
 			"capabilities (list of capability labels), sink{external, destination, writes, exec}, source{private, untrusted}, " +
 			"labels (sensitivity labels found in the action's content), lineage{hit, exact, count, labels}, " +
-			"honeytoken (a planted canary is in the content), trifecta (session holds untrusted and confidential content and the sink is external), text"},
+			"trifecta (session holds untrusted and confidential content and the sink is external), text"},
 		{"session", "id, labels (every label that entered the session), risk (0-100), events, tool_calls, denied, duration_seconds, " +
 			"surfaces (list), trifecta, warrant{present, task, scopes, drifted, covers}, killed"},
 		{"org", "approved_destinations (list of host patterns), trusted_hosts (list)"},
@@ -150,8 +150,7 @@ type draftTestInput struct {
 			Exact  bool     `json:"exact"`
 			Count  int      `json:"count"`
 		} `json:"lineage"`
-		Honeytoken bool   `json:"honeytoken"`
-		Text       string `json:"text"`
+		Text string `json:"text"`
 	} `json:"action"`
 	Session struct {
 		Labels    []string `json:"labels"`
@@ -432,7 +431,6 @@ func (in draftTestInput) policyInput(now time.Time) provenance.PolicyInput {
 		Now:          now,
 		ActionLabels: toLabels(in.Action.Labels).Normalize(),
 		Lineage:      lineage,
-		Honeytoken:   in.Action.Honeytoken,
 	}
 }
 

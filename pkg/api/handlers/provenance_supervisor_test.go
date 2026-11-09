@@ -171,17 +171,6 @@ func TestSupervisorInsights(t *testing.T) {
 		Action: provenance.Action{Surface: provenance.SurfaceMCP, Kind: provenance.KindToolCall, Server: "github", Tool: "search_issues"}}); err != nil {
 		t.Fatal(err)
 	}
-	// A planted honeytoken leaves the session.
-	token := provenance.NewHoneytoken("api-key", "repo .env", "sk-obot-canary-0123456789", "admin", time.Now().UTC())
-	if err := e.Store().PutHoneytoken(t.Context(), &token); err != nil {
-		t.Fatal(err)
-	}
-	e.Invalidate()
-	if _, d, err := e.Decide(t.Context(), provenance.DecideRequest{Subject: provAPISubject, Session: provAPIKey,
-		Action: provenance.Action{Surface: provenance.SurfaceMCP, Kind: provenance.KindToolCall, Server: "http", Tool: "post",
-			Arguments: map[string]any{"body": "key=sk-obot-canary-0123456789"}, Sink: provenance.Sink{External: true, Writes: true}}}); err != nil || !d.Honeytoken {
-		t.Fatalf("honeytoken decision: %+v (%v)", d, err)
-	}
 	// An approval that has waited 15 minutes, with a triage.
 	now := time.Now().UTC()
 	if err := e.Store().CreateApproval(t.Context(), &provenance.Approval{
@@ -199,21 +188,18 @@ func TestSupervisorInsights(t *testing.T) {
 	if out.Briefing != "I watched one session and held nothing." || out.BriefingModel != "fake-text" || fake.briefs != 1 {
 		t.Fatalf("briefing: %q %q (%d calls)", out.Briefing, out.BriefingModel, fake.briefs)
 	}
-	if !strings.Contains(fake.lastFacts, "Findings") || !strings.Contains(fake.lastFacts, "Honeytoken") {
+	if !strings.Contains(fake.lastFacts, "Findings") || !strings.Contains(fake.lastFacts, "Hold pushes") {
 		t.Fatalf("facts should list the findings: %s", fake.lastFacts)
 	}
-	for _, content := range []string{"pricing is confidential", "Ada Lovelace", "sk-obot-canary"} {
+	for _, content := range []string{"pricing is confidential", "Ada Lovelace"} {
 		if strings.Contains(rec.Body.String(), content) || strings.Contains(fake.lastFacts, content) {
 			t.Fatalf("insights must be content-free, found %q", content)
 		}
 	}
-	if out.Items[0].Severity != insightSeverityCritical {
-		t.Fatalf("critical findings come first: %+v", out.Items[0])
-	}
-
-	honey := provAPIInsight(t, out.Items, insightHoneytokenTripped)
-	if honey.Severity != insightSeverityCritical || honey.SessionID != s.ID || honey.Action == nil || honey.Action.Path != "/api/provenance/kills" {
-		t.Fatalf("honeytoken insight: %+v", honey)
+	for i := 1; i < len(out.Items); i++ {
+		if severityRank(out.Items[i-1].Severity) > severityRank(out.Items[i].Severity) {
+			t.Fatalf("findings are ordered most severe first: %+v", out.Items)
+		}
 	}
 
 	shadow := provAPIInsight(t, out.Items, insightShadowPolicy)

@@ -20,7 +20,6 @@
 
 	function badgeClass(label: string) {
 		switch (label) {
-			case 'honeytoken':
 			case 'secret':
 				return 'badge-error';
 			case 'untrusted':

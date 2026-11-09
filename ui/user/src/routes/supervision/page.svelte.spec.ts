@@ -381,7 +381,7 @@ describe('Supervision overview', () => {
 			const noticed = page.getByRole('region', { name: 'What I noticed' });
 			await expect
 				.element(noticed.getByRole('listitem').first())
-				.toHaveAccessibleName('A honeytoken left a session');
+				.toHaveAccessibleName('ada@example.com is open at risk 92');
 			await expect
 				.element(noticed.getByText('2 sessions were seen on only one surface', { exact: false }))
 				.toBeInTheDocument();
@@ -496,7 +496,7 @@ describe('Supervision overview', () => {
 				expect(killed).toHaveBeenCalledWith({
 					scope: 'session',
 					target: 'ses-risky',
-					reason: 'Honeytoken tripped'
+					reason: 'Stopped from the Supervisor'
 				})
 			);
 		});

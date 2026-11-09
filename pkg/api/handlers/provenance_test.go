@@ -660,112 +660,6 @@ func TestProvenanceKills(t *testing.T) {
 	}
 }
 
-func TestProvenanceHoneytokens(t *testing.T) {
-	h, e := newProvAPITest(t)
-
-	if code := provAPIStatus(t, h.CreateHoneytoken, http.MethodPost, "/api/provenance/honeytokens", honeytokenRequest{Kind: "coin", Name: "x"}, nil); code != http.StatusBadRequest {
-		t.Fatalf("an unknown kind should be a 400, got %d", code)
-	}
-	if code := provAPIStatus(t, h.CreateHoneytoken, http.MethodPost, "/api/provenance/honeytokens", honeytokenRequest{Kind: "aws-key"}, nil); code != http.StatusBadRequest {
-		t.Fatalf("a missing name should be a 400, got %d", code)
-	}
-	for _, kind := range []string{"record", "custom"} {
-		if code := provAPIStatus(t, h.CreateHoneytoken, http.MethodPost, "/api/provenance/honeytokens", honeytokenRequest{Kind: kind, Name: "x"}, nil); code != http.StatusBadRequest {
-			t.Fatalf("a %s token without a value should be a 400, got %d", kind, code)
-		}
-	}
-	if code := provAPIStatus(t, h.CreateHoneytoken, http.MethodPost, "/api/provenance/honeytokens", honeytokenRequest{Kind: "custom", Name: "x", Value: "short"}, nil); code != http.StatusBadRequest {
-		t.Fatalf("a short value should be a 400, got %d", code)
-	}
-
-	tests := []struct {
-		kind   string
-		value  string
-		prefix string
-		length int
-		suffix string
-	}{
-		{
-			kind:   "aws-key",
-			prefix: "AKIA",
-			length: 20,
-		},
-		{
-			kind:   "api-key",
-			prefix: "sk-obot-",
-			length: 40,
-		},
-		{
-			kind:   "email",
-			prefix: "canary-",
-			length: len("canary-") + 8 + len("@"+honeytokenEmailDomain),
-			suffix: "@" + honeytokenEmailDomain,
-		},
-		{
-			kind:   "record",
-			value:  "ACME-CANARY-ACCOUNT-0042",
-			prefix: "ACME-CANARY-ACCOUNT-0042",
-			length: 24,
-		},
-		{
-			kind:   "custom",
-			value:  "  xyzzy-plugh-42  ",
-			prefix: "xyzzy-plugh-42",
-			length: 14,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.kind, func(t *testing.T) {
-			var out honeytokenResponse
-			rec := provAPIOK(t, h.CreateHoneytoken, http.MethodPost, "/api/provenance/honeytokens", honeytokenRequest{Kind: tt.kind, Name: "planted in " + tt.kind, Value: tt.value}, nil, &out)
-			if rec.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d", rec.Code)
-			}
-			if !strings.HasPrefix(out.Value, tt.prefix) || len(out.Value) != tt.length || !strings.HasSuffix(out.Value, tt.suffix) {
-				t.Fatalf("value %q does not match prefix %q length %d suffix %q", out.Value, tt.prefix, tt.length, tt.suffix)
-			}
-			if out.Honeytoken.ID == "" || out.Honeytoken.Kind != tt.kind || out.Honeytoken.Hash == 0 || out.Honeytoken.CreatedBy != "admin@example.com" || !strings.HasPrefix(out.Value, strings.TrimSuffix(out.Honeytoken.Hint, "...")) {
-				t.Fatalf("honeytoken: %+v", out.Honeytoken)
-			}
-			if strings.Contains(string(provAPIMarshal(t, out.Honeytoken)), out.Value) {
-				t.Fatal("the stored honeytoken must not carry its value")
-			}
-			if tt.kind == "aws-key" && strings.ToUpper(out.Value) != out.Value {
-				t.Fatalf("aws keys are upper case: %q", out.Value)
-			}
-
-			// The engine recognizes the planted value leaving the session.
-			_, d, err := e.Decide(t.Context(), provenance.DecideRequest{Subject: provAPISubject, Session: provAPIKey,
-				Action: provenance.Action{Surface: provenance.SurfaceMCP, Kind: provenance.KindToolCall, Server: "http", Tool: "post",
-					Arguments: map[string]any{"body": "payload=" + out.Value}, Sink: provenance.Sink{External: true, Writes: true}}})
-			if err != nil || d.Allow || !d.Honeytoken {
-				t.Fatalf("exfiltrating the %s honeytoken must be denied, got %+v (%v)", tt.kind, d, err)
-			}
-		})
-	}
-
-	var list struct {
-		Items []provenance.Honeytoken `json:"items"`
-	}
-	provAPIOK(t, h.ListHoneytokens, http.MethodGet, "/api/provenance/honeytokens", nil, nil, &list)
-	if len(list.Items) != len(tests) {
-		t.Fatalf("expected %d honeytokens, got %d", len(tests), len(list.Items))
-	}
-	for _, token := range list.Items {
-		if token.Tripped != 1 {
-			t.Fatalf("each token should have tripped once: %+v", token)
-		}
-	}
-	rec := provAPIOK(t, h.DeleteHoneytoken, http.MethodDelete, "/api/provenance/honeytokens/"+list.Items[0].ID, nil, map[string]string{"id": list.Items[0].ID}, nil)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete should be a 204, got %d", rec.Code)
-	}
-	provAPIOK(t, h.ListHoneytokens, http.MethodGet, "/api/provenance/honeytokens", nil, nil, &list)
-	if len(list.Items) != len(tests)-1 {
-		t.Fatalf("expected %d honeytokens after delete, got %d", len(tests)-1, len(list.Items))
-	}
-}
-
 func TestProvenanceToolLabels(t *testing.T) {
 	h, e := newProvAPITest(t)
 	heuristic := e.ToolCapabilities(t.Context(), "github", "search_issues", "Search issues")
@@ -885,7 +779,7 @@ func TestProvenanceOverview(t *testing.T) {
 	if len(out.Riskiest) != 1 || out.Riskiest[0].State.Risk == 0 || len(out.Riskiest[0].State.Fingerprints) != 0 {
 		t.Fatalf("riskiest: %+v", out.Riskiest)
 	}
-	if out.Policies.Enforce != 3 || out.Policies.Shadow != 4 {
+	if out.Policies.Enforce != 2 || out.Policies.Shadow != 4 {
 		t.Fatalf("policies: %+v", out.Policies)
 	}
 	if out.Supervisor.Configured || out.Supervisor.Enabled {
