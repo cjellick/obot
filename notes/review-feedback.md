@@ -5,16 +5,16 @@ Craig's review of the branch, and the decisions from it. Everything here lands o
 
 ## Removals
 
-- [ ] Red team: the `pkg/provenance/redteam` package, its API and Dashboard scorecard, the
+- [x] Red team: the `pkg/provenance/redteam` package, its API and Dashboard scorecard, the
       Supervisor's red-team filtering, and every mention in copy and notes.
-- [ ] Honeytokens: the API, storage and UI, the `honeytoken` label, the "Honeytoken exfiltration"
+- [x] Honeytokens: the API, storage and UI, the `honeytoken` label, the "Honeytoken exfiltration"
       policy, `action.honeytoken` and the engine check, the Supervisor insight, and the tagger's
       allowed labels.
-- [ ] Quarantine: the `quarantine` effect, the session flag and the LLM gateway rewrite.
-- [ ] Warrants: issuing, drift, `session.warrant.*`, the "Outside the declared task" policy and
+- [x] Quarantine: the `quarantine` effect, the session flag and the LLM gateway rewrite.
+- [x] Warrants: issuing, drift, `session.warrant.*`, the "Outside the declared task" policy and
       the session-page UI.
-- [ ] The scanner's IP-address rule (IP address means `confidential`).
-- [ ] Collapse the capabilities that map one to one onto labels. A tool declares
+- [x] The scanner's IP-address rule (IP address means `confidential`).
+- [x] Collapse the capabilities that map one to one onto labels. A tool declares
       `confidential`, `untrusted` or `secret` directly, replacing `reads-private`,
       `reads-untrusted` and `credential-bearing`. `exec`, `destructive` and `sends-external`
       stay capabilities.

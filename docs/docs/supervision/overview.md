@@ -38,9 +38,9 @@ Sessions store **no content**. Tool arguments and results are scanned when they 
 
 ## Labels and lineage
 
-**Tools** carry capability labels that say what they can do: `reads-private`, `reads-untrusted`, `writes-external`, `writes-internal`, `exec`, `destructive`, `credential-bearing`. Obot assigns them from the tool's name and description, the Supervisor refines them, and an administrator can override them on the Supervision settings page.
+**Tools** carry labels. Some say what the tool's results are, and pass to the session when it runs: `confidential` (organization-private data), `untrusted` (content an outsider could have written) and `secret` (credentials). The rest say what the tool can do: `writes-external`, `writes-internal`, `exec` and `destructive`. Obot assigns them from the tool's name and description, the Supervisor refines them, and an administrator can override them on the Labels page.
 
-**Content** entering a session carries sensitivity labels found by scanning (`pii`, `secret`, `financial`, `health`, `customer-data`, `source-code`, all of which imply `confidential`) and a trust label. Content from a tool that reads untrusted sources is `untrusted` unless its host is on your trusted-hosts list.
+**Content** entering a session carries sensitivity labels found by scanning (`pii`, `secret`, `financial`, `health`, `customer-data`, `source-code`, all of which imply `confidential`) and a trust label. Content from a tool labelled `untrusted` is `untrusted` unless its host is on your trusted-hosts list.
 
 A session's labels are the union of everything that entered it. They are never dropped while the session lasts, so a model that paraphrases what it read cannot launder it.
 
@@ -61,21 +61,13 @@ Beyond allow and deny, a policy can:
 - **Require approval.** The action is held and a request goes to the approvals inbox with the reason, the session's risk and labels, and the Supervisor's recommendation. Surfaces that can hold a request wait for the answer.
 - **Hand the decision to the Supervisor** (`judge`), which decides allow, require approval or deny with the whole session in view.
 - **Redact** the sensitive spans it found instead of blocking the whole action.
-- **Quarantine** the session so untrusted content is reduced to a constrained summary before it reaches the model again.
 - **Downshift** the session's credentials to read-only.
 
-Two interventions apply outside policies:
-
-- **The kill switch** stops an organization, a user, an agent or a session. Every surface denies its next action within seconds.
-- **Honeytokens** are canary credentials and records you plant where an agent might read them. If one ever appears in an outbound action, that is definitive exfiltration evidence with no false positives, and the built-in honeytoken policy denies it.
-
-## Warrants
-
-A session can carry a **warrant**: the task the user declared and the capability scopes that task needs, with a time limit. Actions outside the warrant are not blocked automatically; drift is a risk signal and a policy input, and the built-in warrant-drift policy asks the Supervisor whether the action plausibly serves the declared task. A sub-agent's warrant can only be narrower than its parent's, so authority attenuates through delegation.
+Outside policies, **the kill switch** stops an organization, a user, an agent or a session. Every surface denies its next action within seconds.
 
 ## Where to look
 
-- **Supervision** (`/supervision`): coverage per surface, decisions by effect, pending approvals, the riskiest sessions, the kill switch and the red-team scorecard.
+- **Supervision** (`/supervision`): coverage per surface, decisions by effect, pending approvals, the riskiest sessions and the kill switch.
 - **Sessions** (`/sessions`): every session, with a replay timeline and the Supervisor's narrative.
 - **Policies** (`/policies`): Obot Policy rules, with simulation and plain-language drafting. See [Policies](./policies.md).
 - **Approvals** (`/approvals`): the inbox.

@@ -9,7 +9,7 @@ Obot Policy is one rule language for every surface. A policy is a condition, wri
 | Field | Meaning |
 |---|---|
 | Condition | A CEL expression over `subject`, `action`, `session` and `org` that evaluates to a boolean |
-| Effect | `allow`, `log`, `redact`, `downshift`, `quarantine`, `judge`, `require_approval` or `deny` |
+| Effect | `allow`, `log`, `redact`, `downshift`, `judge`, `require_approval` or `deny` |
 | Mode | `shadow` records what the policy would have done without changing the outcome; `enforce` applies it |
 | Surfaces | Which surfaces the policy covers; empty means all |
 | Priority | Breaks ties between policies with the same effect; higher wins |
@@ -23,19 +23,18 @@ When several policies match one action, the strongest enforced effect wins. Shad
 ```
 subject   id, email, groups, agent, device, environment, api_key, delegation
 action    surface, kind, tool, server, server_id, model, provider, host, method, path,
-          command, file, capabilities, labels, honeytoken, trifecta,
+          command, file, capabilities, labels, trifecta,
           sink {external, destination, writes, exec},
           source {private, untrusted},
           lineage {hit, exact, count, labels}
 session   id, labels, risk, events, tool_calls, denied, duration_seconds, surfaces,
-          trifecta, killed,
-          warrant {present, task, scopes, drifted, covers}
+          trifecta, killed
 org       approved_destinations, trusted_hosts
 
 host_matches(host, patterns)   true when host matches any pattern ("*.example.com", "example.com", "*")
 ```
 
-`action.kind` is one of `tool.call`, `shell.exec`, `file.read`, `file.write`, `net.egress` or `llm.turn`. `action.labels` are the sensitivity labels found in the action's own content; `action.lineage.labels` are the labels of earlier content found again in it. `session.labels` is everything that has entered the session.
+`action.kind` is one of `tool.call`, `shell.exec`, `file.read`, `file.write`, `net.egress` or `llm.turn`. `action.capabilities` are the tool's labels (`confidential`, `untrusted`, `secret`, `writes-external`, `writes-internal`, `exec`, `destructive`). `action.labels` are the sensitivity labels found in the action's own content; `action.lineage.labels` are the labels of earlier content found again in it. `session.labels` is everything that has entered the session.
 
 ## Examples
 
@@ -66,17 +65,15 @@ Require approval for engineering agents reaching hosts outside the approved list
 
 ## Built-in policies
 
-Obot seeds these on first start. They begin in shadow mode, except the honeytoken and killed-session rules, which cannot produce false positives.
+Obot seeds these on first start. They begin in shadow mode, except the killed-session rule, which cannot produce false positives.
 
 | Policy | Effect |
 |---|---|
-| Honeytoken exfiltration | deny (enforced) |
 | Killed session | deny (enforced) |
 | Secrets never leave | deny |
 | Lethal trifecta | require_approval |
 | PII lineage to external destination | require_approval |
 | Destructive action after untrusted content | judge |
-| Outside the declared task | judge |
 
 Built-in policies can be disabled or switched to enforce but not deleted.
 

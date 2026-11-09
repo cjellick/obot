@@ -21,7 +21,3 @@ This is the shape of a decisions-style model API. Obot serves it through its own
 ## What it sees
 
 The Supervisor sees event summaries, labels, decisions and lineage, which contain no content, plus the arguments of the one action being judged. It never sees tool results, files or conversation history.
-
-## Red team
-
-The Supervision overview can run a built-in assurance harness that drives the policy engine through ten scenarios (model request, MCP read and write, delegated authority, unsafe arguments, injected tool output, direct shell, outbound data flow, sensitive file access, multi-agent delegation, and a complete investigation trace) and scores each as observed, detected, blocked and remediated. With the built-in policies in shadow mode most scenarios are observed and detected but not blocked; the scorecard says so.
