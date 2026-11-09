@@ -704,8 +704,6 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 		s.State.Warrant.DriftSummary = summary
 	}
 	switch decision.Effect {
-	case EffectQuarantine:
-		s.State.Quarantined = true
 	case EffectDownshift:
 		s.State.Downshifted = true
 	}

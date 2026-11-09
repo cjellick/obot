@@ -363,14 +363,6 @@ func (p *InputPlugin) PreLLMHook(ctx *schemas.BifrostContext, req *schemas.Bifro
 		disableRawPassthrough(ctx)
 		req = trimmed
 	}
-	if binding, ok := bindingFromContext(ctx); ok && binding.Provenance != nil && feedsSessionGraph(req) {
-		// A quarantined session's untrusted tool results are summarized before the model,
-		// and the guardrails, see them. The rewrite is in place, so it holds for every
-		// attempt; a rewritten result is left alone on the next one.
-		if binding.Provenance.quarantine(ctx, req) {
-			disableRawPassthrough(ctx)
-		}
-	}
 	identity, headers, ok := identityFromContext(ctx)
 	if !ok {
 		return req, nil, nil

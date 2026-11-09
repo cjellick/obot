@@ -155,11 +155,6 @@
 									>{m.supervision_sessions_open()}</span
 								>
 							{/if}
-							{#if session.state.quarantined}
-								<span class="badge badge-sm badge-soft badge-warning"
-									>{m.supervision_session_quarantined()}</span
-								>
-							{/if}
 							{#if session.state.downshifted}
 								<span class="badge badge-sm badge-soft badge-warning"
 									>{m.supervision_session_downshifted()}</span

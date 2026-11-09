@@ -28,7 +28,6 @@ const (
 	EffectDeny            Effect = "deny"
 	EffectRequireApproval Effect = "require_approval"
 	EffectRedact          Effect = "redact"
-	EffectQuarantine      Effect = "quarantine"
 	EffectDownshift       Effect = "downshift"
 	EffectLog             Effect = "log"
 )
@@ -268,8 +267,6 @@ func (e Effect) Severity() int {
 		return 6
 	case EffectRequireApproval:
 		return 5
-	case EffectQuarantine:
-		return 4
 	case EffectDownshift:
 		return 3
 	case EffectRedact:

@@ -933,8 +933,6 @@ func wouldHave(e provenance.Effect, what string) string {
 		return "sent " + what + " to me to judge"
 	case provenance.EffectRedact:
 		return "redacted " + what
-	case provenance.EffectQuarantine:
-		return "quarantined " + what
 	case provenance.EffectDownshift:
 		return "downshifted " + what
 	case provenance.EffectLog:

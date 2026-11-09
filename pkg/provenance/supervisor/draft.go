@@ -445,7 +445,7 @@ func toLabels(items []string) provenance.Labels {
 func draftEffects() []string {
 	effects := []provenance.Effect{
 		provenance.EffectAllow, provenance.EffectLog, provenance.EffectRedact, provenance.EffectDownshift,
-		provenance.EffectQuarantine, provenance.EffectJudge, provenance.EffectRequireApproval, provenance.EffectDeny,
+		provenance.EffectJudge, provenance.EffectRequireApproval, provenance.EffectDeny,
 	}
 	out := make([]string, 0, len(effects))
 	for _, e := range effects {

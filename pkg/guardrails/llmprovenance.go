@@ -108,27 +108,6 @@ func (pc *ProvenanceContext) untitled(ctx context.Context) bool {
 	return err == nil && s.Title == ""
 }
 
-// quarantined reports whether the session routes untrusted content through quarantine.
-func (pc *ProvenanceContext) quarantined(ctx context.Context) bool {
-	s, err := pc.Engine.Resolve(ctx, pc.Subject, pc.Session, provenance.SurfaceLLM)
-	return err == nil && s.State.Quarantined
-}
-
-// quarantine rewrites the untrusted tool results of a request to schema-constrained summaries
-// when the session is quarantined, and reports whether it rewrote anything. This is the
-// CaMeL-lite hook: once a quarantine policy fires, the model only ever sees untrusted content
-// through a summary that drops injection vocabulary.
-func (pc *ProvenanceContext) quarantine(ctx context.Context, req *schemas.BifrostRequest) bool {
-	if !pc.quarantined(ctx) {
-		return false
-	}
-	_, turn := pc.current()
-	n := llm.Quarantine(req, func(tool string) bool {
-		return pc.capabilities(ctx, tool, turn).Has(provenance.CapReadsUntrusted)
-	})
-	return n > 0
-}
-
 // decide decides every tool call the model proposes and returns the error that blocks the
 // response when one of them is not allowed. Every call is decided, so each is recorded, and
 // the first denial is reported. An engine failure blocks, like a guardrail that can't be

@@ -1,7 +1,7 @@
 // Package llm adapts LLM gateway requests and responses to the provenance
 // session graph: which tool results a request feeds back into the model's
-// context, which tool calls the model proposes in its response, who the agent
-// is, and how to rewrite untrusted content when a session is quarantined.
+// context, which tool calls the model proposes in its response, and who the
+// agent is.
 //
 // The helpers are pure: they read and rewrite the gateway's parsed request and
 // response shapes and never talk to the engine. The guardrail plugins in
@@ -11,22 +11,9 @@ package llm
 import (
 	"encoding/json"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/obot-platform/obot/pkg/provenance"
-)
-
-const (
-	// QuarantinePrefix opens a quarantined tool result.
-	QuarantinePrefix = "[quarantined untrusted content: "
-	quarantineLimit  = 200
-)
-
-var (
-	// quarantineWords are words whose lines are dropped from a quarantined
-	// summary: the vocabulary of prompt injection.
-	quarantineWords = []string{"ignore", "instruction", "system", "assistant"}
 )
 
 // ToolDefinition is a tool a request offers the model.
@@ -401,63 +388,4 @@ func AgentFromUserAgent(userAgent string) (agent, version string) {
 		agent = strings.ToLower(product)
 	}
 	return agent, ver
-}
-
-// QuarantineSummary reduces untrusted content to a schema-constrained summary:
-// its first 200 characters, after dropping every line that mentions ignoring,
-// instructions, the system or the assistant. Already quarantined text is
-// returned as is.
-func QuarantineSummary(text string) string {
-	if strings.HasPrefix(text, QuarantinePrefix) {
-		return text
-	}
-	var kept []string
-	for line := range strings.SplitSeq(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		lower := strings.ToLower(line)
-		drop := false
-		for _, w := range quarantineWords {
-			if strings.Contains(lower, w) {
-				drop = true
-				break
-			}
-		}
-		if !drop {
-			kept = append(kept, line)
-		}
-	}
-	summary := strings.Join(kept, " ")
-	if utf8.RuneCountInString(summary) > quarantineLimit {
-		runes := []rune(summary)
-		summary = string(runes[:quarantineLimit])
-	}
-	return QuarantinePrefix + summary + "]"
-}
-
-// Quarantine rewrites, in place, every tool result in a request whose tool
-// untrusted reports as reading untrusted content, to its QuarantineSummary.
-// It returns how many text fields it rewrote. Results whose tool the
-// conversation doesn't name are left alone.
-func Quarantine(req *schemas.BifrostRequest, untrusted func(tool string) bool) int {
-	if req == nil {
-		return 0
-	}
-	refs, _ := walkRequest(req)
-	n := 0
-	for _, ref := range refs {
-		if ref.result.Name == "" || !untrusted(ref.result.Name) {
-			continue
-		}
-		for _, text := range ref.texts {
-			if strings.HasPrefix(*text, QuarantinePrefix) {
-				continue
-			}
-			*text = QuarantineSummary(*text)
-			n++
-		}
-	}
-	return n
 }

@@ -5833,7 +5833,7 @@ func schema_obot_platform_obot_apiclient_types_EnforcementDecisionResponse(ref c
 					},
 					"effect": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Effect is the policy effect that produced the decision: allow, log, redact, downshift, quarantine, require_approval or deny.",
+							Description: "Effect is the policy effect that produced the decision: allow, log, redact, downshift, require_approval or deny.",
 							Type:        []string{"string"},
 							Format:      "",
 						},

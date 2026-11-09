@@ -87,9 +87,6 @@ type SessionState struct {
 	Warrant *Warrant `json:"warrant,omitempty"`
 	// Killed reports that the session was killed.
 	Killed bool `json:"killed,omitempty"`
-	// Quarantined reports that untrusted content is being routed through the
-	// quarantined model.
-	Quarantined bool `json:"quarantined,omitempty"`
 	// Downshifted reports that credentials have been downshifted to read-only.
 	Downshifted bool `json:"downshifted,omitempty"`
 	// LastSummary is the most recent event summary, for lists.

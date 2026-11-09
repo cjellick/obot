@@ -567,9 +567,6 @@ func writeSession(b *strings.Builder, s *provenance.Session, narrative string) {
 	if s.State.Killed {
 		b.WriteString("; KILLED")
 	}
-	if s.State.Quarantined {
-		b.WriteString("; quarantined")
-	}
 	if s.State.Downshifted {
 		b.WriteString("; credentials downshifted")
 	}

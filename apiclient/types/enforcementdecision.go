@@ -70,7 +70,7 @@ type EnforcementDecisionResponse struct {
 	// SessionID is the provenance session the call was recorded in.
 	SessionID string `json:"sessionID,omitempty"`
 	// Effect is the policy effect that produced the decision: allow, log,
-	// redact, downshift, quarantine, require_approval or deny.
+	// redact, downshift, require_approval or deny.
 	Effect string `json:"effect,omitempty"`
 	// ApprovalID is set when the call is held for approval. The device blocks
 	// the call; the approval can be resolved by an administrator.

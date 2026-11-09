@@ -17,7 +17,6 @@ export type Effect =
 	| 'log'
 	| 'redact'
 	| 'downshift'
-	| 'quarantine'
 	| 'judge'
 	| 'require_approval'
 	| 'deny';
@@ -26,7 +25,6 @@ export const EFFECTS: Effect[] = [
 	'log',
 	'redact',
 	'downshift',
-	'quarantine',
 	'judge',
 	'require_approval',
 	'deny'
@@ -206,7 +204,6 @@ export interface SessionState {
 	surfaces?: Surface[];
 	warrant?: Warrant;
 	killed?: boolean;
-	quarantined?: boolean;
 	downshifted?: boolean;
 	lastSummary?: string;
 }
@@ -833,8 +830,6 @@ export function effectLabel(effect: string): string {
 			return m.supervision_effect_redact();
 		case 'downshift':
 			return m.supervision_effect_downshift();
-		case 'quarantine':
-			return m.supervision_effect_quarantine();
 		case 'judge':
 			return m.supervision_effect_judge();
 		case 'require_approval':
@@ -853,7 +848,6 @@ export function effectBadgeClass(effect: string): string {
 			return 'badge-error';
 		case 'require_approval':
 		case 'judge':
-		case 'quarantine':
 			return 'badge-warning';
 		case 'allow':
 			return 'badge-success';

@@ -339,52 +339,6 @@ func TestProvenanceShadowRecords(t *testing.T) {
 // TestProvenanceQuarantine checks the CaMeL-lite hook: once a quarantine policy fires, the
 // untrusted tool results of later requests reach the model as summaries without injection
 // vocabulary, while trusted results are untouched.
-func TestProvenanceQuarantine(t *testing.T) {
-	up := newToolUpstream(t)
-	gw := startGatewayAt(t, &fakeStore{}, up.URL)
-	engine := newProvenanceEngine(t)
-	if err := engine.Store().PutPolicy(t.Context(), &provenance.Policy{
-		ID: "quarantine-untrusted", Name: "Quarantine after untrusted content", Enabled: true, Priority: 10,
-		Condition: `"untrusted" in session.labels && action.kind == "tool.call"`,
-		Effect:    provenance.EffectQuarantine, Mode: provenance.ModeEnforce,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	engine.Invalidate()
-
-	// The first request's tool call trips the quarantine; it is still served.
-	code, body := callProvenance(t, gw, engine, "/v1/chat/completions", trifectaChat(t, proposeGetIssue, false, true), nil)
-	if code != http.StatusOK || !strings.Contains(body, `"get_issue"`) {
-		t.Fatalf("quarantine must not block, got %d %s", code, body)
-	}
-	if strings.Contains(up.lastPrompt(), llm.QuarantinePrefix) {
-		t.Fatal("the first request precedes the quarantine and must reach the provider as sent")
-	}
-	s, _ := sessionEvents(t, engine)
-	if !s.State.Quarantined {
-		t.Fatalf("session should be quarantined: %+v", s.State)
-	}
-
-	// From now on the model sees untrusted results as summaries, and Claude Code's raw body
-	// is not forwarded.
-	for _, path := range []string{"/v1/chat/completions", "/anthropic/v1/messages"} {
-		req, headers := trifectaChat(t, "", false, true), map[string]string(nil)
-		if path != "/v1/chat/completions" {
-			req, headers = trifectaMessages(t, ""), claudeCodeHeaders
-		}
-		if code, body := callProvenance(t, gw, engine, path, req, headers); code != http.StatusOK {
-			t.Fatalf("%s: %d %s", path, code, body)
-		}
-		prompt := up.lastPrompt()
-		if !strings.Contains(prompt, llm.QuarantinePrefix+"Issue #4411: flaky test in TestFoo.]") || strings.Contains(prompt, "ignore previous instructions") {
-			t.Fatalf("%s: the untrusted result should reach the provider quarantined: %s", path, prompt)
-		}
-		if !strings.Contains(prompt, "ada@customer.example") {
-			t.Fatalf("%s: the trusted CRM result should reach the provider as sent: %s", path, prompt)
-		}
-	}
-}
-
 func TestProposedEmailCannotHideExternalBCCBehindApprovedRecipient(t *testing.T) {
 	engine := newProvenanceEngine(t)
 	settings := engine.Settings(t.Context())

@@ -106,8 +106,6 @@
 				return m.supervision_policy_effect_help_redact();
 			case 'downshift':
 				return m.supervision_policy_effect_help_downshift();
-			case 'quarantine':
-				return m.supervision_policy_effect_help_quarantine();
 			case 'judge':
 				return m.supervision_policy_effect_help_judge();
 			case 'require_approval':
