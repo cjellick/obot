@@ -43,7 +43,6 @@
 	"server_requests_admin_server": "管理服务器",
 	"server_requests_copy": "复制",
 	"server_requests_copied": "已复制",
-	"server_requests_slack_hint": "将 OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL 设置为 Slack 传入 Webhook，即可在有新请求时通知管理员。",
 	"server_requests_catalog_entry": "已在目录中",
 	"server_requests_grant_requester": "如果请求者尚无法连接，则授予其访问此服务器的权限",
 	"server_requests_matched": "此服务器已作为 {entry} 存在于目录中。批准后将添加该条目，而不会创建重复条目。",
@@ -60,5 +59,7 @@
 	"server_requests_slack_test_sent": "已发送测试消息。请查看频道。",
 	"server_requests_slack_saved": "已保存 Slack 通知。",
 	"server_requests_slack_removed": "已关闭 Slack 通知。",
-	"server_requests_slack_cancel": "取消"
+	"server_requests_slack_cancel": "取消",
+	"server_requests_setup_commands": "添加到你的代理",
+	"server_requests_setup_codex_hint": "Codex：将 config.toml 粘贴到 ChatGPT 管理控制台的 Agent security → Defaults → Edit as TOML，或部署为 /etc/codex/managed_config.toml。每位用户运行一次 codex mcp login obot 登录。"
 }

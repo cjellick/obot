@@ -165,6 +165,27 @@ export function managedSettingsSnippets(
 			id: 'claude-managed-settings',
 			label: 'Claude managed settings',
 			value: JSON.stringify({ allowedMcpServers: [{ serverUrl: url }] }, null, 2)
+		},
+		{
+			id: 'codex-managed-config',
+			label: 'Codex managed config.toml',
+			value: `[mcp_servers.obot]\nurl = "${url}"\n`
+		}
+	];
+}
+
+/** Commands a user runs to add an Obot MCP server to their own agent. */
+export function clientCommands(url: string): { id: string; label: string; value: string }[] {
+	return [
+		{
+			id: 'claude-code',
+			label: 'Claude Code',
+			value: `claude mcp add --transport http obot ${url}`
+		},
+		{
+			id: 'codex',
+			label: 'Codex',
+			value: `codex mcp add obot --url ${url}\ncodex mcp login obot`
 		}
 	];
 }

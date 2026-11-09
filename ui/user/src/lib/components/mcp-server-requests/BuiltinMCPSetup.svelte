@@ -5,6 +5,7 @@
 		BUILTIN_ADMIN_MCP_ID,
 		BUILTIN_USER_MCP_ID,
 		builtinMCPURL,
+		clientCommands,
 		managedSettingsSnippets
 	} from '$lib/services/mcpserverrequests';
 	import { Bot } from '@lucide/svelte';
@@ -26,6 +27,7 @@
 			: [])
 	]);
 	let snippets = $derived(admin ? managedSettingsSnippets(origin) : []);
+	let commands = $derived(clientCommands(builtinMCPURL(BUILTIN_USER_MCP_ID, origin)));
 </script>
 
 <section
@@ -57,6 +59,22 @@
 		{/each}
 	</dl>
 
+	<div class="flex flex-col gap-2">
+		<span class="text-xs font-medium">{m.server_requests_setup_commands()}</span>
+		<div class="grid gap-3 md:grid-cols-2">
+			{#each commands as command (command.id)}
+				<div class="flex min-w-0 flex-col gap-1">
+					<div class="flex items-center justify-between">
+						<span class="text-xs">{command.label}</span>
+						<CopyButton text={command.value} />
+					</div>
+					<pre
+						class="bg-base-200 dark:bg-base-300 overflow-x-auto rounded p-2 text-xs">{command.value}</pre>
+				</div>
+			{/each}
+		</div>
+	</div>
+
 	{#if snippets.length > 0}
 		<div class="grid gap-3 md:grid-cols-2">
 			{#each snippets as snippet (snippet.id)}
@@ -70,6 +88,6 @@
 				</div>
 			{/each}
 		</div>
-		<p class="text-muted-content text-xs">{m.server_requests_slack_hint()}</p>
+		<p class="text-muted-content text-xs">{m.server_requests_setup_codex_hint()}</p>
 	{/if}
 </section>

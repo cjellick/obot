@@ -63,10 +63,13 @@ describe('Server requests', () => {
 		await renderPage();
 
 		const setup = page.getByRole('region', { name: 'Obot MCP server for your agents' });
-		await expect.element(setup.getByText(/\/mcp-connect\/obot$/)).toBeInTheDocument();
+		await expect.element(setup.getByText(/\/mcp-connect\/obot$/).first()).toBeInTheDocument();
 		await expect.element(setup.getByText(/\/mcp-connect\/obot-admin$/)).toBeInTheDocument();
 		await expect.element(setup.getByText('managed-mcp.json')).toBeInTheDocument();
 		await expect.element(setup.getByText('Claude managed settings')).toBeInTheDocument();
+		await expect.element(setup.getByText('Codex managed config.toml')).toBeInTheDocument();
+		await expect.element(setup.getByText(/^\[mcp_servers\.obot\]/)).toBeInTheDocument();
+		await expect.element(page.getByRole('region', { name: 'Slack alerts' })).toBeInTheDocument();
 	});
 
 	it('shows basic users only their own server and no requester names', async () => {
@@ -74,9 +77,16 @@ describe('Server requests', () => {
 		await renderPage([Group.USER]);
 
 		const setup = page.getByRole('region', { name: 'Obot MCP server for your agents' });
-		await expect.element(setup.getByText(/\/mcp-connect\/obot$/)).toBeInTheDocument();
+		await expect.element(setup.getByText(/\/mcp-connect\/obot$/).first()).toBeInTheDocument();
 		await expect.element(setup.getByText(/\/mcp-connect\/obot-admin$/)).not.toBeInTheDocument();
 		await expect.element(setup.getByText('managed-mcp.json')).not.toBeInTheDocument();
+		await expect
+			.element(setup.getByText(/^claude mcp add --transport http obot /))
+			.toBeInTheDocument();
+		await expect.element(setup.getByText(/^codex mcp add obot --url /)).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('region', { name: 'Slack alerts' }))
+			.not.toBeInTheDocument();
 		const link = page.getByRole('link', { name: /Sentry/ });
 		await expect.element(link).toBeInTheDocument();
 		await expect.element(link.getByText(/Requested by/)).not.toBeInTheDocument();
