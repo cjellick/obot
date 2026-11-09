@@ -344,24 +344,15 @@ func TestSupervisorAsk(t *testing.T) {
 	}
 }
 
-func TestSupervisorInsightsSkipRedTeam(t *testing.T) {
+func TestSupervisorInsightsRiskySession(t *testing.T) {
 	now := time.Now().UTC()
 	risky := provenance.SessionState{Risk: 90, Labels: provenance.Labels{provenance.LabelUntrusted, provenance.LabelPII}}
 	snap := &supervisorSnapshot{
 		now:   now,
 		since: now.Add(-supervisorWindow),
 		sessions: []provenance.Session{
-			{ID: "ses-rt", UserID: "redteam-user", StartedAt: now, LastActivityAt: now, State: risky},
 			{ID: "ses-real", UserID: "u1", Email: "craig@example.com", Agent: "claude_code", StartedAt: now, LastActivityAt: now, State: risky},
 		},
-		pending: []provenance.Approval{
-			{ID: "apr-rt", SessionID: "ses-rt", UserID: "redteam-user", CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour)},
-		},
-	}
-	for _, item := range supervisorInsightItems(snap) {
-		if item.SessionID == "ses-rt" {
-			t.Fatalf("red-team sessions are not findings: %+v", item)
-		}
 	}
 	item := provAPIInsight(t, supervisorInsightItems(snap), insightOpenRiskySession)
 	if item.SessionID != "ses-real" || item.Severity != insightSeverityCritical || !strings.HasPrefix(item.Title, "craig@example.com's claude_code session") {

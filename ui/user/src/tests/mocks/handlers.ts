@@ -158,7 +158,6 @@ export const handlers = [
 	http.get('/api/provenance/honeytokens', () => HttpResponse.json({ items: [] })),
 	http.get('/api/provenance/tool-labels', () => HttpResponse.json({ items: [] })),
 	http.get('/api/provenance/settings', () => HttpResponse.json({ supervisorEnabled: false })),
-	http.post('/api/provenance/redteam/run', () => HttpResponse.json({ scenarios: [] })),
 	http.get('/api/provenance/supervisor/status', () =>
 		HttpResponse.json({
 			enabled: false,

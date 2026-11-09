@@ -670,7 +670,7 @@
 								<thead>
 									<tr>
 										<th>{m.core_col_time()}</th>
-										<th>{m.supervision_redteam_col_surface()}</th>
+										<th>{m.supervision_sessions_filter_surface()}</th>
 										<th>{m.supervision_col_summary()}</th>
 										<th>{m.core_col_user()}</th>
 										<th>{m.supervision_policy_simulate_col_recorded()}</th>

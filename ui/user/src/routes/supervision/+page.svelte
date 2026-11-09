@@ -5,7 +5,6 @@
 	import AttentionQueue from '$lib/components/supervision/AttentionQueue.svelte';
 	import KillSwitchDialog from '$lib/components/supervision/KillSwitchDialog.svelte';
 	import LabelBadges from '$lib/components/supervision/LabelBadges.svelte';
-	import RedTeamScorecard from '$lib/components/supervision/RedTeamScorecard.svelte';
 	import RiskPill from '$lib/components/supervision/RiskPill.svelte';
 	import SupervisorAsk from '$lib/components/supervision/SupervisorAsk.svelte';
 	import SupervisorAvatar from '$lib/components/supervision/SupervisorAvatar.svelte';
@@ -24,7 +23,6 @@
 		listKills,
 		listPolicies,
 		listToolLabelReviews,
-		runRedTeam,
 		sessionDisplayName,
 		SURFACES,
 		surfaceLabel,
@@ -33,7 +31,6 @@
 		type Overview,
 		type Policy,
 		type ProvenanceEvent,
-		type RedTeamResult,
 		type SupervisorInsights as Insights,
 		type SupervisorStatus,
 		type ToolLabelReviewRequest
@@ -42,14 +39,14 @@
 	import { formatTimeAgo } from '$lib/time';
 	import { resolve } from '$lib/url';
 	import { openUrl } from '$lib/utils';
-	import { CircleHelp, Inbox, OctagonX, Swords } from '@lucide/svelte';
+	import { CircleHelp, Inbox, OctagonX } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { twMerge } from 'tailwind-merge';
 
 	// The Supervisor's home. The reader looks over the Supervisor's shoulder: whether it is on and
 	// what it watches, the held actions waiting on a person (its recommendation
 	// first), what it noticed, every decision as it lands, and a place to ask it questions.
-	// The kill switch and red team sit below as controls.
+	// The kill switch sits below as a control.
 
 	const LIVE_REFRESH_MS = 5_000;
 	const SLOW_REFRESH_MS = 30_000;
@@ -95,9 +92,6 @@
 	let loading = $state(true);
 	let error = $state('');
 	let killDialog = $state<ReturnType<typeof KillSwitchDialog>>();
-	let redTeam = $state<RedTeamResult>();
-	let runningRedTeam = $state(false);
-	let redTeamError = $state('');
 
 	let readonly = $derived(profile.current.isAdminReadonly?.());
 
@@ -192,18 +186,6 @@
 		refreshingInsights = true;
 		await loadInsights(true);
 		refreshingInsights = false;
-	}
-
-	async function runRed() {
-		runningRedTeam = true;
-		redTeamError = '';
-		try {
-			redTeam = await runRedTeam({ dontLogErrors: true });
-		} catch (e) {
-			redTeamError = parseErrorContent(e).message;
-		} finally {
-			runningRedTeam = false;
-		}
 	}
 
 	function onFeed(events: ProvenanceEvent[]) {
@@ -416,11 +398,11 @@
 					</section>
 				{/if}
 
-				<!-- Controls: policies, the kill switch and the red team -->
+				<!-- Controls: policies and the kill switch -->
 				<h2 class="text-muted-content mt-2 text-xs font-semibold uppercase">
 					{m.supervision_home_controls()}
 				</h2>
-				<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+				<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
 					<section class="paper gap-2" aria-label={m.supervision_overview_policies()}>
 						<h3 class="text-base font-semibold">{m.supervision_overview_policies()}</h3>
 						{#if overview}
@@ -464,34 +446,7 @@
 						<p class="text-muted-content text-xs">{m.supervision_kill_switch_description()}</p>
 						<ActiveKills {kills} onRevoked={(id) => (kills = kills.filter((k) => k.id !== id))} />
 					</section>
-
-					<section class="paper gap-2" aria-label={m.supervision_home_redteam()}>
-						<div class="flex items-center justify-between gap-2">
-							<h3 class="text-base font-semibold">{m.supervision_home_redteam()}</h3>
-							{#if !readonly}
-								<button
-									type="button"
-									class="btn btn-secondary btn-sm text-xs"
-									disabled={runningRedTeam}
-									onclick={runRed}
-								>
-									{#if runningRedTeam}<Loading class="size-4" />{:else}<Swords
-											class="size-4"
-										/>{/if}
-									{m.supervision_redteam_run()}
-								</button>
-							{/if}
-						</div>
-						<p class="text-muted-content text-xs">{m.supervision_redteam_description()}</p>
-					</section>
 				</div>
-
-				{#if redTeamError}
-					<div class="notification-error rounded-md p-3 text-sm" role="alert">{redTeamError}</div>
-				{/if}
-				{#if redTeam}
-					<RedTeamScorecard result={redTeam} />
-				{/if}
 			</div>
 		</div>
 	</div>

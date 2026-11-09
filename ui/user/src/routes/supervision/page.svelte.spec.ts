@@ -6,7 +6,6 @@ import {
 	overview,
 	pendingApproval,
 	policies,
-	redTeam,
 	supervisorAnswer,
 	supervisorInsights,
 	supervisorStatus
@@ -132,17 +131,6 @@ describe('Supervision overview', () => {
 		await page.getByRole('button', { name: 'Revoke' }).click();
 		await vi.waitFor(() => expect(revoked).toHaveBeenCalledWith('kill-1'));
 		await expect.element(page.getByText('No active kills.')).toBeInTheDocument();
-	});
-
-	it('runs the red team and renders the scorecard', async () => {
-		mockOverview();
-		worker.use(http.post('/api/provenance/redteam/run', () => HttpResponse.json(redTeam)));
-		await renderPage();
-
-		await page.getByRole('button', { name: 'Run red team' }).click();
-		await expect.element(page.getByText('Prompt injection via issue comment')).toBeInTheDocument();
-		await expect.element(page.getByText('1 of 2 scenarios blocked')).toBeInTheDocument();
-		await expect.element(page.getByText('Device hook not enrolled')).toBeInTheDocument();
 	});
 
 	describe('the Supervisor', () => {

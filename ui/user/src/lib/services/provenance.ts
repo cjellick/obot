@@ -390,21 +390,6 @@ export interface PolicyDraft {
 	tests?: PolicyTest[];
 }
 
-export interface RedTeamScenario {
-	scenario: string;
-	surface: Surface;
-	observed: boolean;
-	detected: boolean;
-	blocked: boolean;
-	remediated: boolean;
-	notes?: string;
-}
-
-export interface RedTeamResult {
-	ranAt?: string;
-	scenarios: RedTeamScenario[];
-}
-
 export interface ListResponse<T> {
 	items: T[] | null;
 	total: number;
@@ -653,7 +638,7 @@ export async function flushContentTagging(opts?: Opts): Promise<ContentTaggingSt
 	return (await doPost(`${B}/content-tagging/flush`, {}, opts)) as ContentTaggingStatus;
 }
 
-// Overview and red team
+// Overview
 
 export async function getOverview(hours = 24, opts?: Opts): Promise<Overview> {
 	const o = (await doGet(`${B}/overview${query({ hours })}`, opts)) as Partial<Overview>;
@@ -675,27 +660,6 @@ export async function getOverview(hours = 24, opts?: Opts): Promise<Overview> {
 		policies: { enforce: o.policies?.enforce ?? 0, shadow: o.policies?.shadow ?? 0 },
 		supervisor: { enabled: o.supervisor?.enabled ?? false, model: o.supervisor?.model }
 	};
-}
-
-export async function runRedTeam(opts?: Opts): Promise<RedTeamResult> {
-	// The server's scorecard names each scenario `name` and stamps `runAt`.
-	type ServerScenario = Partial<RedTeamScenario> & { name?: string };
-	const res = (await doPost(`${B}/redteam/run`, {}, opts)) as {
-		ranAt?: string;
-		runAt?: string;
-		scenarios?: ServerScenario[];
-		items?: ServerScenario[];
-	};
-	const scenarios = (res.scenarios ?? res.items ?? []).map((s) => ({
-		scenario: s.scenario ?? s.name ?? '',
-		surface: s.surface ?? 'llm',
-		observed: s.observed ?? false,
-		detected: s.detected ?? false,
-		blocked: s.blocked ?? false,
-		remediated: s.remediated ?? false,
-		notes: s.notes
-	}));
-	return { ranAt: res.ranAt ?? res.runAt, scenarios };
 }
 
 // The Supervisor: presence, proactive insights and questions

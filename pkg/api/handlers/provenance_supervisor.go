@@ -14,7 +14,6 @@ import (
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/provenance"
-	"github.com/obot-platform/obot/pkg/provenance/redteam"
 )
 
 const (
@@ -476,8 +475,7 @@ func supervisorModelNames(ctx context.Context, snap *supervisorSnapshot) (text, 
 
 // ---- insights ----
 
-func supervisorInsightItems(all *supervisorSnapshot) []SupervisorInsight {
-	snap := withoutRedTeam(all)
+func supervisorInsightItems(snap *supervisorSnapshot) []SupervisorInsight {
 	var items []SupervisorInsight
 	items = append(items, honeytokenInsights(snap)...)
 	items = append(items, riskySessionInsights(snap)...)
@@ -492,35 +490,6 @@ func supervisorInsightItems(all *supervisorSnapshot) []SupervisorInsight {
 		items = []SupervisorInsight{}
 	}
 	return items
-}
-
-// withoutRedTeam returns the snapshot without the red-team harness's
-// synthetic sessions, decisions and approvals: they are assurance runs, not
-// findings an administrator should act on.
-func withoutRedTeam(snap *supervisorSnapshot) *supervisorSnapshot {
-	out := *snap
-	redTeam := map[string]bool{}
-	out.sessions = nil
-	for _, s := range snap.sessions {
-		if strings.HasPrefix(s.UserID, redteam.Prefix) {
-			redTeam[s.ID] = true
-			continue
-		}
-		out.sessions = append(out.sessions, s)
-	}
-	out.events = nil
-	for _, ev := range snap.events {
-		if !redTeam[ev.SessionID] && !strings.HasPrefix(ev.UserID, redteam.Prefix) {
-			out.events = append(out.events, ev)
-		}
-	}
-	out.pending = nil
-	for _, a := range snap.pending {
-		if !redTeam[a.SessionID] && !strings.HasPrefix(a.UserID, redteam.Prefix) {
-			out.pending = append(out.pending, a)
-		}
-	}
-	return &out
 }
 
 func severityRank(s string) int {

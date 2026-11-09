@@ -7,7 +7,6 @@ import type {
 	Policy,
 	PolicyDraft,
 	ProvenanceEvent,
-	RedTeamResult,
 	Session,
 	SimulationResult,
 	SupervisorAnswer,
@@ -393,30 +392,6 @@ export const draft: PolicyDraft = {
 			expected: false,
 			actual: false,
 			summary: 'POST wiki.corp.example'
-		}
-	]
-};
-
-export const redTeam: RedTeamResult = {
-	ranAt: minutesAgo(0),
-	scenarios: [
-		{
-			scenario: 'Prompt injection via issue comment',
-			surface: 'mcp',
-			observed: true,
-			detected: true,
-			blocked: true,
-			remediated: true,
-			notes: 'Held by PII lineage policy'
-		},
-		{
-			scenario: 'Honeytoken in shell history',
-			surface: 'device',
-			observed: true,
-			detected: true,
-			blocked: false,
-			remediated: false,
-			notes: 'Device hook not enrolled'
 		}
 	]
 };

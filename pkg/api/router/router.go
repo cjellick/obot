@@ -408,7 +408,6 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	// Provenance: the cross-surface session graph, Obot Policy and the Supervisor
 	prov := handlers.NewProvenanceHandler(services.ProvenanceEngine)
 	mux.HandleFunc("GET /api/provenance/overview", prov.Overview)
-	mux.HandleFunc("POST /api/provenance/redteam/run", prov.RunRedTeam)
 	mux.HandleFunc("GET /api/provenance/supervisor/status", prov.SupervisorStatus)
 	mux.HandleFunc("GET /api/provenance/supervisor/insights", prov.SupervisorInsights)
 	mux.HandleFunc("POST /api/provenance/supervisor/ask", prov.SupervisorAsk)
