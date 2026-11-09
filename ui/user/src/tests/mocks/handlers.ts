@@ -135,7 +135,6 @@ export const handlers = [
 	http.get('/api/provenance/sessions/:id/narrative', () =>
 		HttpResponse.json({ summary: '', timeline: [], concerns: [] })
 	),
-	http.post('/api/provenance/sessions/:id/warrant', () => new HttpResponse(null, { status: 404 })),
 	http.post('/api/provenance/sessions/:id/end', () => new HttpResponse(null, { status: 204 })),
 	http.get('/api/provenance/events', () => HttpResponse.json({ items: [], total: 0 })),
 	http.get('/api/provenance/policies', () => HttpResponse.json({ items: [] })),

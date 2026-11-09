@@ -134,7 +134,6 @@ func ReplayInput(ev Event, s *Session, settings Settings) PolicyInput {
 	at.State.Labels = ev.Decision.Labels
 	at.State.Risk = ev.Decision.Risk
 	at.State.Killed = ev.Decision.Killed
-	at.State.Warrant = s.State.Warrant
 	at.State.Surfaces = s.State.Surfaces
 	subject := Subject{UserID: ev.UserID, Email: s.Email, Actor: ev.Actor}
 	action := *ev.Action

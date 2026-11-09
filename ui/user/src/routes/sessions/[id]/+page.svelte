@@ -9,7 +9,6 @@
 	import SessionTimeline from '$lib/components/supervision/SessionTimeline.svelte';
 	import SupervisorCommentary from '$lib/components/supervision/SupervisorCommentary.svelte';
 	import SurfaceBadge from '$lib/components/supervision/SurfaceBadge.svelte';
-	import WarrantDialog from '$lib/components/supervision/WarrantDialog.svelte';
 	import { parseErrorContent } from '$lib/errors';
 	import { m } from '$lib/i18n';
 	import {
@@ -22,13 +21,13 @@
 	} from '$lib/services/provenance';
 	import { profile } from '$lib/stores';
 	import { success } from '$lib/stores/success';
-	import { formatTimeAgo, formatTimeUntil } from '$lib/time';
+	import { formatTimeAgo } from '$lib/time';
 	import { goto } from '$lib/url';
-	import { Check, Minus, OctagonX, ScrollText, Square, TriangleAlert } from '@lucide/svelte';
+	import { Check, Minus, OctagonX, Square } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { twMerge } from 'tailwind-merge';
 
-	// Session replay: the session's state and warrant, its event timeline with decisions and
+	// Session replay: the session's state, its event timeline with decisions and
 	// lineage, and the Supervisor's commentary. While the session is open the page follows it
 	// live.
 
@@ -40,7 +39,6 @@
 	let error = $state('');
 	let notFound = $state(false);
 	let killDialog = $state<ReturnType<typeof KillSwitchDialog>>();
-	let warrantDialog = $state<ReturnType<typeof WarrantDialog>>();
 	let timeline = $state<ReturnType<typeof SessionTimeline>>();
 	let commentary = $state<ReturnType<typeof SupervisorCommentary>>();
 	let confirmEnd = $state(false);
@@ -216,45 +214,6 @@
 						<span class="text-muted-content text-sm">{m.supervision_none()}</span>
 					{/if}
 				</div>
-
-				<div class="flex flex-col gap-1">
-					<span class="text-muted-content text-xs uppercase">{m.supervision_session_warrant()}</span
-					>
-					{#if session.state.warrant}
-						{@const w = session.state.warrant}
-						<div class="bg-base-200 dark:bg-base-300 flex flex-col gap-1 rounded-md p-3 text-sm">
-							<div class="flex flex-wrap items-center gap-2">
-								<ScrollText class="size-4 shrink-0" />
-								<span class="font-medium">{w.task}</span>
-								{#if w.drifted}
-									<span class="badge badge-sm badge-soft badge-warning gap-1">
-										<TriangleAlert class="size-3" />
-										{m.supervision_session_warrant_drifted()}
-									</span>
-								{/if}
-								<span class="text-muted-content text-xs">
-									{m.supervision_session_warrant_expires({
-										time: formatTimeUntil(w.expiresAt).relativeTime
-									})}
-								</span>
-							</div>
-							<div class="flex flex-wrap gap-1">
-								{#each w.scopes as scope (scope)}
-									<code class="bg-base-100 dark:bg-base-200 rounded px-1.5 py-0.5 text-xs"
-										>{scope}</code
-									>
-								{/each}
-							</div>
-							{#if w.drifted && w.driftSummary}
-								<span class="text-warning text-xs">
-									{m.supervision_session_warrant_drift_summary({ summary: w.driftSummary })}
-								</span>
-							{/if}
-						</div>
-					{:else}
-						<span class="text-muted-content text-sm">{m.supervision_session_warrant_none()}</span>
-					{/if}
-				</div>
 			</section>
 
 			<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -302,14 +261,6 @@
 {#snippet navActions()}
 	{#if session && !readonly}
 		<div class="flex items-center gap-2">
-			<button
-				type="button"
-				class="btn btn-secondary rounded-4xl text-sm"
-				onclick={() => warrantDialog?.open(session?.state.warrant)}
-			>
-				<ScrollText class="size-4" />
-				{m.supervision_session_issue_warrant()}
-			</button>
 			{#if !session.endedAt}
 				<button
 					type="button"
@@ -335,7 +286,6 @@
 {/snippet}
 
 <KillSwitchDialog bind:this={killDialog} onCreated={refreshAll} />
-<WarrantDialog bind:this={warrantDialog} {sessionId} onIssued={refreshAll} />
 <Confirm
 	show={confirmEnd}
 	type="info"

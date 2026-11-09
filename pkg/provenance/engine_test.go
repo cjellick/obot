@@ -267,51 +267,6 @@ func TestJudgeEffectUsesSupervisorAndDegradesWithoutIt(t *testing.T) {
 	}
 }
 
-func TestWarrantDriftAndAttenuation(t *testing.T) {
-	ctx := t.Context()
-	e, _ := newTestEngine(t)
-	s, err := e.Resolve(ctx, subject, key, SurfaceLLM)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w, err := e.IssueWarrant(ctx, s.ID, "fix the flaky test", []string{"mcp:github:*", "shell", "egress:*.github.com"}, time.Hour, []string{"craig", "claude_code"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !w.Covers(Action{Kind: KindToolCall, Server: "github", Tool: "create_pull_request"}) {
-		t.Fatal("github tools should be covered")
-	}
-	if w.Covers(Action{Kind: KindToolCall, Server: "gmail", Tool: "send"}) {
-		t.Fatal("gmail should not be covered")
-	}
-	_, d, err := e.Decide(ctx, DecideRequest{Subject: subject, Session: SessionKey{Explicit: s.ID}, Action: Action{Surface: SurfaceMCP, Kind: KindToolCall, Server: "gmail", Tool: "send", Sink: Sink{External: true, Writes: true}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.PolicyID != "builtin-warrant-drift" {
-		t.Fatalf("expected warrant drift policy, got %+v", d)
-	}
-	s, _ = e.Resolve(ctx, subject, SessionKey{Explicit: s.ID}, SurfaceMCP)
-	if !s.State.Warrant.Drifted {
-		t.Fatal("warrant should be marked drifted")
-	}
-
-	// A sub-agent's warrant can only narrow.
-	sub, err := e.IssueWarrant(ctx, s.ID, "run the tests", []string{"shell", "mcp:gmail:send", "mcp:github:get_file"}, 2*time.Hour, []string{"sub-agent-3"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sub.Scopes) != 2 || sub.Scopes[0] != "shell" || sub.Scopes[1] != "mcp:github:get_file" {
-		t.Fatalf("attenuation should drop gmail, got %v", sub.Scopes)
-	}
-	if sub.ExpiresAt.After(w.ExpiresAt) {
-		t.Fatal("child warrant cannot outlive its parent")
-	}
-	if len(sub.Delegation) != 3 {
-		t.Fatalf("delegation chain should be user→agent→sub-agent, got %v", sub.Delegation)
-	}
-}
-
 func TestSimulateReplaysHistory(t *testing.T) {
 	ctx := t.Context()
 	e, _ := newTestEngine(t)
@@ -364,7 +319,6 @@ func TestPolicyVocabulary(t *testing.T) {
 		{name: "org", expr: `host_matches(action.host, org.approved_destinations)`, want: false},
 		{name: "groups", expr: `"eng" in subject.groups && subject.agent == "claude_code"`, want: true},
 		{name: "lineage", expr: `action.lineage.hit && "pii" in action.lineage.labels`, want: true},
-		{name: "warrant absent", expr: `session.warrant.present`, want: false},
 		{name: "risk", expr: `session.risk >= 30`, want: true},
 	}
 	in := PolicyInput{

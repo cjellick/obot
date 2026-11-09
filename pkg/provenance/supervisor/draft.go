@@ -30,7 +30,7 @@ var (
 			"labels (sensitivity labels found in the action's content), lineage{hit, exact, count, labels}, " +
 			"trifecta (session holds untrusted and confidential content and the sink is external), text"},
 		{"session", "id, labels (every label that entered the session), risk (0-100), events, tool_calls, denied, duration_seconds, " +
-			"surfaces (list), trifecta, warrant{present, task, scopes, drifted, covers}, killed"},
+			"surfaces (list), trifecta, killed"},
 		{"org", "approved_destinations (list of host patterns), trusted_hosts (list)"},
 	}
 
@@ -160,12 +160,6 @@ type draftTestInput struct {
 		Denied    int      `json:"denied"`
 		Surfaces  []string `json:"surfaces"`
 		Killed    bool     `json:"killed"`
-		Warrant   *struct {
-			Present bool     `json:"present"`
-			Task    string   `json:"task"`
-			Scopes  []string `json:"scopes"`
-			Drifted bool     `json:"drifted"`
-		} `json:"warrant"`
 	} `json:"session"`
 	Org struct {
 		ApprovedDestinations []string `json:"approved_destinations"`
@@ -356,7 +350,7 @@ func draftSystemPrompt() string {
 	b.WriteString("- Prefer labels, capabilities, sink/source and lineage over tool names, so the policy holds on every surface.\n")
 	b.WriteString("- mode is always \"shadow\"; the administrator enables enforcement after simulation.\n")
 	b.WriteString("- Write 3 to 6 tests. At least one must expect false. A test input is an object with subject, action, session and org, ")
-	b.WriteString("using the variable fields above as JSON (lists as arrays, sink/source/lineage/warrant as objects). Follow the test input schema and use empty strings, empty arrays, false and zero for unused fields. subject.agent is a string naming the agent (for example \"claude_code\"), never a boolean.\n\n")
+	b.WriteString("using the variable fields above as JSON (lists as arrays, sink/source/lineage as objects). Follow the test input schema and use empty strings, empty arrays, false and zero for unused fields. subject.agent is a string naming the agent (for example \"claude_code\"), never a boolean.\n\n")
 
 	// Embedding the complete input as a JSON string keeps the provider's strict
 	// output grammar small. The typed decoder and bounded repair validate it.
@@ -401,15 +395,6 @@ func (in draftTestInput) policyInput(now time.Time) provenance.PolicyInput {
 	sess.State.Killed = in.Session.Killed
 	for _, sf := range in.Session.Surfaces {
 		sess.State.Surfaces = append(sess.State.Surfaces, provenance.Surface(sf))
-	}
-	if w := in.Session.Warrant; w != nil && (w.Present || w.Task != "" || len(w.Scopes) > 0) {
-		sess.State.Warrant = &provenance.Warrant{
-			Task: w.Task, Scopes: w.Scopes, Drifted: w.Drifted,
-			IssuedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour),
-		}
-		if !w.Present && w.Task == "" && len(w.Scopes) == 0 {
-			sess.State.Warrant = nil
-		}
 	}
 	var lineage []provenance.LineageHit
 	for _, l := range in.Action.Lineage.Labels {

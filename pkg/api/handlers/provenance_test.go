@@ -291,7 +291,7 @@ func TestProvenanceNarrative(t *testing.T) {
 	}
 }
 
-func TestProvenanceWarrantAndEnd(t *testing.T) {
+func TestProvenanceEndSession(t *testing.T) {
 	h, e := newProvAPITest(t)
 	s, err := e.Resolve(t.Context(), provAPISubject, provAPIKey, provenance.SurfaceLLM)
 	if err != nil {
@@ -299,28 +299,11 @@ func TestProvenanceWarrantAndEnd(t *testing.T) {
 	}
 	id := map[string]string{"id": s.ID}
 
-	var w provenance.Warrant
-	rec := provAPIOK(t, h.IssueWarrant, http.MethodPost, "/api/provenance/sessions/"+s.ID+"/warrant",
-		warrantRequest{Task: "fix the flaky test", Scopes: []string{"mcp:github:*", "shell"}, TTLSeconds: 3600, Delegation: []string{"craig", "claude_code"}}, id, &w)
-	if rec.Code != http.StatusCreated || w.SessionID != s.ID || len(w.Scopes) != 2 || w.ExpiresAt.Sub(w.IssuedAt) != time.Hour {
-		t.Fatalf("warrant: %d %+v", rec.Code, w)
-	}
-	got, err := e.Store().GetSession(t.Context(), s.ID)
-	if err != nil || got.Title != "fix the flaky test" || got.State.Warrant == nil {
-		t.Fatalf("warrant should be on the session: %+v (%v)", got, err)
-	}
-	if code := provAPIStatus(t, h.IssueWarrant, http.MethodPost, "/api/provenance/sessions/"+s.ID+"/warrant", warrantRequest{Scopes: []string{"shell"}}, id); code != http.StatusBadRequest {
-		t.Fatalf("a warrant without a task should be a 400, got %d", code)
-	}
-	if code := provAPIStatus(t, h.IssueWarrant, http.MethodPost, "/api/provenance/sessions/nope/warrant", warrantRequest{Task: "x"}, map[string]string{"id": "nope"}); code != http.StatusNotFound {
-		t.Fatalf("a warrant on an unknown session should be a 404, got %d", code)
-	}
-
-	rec = provAPIOK(t, h.EndSession, http.MethodPost, "/api/provenance/sessions/"+s.ID+"/end", nil, id, nil)
+	rec := provAPIOK(t, h.EndSession, http.MethodPost, "/api/provenance/sessions/"+s.ID+"/end", nil, id, nil)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("end should be a 204, got %d", rec.Code)
 	}
-	got, _ = e.Store().GetSession(t.Context(), s.ID)
+	got, _ := e.Store().GetSession(t.Context(), s.ID)
 	if got.EndedAt == nil {
 		t.Fatal("session should be ended")
 	}
@@ -779,7 +762,7 @@ func TestProvenanceOverview(t *testing.T) {
 	if len(out.Riskiest) != 1 || out.Riskiest[0].State.Risk == 0 || len(out.Riskiest[0].State.Fingerprints) != 0 {
 		t.Fatalf("riskiest: %+v", out.Riskiest)
 	}
-	if out.Policies.Enforce != 2 || out.Policies.Shadow != 4 {
+	if out.Policies.Enforce != 2 || out.Policies.Shadow != 3 {
 		t.Fatalf("policies: %+v", out.Policies)
 	}
 	if out.Supervisor.Configured || out.Supervisor.Enabled {

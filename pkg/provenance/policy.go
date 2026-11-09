@@ -26,7 +26,7 @@ import (
 //	           source{private, untrusted}, labels, lineage{hit, exact, count, labels},
 //	           trifecta, text}
 //	session   {id, labels, risk, events, tool_calls, denied, duration_seconds, surfaces,
-//	           trifecta, warrant{present, task, scopes, drifted, covers}, killed}
+//	           trifecta, killed}
 //	org       {approved_destinations, trusted_hosts}
 //
 // Functions:
@@ -387,20 +387,6 @@ func (in PolicyInput) Vars() map[string]any {
 	for _, s := range st.Surfaces {
 		surfaces = append(surfaces, string(s))
 	}
-	warrant := map[string]any{"present": false, "task": "", "scopes": []any{}, "drifted": false, "covers": true}
-	if st.Warrant != nil {
-		scopes := make([]any, 0, len(st.Warrant.Scopes))
-		for _, s := range st.Warrant.Scopes {
-			scopes = append(scopes, s)
-		}
-		warrant = map[string]any{
-			"present": st.Warrant.Active(in.Now),
-			"task":    st.Warrant.Task,
-			"scopes":  scopes,
-			"drifted": st.Warrant.Drifted,
-			"covers":  st.Warrant.Covers(a),
-		}
-	}
 	duration := 0.0
 	if !started.IsZero() {
 		duration = in.Now.Sub(started).Seconds()
@@ -415,7 +401,6 @@ func (in PolicyInput) Vars() map[string]any {
 		"duration_seconds": duration,
 		"surfaces":         surfaces,
 		"trifecta":         st.Trifecta(),
-		"warrant":          warrant,
 		"killed":           st.Killed,
 	}
 
@@ -475,7 +460,7 @@ func EvalPolicy(p *Policy, in PolicyInput) (bool, error) {
 
 // retiredBuiltInPolicies are built-in policies Obot once seeded and no longer
 // ships. Seed deletes them, since their conditions may no longer compile.
-var retiredBuiltInPolicies = []string{"builtin-honeytoken"}
+var retiredBuiltInPolicies = []string{"builtin-honeytoken", "builtin-warrant-drift"}
 
 // BuiltInPolicies are seeded when the policy store is empty. They start in
 // shadow mode, except the killed-session rule.
@@ -500,10 +485,6 @@ func BuiltInPolicies(now time.Time) []Policy {
 			"The session has read untrusted content and now wants to run a destructive or executing tool. The Supervisor decides.",
 			`"untrusted" in session.labels && ("destructive" in action.capabilities || action.sink.exec)`, EffectJudge, ModeShadow, 700,
 			"Allow routine development commands (tests, builds, git on the user's own branches). Escalate deletions of shared data and anything that sends data out."),
-		mk("builtin-warrant-drift", "Outside the declared task",
-			"The action is outside the scopes of the session's warrant. The Supervisor decides whether it fits the declared task.",
-			`session.warrant.present && !session.warrant.covers`, EffectJudge, ModeShadow, 600,
-			"Judge whether the action plausibly serves the declared task. Reading documentation usually does; reading email or CRM data usually does not."),
 		mk("builtin-killed", "Killed session",
 			"The session, user or organization was killed with the kill switch.",
 			`session.killed`, EffectDeny, ModeEnforce, 2000, ""),

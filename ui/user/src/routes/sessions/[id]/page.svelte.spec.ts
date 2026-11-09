@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe('Session replay', () => {
-	it('shows the session header, warrant, labels and coverage', async () => {
+	it('shows the session header, labels and coverage', async () => {
 		mockSession();
 		await renderPage();
 
@@ -50,14 +50,6 @@ describe('Session replay', () => {
 			.element(page.getByRole('heading', { name: 'Triage GitHub issue #4411' }).first())
 			.toBeInTheDocument();
 		await expect.element(page.getByLabelText('Risk 72')).toBeInTheDocument();
-		await expect
-			.element(page.getByText('Triage the flaky test in obot-platform/obot'))
-			.toBeInTheDocument();
-		await expect.element(page.getByText('Drifted')).toBeInTheDocument();
-		await expect.element(page.getByText('mcp:github:*')).toBeInTheDocument();
-		await expect
-			.element(page.getByText('First drift: tools/call salesforce.query'))
-			.toBeInTheDocument();
 
 		const coverage = page.getByRole('region', { name: 'Coverage' });
 		await expect.element(coverage.getByText('Not observed').first()).toBeInTheDocument();
@@ -139,32 +131,6 @@ describe('Session replay', () => {
 
 		await page.getByRole('button', { name: 'Kill session' }).click();
 		await expect.element(page.getByLabelText('Target')).toHaveValue('ses-risky');
-	});
-
-	it('issues a warrant', async () => {
-		mockSession();
-		const issued = vi.fn();
-		worker.use(
-			http.post('/api/provenance/sessions/ses-risky/warrant', async ({ request }) => {
-				const body = (await request.json()) as Record<string, unknown>;
-				issued(body);
-				return HttpResponse.json({ id: 'war-2', sessionID: 'ses-risky', ...body });
-			})
-		);
-		await renderPage();
-
-		await page.getByRole('button', { name: 'Issue warrant' }).first().click();
-		await page.getByLabelText('Task').fill('Fix the build');
-		await page.getByLabelText('Scopes (one per line)').fill('shell\nmcp:github:*');
-		await page.getByRole('dialog').getByRole('button', { name: 'Issue warrant' }).click();
-
-		await vi.waitFor(() =>
-			expect(issued).toHaveBeenCalledWith({
-				task: 'Fix the build',
-				scopes: ['shell', 'mcp:github:*'],
-				ttlSeconds: 3600
-			})
-		);
 	});
 
 	it('says when the session does not exist', async () => {

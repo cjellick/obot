@@ -91,13 +91,6 @@ type ProvenanceOverview struct {
 	} `json:"supervisor"`
 }
 
-type warrantRequest struct {
-	Task       string   `json:"task"`
-	Scopes     []string `json:"scopes"`
-	TTLSeconds int      `json:"ttlSeconds"`
-	Delegation []string `json:"delegation"`
-}
-
 type policyValidateRequest struct {
 	Condition string `json:"condition"`
 }
@@ -420,9 +413,6 @@ func fallbackNarrative(s *provenance.Session, events []provenance.Event) provena
 	if st.Killed {
 		n.Concerns = append(n.Concerns, "the session was stopped with the kill switch")
 	}
-	if st.Warrant != nil && st.Warrant.Drifted {
-		n.Concerns = append(n.Concerns, "the session drifted outside its warrant: "+st.Warrant.DriftSummary)
-	}
 	for _, ev := range events {
 		if ev.Decision == nil {
 			continue
@@ -444,25 +434,6 @@ func fallbackNarrative(s *provenance.Session, events []provenance.Event) provena
 		}
 	}
 	return n
-}
-
-func (h *ProvenanceHandler) IssueWarrant(req api.Context) error {
-	id := req.PathValue("id")
-	var in warrantRequest
-	if err := req.Read(&in); err != nil {
-		return types.NewErrBadRequest("invalid request: %v", err)
-	}
-	if strings.TrimSpace(in.Task) == "" {
-		return types.NewErrBadRequest("task is required")
-	}
-	if in.TTLSeconds < 0 {
-		return types.NewErrBadRequest("ttlSeconds must not be negative")
-	}
-	w, err := h.engine.IssueWarrant(req.Context(), id, in.Task, in.Scopes, time.Duration(in.TTLSeconds)*time.Second, in.Delegation)
-	if err != nil {
-		return provenanceLookupErr(err, "session", id)
-	}
-	return req.WriteCreated(w)
 }
 
 func (h *ProvenanceHandler) EndSession(req api.Context) error {

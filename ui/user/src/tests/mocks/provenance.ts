@@ -42,16 +42,6 @@ export const riskySession: Session = {
 		approvals: 1,
 		externalOut: 1,
 		surfaces: ['llm', 'mcp', 'egress'],
-		warrant: {
-			id: 'war-1',
-			sessionID: 'ses-risky',
-			task: 'Triage the flaky test in obot-platform/obot',
-			scopes: ['mcp:github:*', 'egress:api.github.com'],
-			issuedAt: minutesAgo(38),
-			expiresAt: minutesFromNow(40),
-			drifted: true,
-			driftSummary: 'tools/call salesforce.query'
-		},
 		lastSummary: 'POST paste.example'
 	}
 };
@@ -158,15 +148,15 @@ export const riskyEvents: ProvenanceEvent[] = [
 		decision: {
 			allow: true,
 			effect: 'judge',
-			policyID: 'builtin-warrant-drift',
-			policyName: 'Outside the declared task',
-			reason: 'the action is outside the warrant scopes; the Supervisor allowed it',
+			policyID: 'builtin-untrusted-destructive',
+			policyName: 'Destructive action after untrusted content',
+			reason: 'the session read untrusted content; the Supervisor allowed it',
 			shadow: true,
 			risk: 30,
 			matched: [
 				{
-					policyID: 'builtin-warrant-drift',
-					policyName: 'Outside the declared task',
+					policyID: 'builtin-untrusted-destructive',
+					policyName: 'Destructive action after untrusted content',
 					effect: 'judge',
 					shadow: true
 				}

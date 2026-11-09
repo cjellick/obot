@@ -219,7 +219,7 @@ func (h *ProvenanceHandler) SupervisorInsights(req api.Context) error {
 
 // SupervisorAsk answers an administrator's question from a content-free
 // context: status, insights, recent decisions and, when a session is named,
-// that session's labels, warrant and events.
+// that session's labels and events.
 func (h *ProvenanceHandler) SupervisorAsk(req api.Context) error {
 	var in supervisorAskRequest
 	if err := req.Read(&in); err != nil {
@@ -847,15 +847,6 @@ func supervisorAskContext(ctx context.Context, snap *supervisorSnapshot, session
 					fmt.Fprintf(&b, "- %s: %s\n", label, strings.Join(origins, "; "))
 				}
 			}
-		}
-		if w := st.Warrant; w != nil {
-			fmt.Fprintf(&b, "Warrant: task %q, scopes [%s], expires %s", w.Task, strings.Join(w.Scopes, ", "), w.ExpiresAt.UTC().Format(time.RFC3339))
-			if w.Drifted {
-				fmt.Fprintf(&b, ", drifted at %s", w.DriftSummary)
-			}
-			b.WriteString(".\n")
-		} else {
-			b.WriteString("Warrant: none issued.\n")
 		}
 		if len(sessionEvents) > 0 {
 			b.WriteString("Its events (oldest first; time, surface, action, labels, effect, reason):\n")

@@ -415,7 +415,6 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("GET /api/provenance/sessions/{id}", prov.GetSession)
 	mux.HandleFunc("GET /api/provenance/sessions/{id}/events", prov.ListSessionEvents)
 	mux.HandleFunc("GET /api/provenance/sessions/{id}/narrative", prov.SessionNarrative)
-	mux.HandleFunc("POST /api/provenance/sessions/{id}/warrant", prov.IssueWarrant)
 	mux.HandleFunc("POST /api/provenance/sessions/{id}/end", prov.EndSession)
 	mux.HandleFunc("GET /api/provenance/events", prov.ListEvents)
 	mux.HandleFunc("GET /api/provenance/policies", prov.ListPolicies)

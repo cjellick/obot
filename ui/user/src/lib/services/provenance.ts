@@ -179,18 +179,6 @@ export interface LabelOrigin {
 	at: string;
 }
 
-export interface Warrant {
-	id: string;
-	sessionID: string;
-	task: string;
-	scopes: string[];
-	delegation?: string[];
-	issuedAt: string;
-	expiresAt: string;
-	drifted?: boolean;
-	driftSummary?: string;
-}
-
 export interface SessionState {
 	labels?: string[];
 	origins?: Record<string, LabelOrigin[]>;
@@ -202,7 +190,6 @@ export interface SessionState {
 	approvals: number;
 	externalOut: number;
 	surfaces?: Surface[];
-	warrant?: Warrant;
 	killed?: boolean;
 	downshifted?: boolean;
 	lastSummary?: string;
@@ -457,14 +444,6 @@ export async function listSessionEvents(
 
 export async function getSessionNarrative(id: string, opts?: Opts): Promise<Narrative> {
 	return (await doGet(`${B}/sessions/${enc(id)}/narrative`, opts)) as Narrative;
-}
-
-export async function issueWarrant(
-	id: string,
-	body: { task: string; scopes: string[]; ttlSeconds?: number; delegation?: string[] },
-	opts?: Opts
-): Promise<Warrant> {
-	return (await doPost(`${B}/sessions/${enc(id)}/warrant`, body, opts)) as Warrant;
 }
 
 export async function endSession(id: string, opts?: Opts): Promise<void> {

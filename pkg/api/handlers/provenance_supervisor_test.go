@@ -303,7 +303,7 @@ func TestSupervisorAsk(t *testing.T) {
 	if out.Context.Sessions != 1 || out.Context.Events < 3 {
 		t.Fatalf("session context counts: %+v", out.Context)
 	}
-	for _, want := range []string{"The session the administrator is asking about: " + s.ID, "Where each label came from", "salesforce.query", "Warrant: none issued", "Its events"} {
+	for _, want := range []string{"The session the administrator is asking about: " + s.ID, "Where each label came from", "salesforce.query", "Its events"} {
 		if !strings.Contains(fake.lastContext, want) {
 			t.Fatalf("session context should have %q: %s", want, fake.lastContext)
 		}

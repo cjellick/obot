@@ -83,8 +83,6 @@ type SessionState struct {
 	ExternalOut int `json:"externalOut"`
 	// Surfaces that have reported into the session, for coverage.
 	Surfaces []Surface `json:"surfaces,omitempty"`
-	// Warrant is the session's intent-bound authority, when one was issued.
-	Warrant *Warrant `json:"warrant,omitempty"`
 	// Killed reports that the session was killed.
 	Killed bool `json:"killed,omitempty"`
 	// Downshifted reports that credentials have been downshifted to read-only.
@@ -105,29 +103,6 @@ type Session struct {
 	LastActivityAt time.Time    `json:"lastActivityAt"`
 	EndedAt        *time.Time   `json:"endedAt,omitempty"`
 	State          SessionState `json:"state"`
-}
-
-// Warrant is intent-bound, just-in-time authority for a session: the task the
-// user declared, the capability scopes that task needs, and a TTL. Drift from
-// the warrant is a risk signal and a policy input, not an automatic block.
-type Warrant struct {
-	ID        string `json:"id"`
-	SessionID string `json:"sessionID"`
-	// Task is the user's declared intent ("fix the flaky test in obot-platform/obot").
-	Task string `json:"task"`
-	// Scopes are the capability scopes the task is allowed: "mcp:github:*",
-	// "mcp:github:create_pull_request", "egress:api.github.com", "shell",
-	// "file:/Users/x/projects/obot/**", "model:*".
-	Scopes []string `json:"scopes"`
-	// Delegation is the chain this warrant was attenuated through, outermost
-	// first. A sub-agent's warrant can only be narrower than its parent's.
-	Delegation []string  `json:"delegation,omitempty"`
-	IssuedAt   time.Time `json:"issuedAt"`
-	ExpiresAt  time.Time `json:"expiresAt"`
-	// Drifted reports that an action outside the scopes has been attempted.
-	Drifted bool `json:"drifted,omitempty"`
-	// DriftSummary describes the first drift seen.
-	DriftSummary string `json:"driftSummary,omitempty"`
 }
 
 // LinkKey returns the stitching key for the session's client identifier, or
@@ -151,88 +126,6 @@ func (k SessionKey) FallbackKey() string {
 	default:
 		return "user:" + k.UserID + ":key:" + k.APIKeyID + ":" + k.Agent
 	}
-}
-
-// Active reports whether the warrant is in force at t.
-func (w *Warrant) Active(t time.Time) bool {
-	return w != nil && !t.Before(w.IssuedAt) && t.Before(w.ExpiresAt)
-}
-
-// Covers reports whether an action is within the warrant's scopes.
-func (w *Warrant) Covers(a Action) bool {
-	if w == nil {
-		return true
-	}
-	for _, scope := range w.Scopes {
-		if scopeCovers(scope, a) {
-			return true
-		}
-	}
-	return false
-}
-
-func scopeCovers(scope string, a Action) bool {
-	kind, rest, _ := strings.Cut(scope, ":")
-	switch kind {
-	case "*":
-		return true
-	case "mcp":
-		if a.Kind != KindToolCall {
-			return false
-		}
-		server, tool, _ := strings.Cut(rest, ":")
-		if tool == "" {
-			tool = "*"
-		}
-		return globMatch(server, a.Server) && globMatch(tool, a.Tool)
-	case "shell":
-		return a.Kind == KindShellExec
-	case "egress":
-		return a.Kind == KindNetEgress && globMatch(rest, a.Host)
-	case "file":
-		return (a.Kind == KindFileRead || a.Kind == KindFileWrite) && globMatch(rest, a.File)
-	case "model":
-		return a.Kind == KindLLMTurn && globMatch(rest, a.Model)
-	}
-	return false
-}
-
-// globMatch supports "*" anywhere and a "**" suffix for paths. It is
-// case-insensitive.
-func globMatch(pattern, value string) bool {
-	pattern, value = strings.ToLower(pattern), strings.ToLower(value)
-	if pattern == "*" || pattern == "**" || pattern == value {
-		return true
-	}
-	if strings.HasSuffix(pattern, "/**") {
-		return strings.HasPrefix(value, strings.TrimSuffix(pattern, "**"))
-	}
-	parts := strings.Split(pattern, "*")
-	if len(parts) == 1 {
-		return false
-	}
-	if !strings.HasPrefix(value, parts[0]) {
-		return false
-	}
-	value = value[len(parts[0]):]
-	for i := 1; i < len(parts); i++ {
-		part := parts[i]
-		if part == "" {
-			if i == len(parts)-1 {
-				return true
-			}
-			continue
-		}
-		idx := strings.Index(value, part)
-		if idx < 0 {
-			return false
-		}
-		if i == len(parts)-1 {
-			return strings.HasSuffix(value, part)
-		}
-		value = value[idx+len(part):]
-	}
-	return value == ""
 }
 
 // NewID returns a random identifier with a prefix.
@@ -318,9 +211,6 @@ func (st *SessionState) Recompute() {
 		risk += 10
 	}
 	risk += min(st.Denied*5, 20)
-	if st.Warrant != nil && st.Warrant.Drifted {
-		risk += 10
-	}
 	st.Risk = min(risk, 100)
 }
 

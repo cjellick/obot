@@ -555,15 +555,6 @@ func writeSession(b *strings.Builder, s *provenance.Session, narrative string) {
 		}
 		fmt.Fprintf(b, "; surfaces %s", strings.Join(surfaces, ", "))
 	}
-	if w := s.State.Warrant; w != nil {
-		fmt.Fprintf(b, "; warrant: task %s, scopes [%s]", quote(w.Task), strings.Join(w.Scopes, ", "))
-		if w.Drifted {
-			fmt.Fprintf(b, ", drifted (%s)", w.DriftSummary)
-		}
-		if len(w.Delegation) > 0 {
-			fmt.Fprintf(b, ", delegation %s", strings.Join(w.Delegation, " → "))
-		}
-	}
 	if s.State.Killed {
 		b.WriteString("; KILLED")
 	}

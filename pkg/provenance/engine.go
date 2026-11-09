@@ -699,10 +699,6 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 	if killed {
 		s.State.Killed = true
 	}
-	if s.State.Warrant != nil && s.State.Warrant.Active(now) && !s.State.Warrant.Covers(a) && !s.State.Warrant.Drifted {
-		s.State.Warrant.Drifted = true
-		s.State.Warrant.DriftSummary = summary
-	}
 	switch decision.Effect {
 	case EffectDownshift:
 		s.State.Downshifted = true
@@ -1120,79 +1116,6 @@ func (e *Engine) SetTitle(ctx context.Context, sessionID, title string) error {
 	snapshot := *s
 	e.lock.Unlock()
 	return e.store.PutSession(ctx, &snapshot)
-}
-
-// IssueWarrant binds a session to a declared task and the scopes it needs.
-func (e *Engine) IssueWarrant(ctx context.Context, sessionID, task string, scopes []string, ttl time.Duration, delegation []string) (*Warrant, error) {
-	s, err := e.session(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	now := e.now()
-	if ttl <= 0 {
-		ttl = 8 * time.Hour
-	}
-	w := &Warrant{
-		ID: NewID("wrt"), SessionID: sessionID, Task: task, Scopes: scopes, Delegation: delegation,
-		IssuedAt: now, ExpiresAt: now.Add(ttl),
-	}
-	e.lock.Lock()
-	if parent := s.State.Warrant; parent != nil && parent.Active(now) {
-		// Attenuation: a new warrant on a session with one can only narrow it.
-		var narrowed []string
-		for _, scope := range scopes {
-			for _, ps := range parent.Scopes {
-				if scopeWithin(scope, ps) {
-					narrowed = append(narrowed, scope)
-					break
-				}
-			}
-		}
-		w.Scopes = narrowed
-		if w.ExpiresAt.After(parent.ExpiresAt) {
-			w.ExpiresAt = parent.ExpiresAt
-		}
-		w.Delegation = append(slices.Clone(parent.Delegation), delegation...)
-	}
-	s.State.Warrant = w
-	if s.Title == "" {
-		s.Title = task
-	}
-	s.State.Recompute()
-	snapshot := *s
-	e.lock.Unlock()
-	ev := Event{
-		ID: NewID("evt"), SessionID: sessionID, Kind: KindDelegation, At: now, UserID: s.UserID,
-		Summary: "warrant issued: " + task,
-	}
-	if err := e.persist(ctx, &snapshot, ev); err != nil {
-		return nil, err
-	}
-	return w, nil
-}
-
-// scopeWithin reports whether scope is no broader than parent.
-func scopeWithin(scope, parent string) bool {
-	if parent == "*" || parent == scope {
-		return true
-	}
-	pk, prest, _ := strings.Cut(parent, ":")
-	sk, srest, _ := strings.Cut(scope, ":")
-	if pk != sk {
-		return false
-	}
-	if pk == "mcp" {
-		pserver, ptool, _ := strings.Cut(prest, ":")
-		sserver, stool, _ := strings.Cut(srest, ":")
-		if ptool == "" {
-			ptool = "*"
-		}
-		if stool == "" {
-			stool = "*"
-		}
-		return globMatch(pserver, sserver) && globMatch(ptool, stool)
-	}
-	return prest == "" || globMatch(prest, srest)
 }
 
 // Kill activates a kill switch. Every action in its scope is denied on every

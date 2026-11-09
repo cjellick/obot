@@ -63,11 +63,6 @@
 				'duration_seconds',
 				'surfaces',
 				'trifecta',
-				'warrant.present',
-				'warrant.task',
-				'warrant.scopes',
-				'warrant.drifted',
-				'warrant.covers',
 				'killed'
 			]
 		},
@@ -82,7 +77,6 @@
 		'action.trifecta',
 		'"secret" in action.lineage.labels && action.sink.external',
 		'"untrusted" in session.labels && ("destructive" in action.capabilities || action.sink.exec)',
-		'session.warrant.present && !session.warrant.covers',
 		'action.kind == "net.egress" && !host_matches(action.host, org.approved_destinations)'
 	];
 </script>

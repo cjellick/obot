@@ -150,11 +150,6 @@ func TestProvenanceRouteAuthorization(t *testing.T) {
 			readOnly: true,
 		},
 		{
-			name:   "issue warrant",
-			method: http.MethodPost,
-			path:   "/api/provenance/sessions/ses-1/warrant",
-		},
-		{
 			name:   "end session",
 			method: http.MethodPost,
 			path:   "/api/provenance/sessions/ses-1/end",
