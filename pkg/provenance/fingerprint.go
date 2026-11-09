@@ -14,8 +14,8 @@ import (
 // when it appears again in an outbound action, without storing the content.
 //
 // Two kinds are kept. Exact fingerprints are hashes of structured identifiers
-// (email addresses, phone numbers, card and account numbers, API keys, IP
-// addresses) and match only an identical identifier. Shingle fingerprints are
+// (email addresses, phone numbers, card and account numbers, API keys) and
+// match only an identical identifier. Shingle fingerprints are
 // hashes of normalized word n-grams and match a run of words copied with light
 // edits. A model that paraphrases defeats shingles; it does not defeat the
 // session-level taint, which is why lineage only ever lowers a decision's
@@ -34,7 +34,6 @@ var (
 	emailRe   = regexp.MustCompile(`(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b`)
 	phoneRe   = regexp.MustCompile(`\+?\d[\d\s().-]{8,}\d`)
 	cardRe    = regexp.MustCompile(`\b(?:\d[ -]?){13,19}\b`)
-	ipRe      = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 	ssnRe     = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 	apiKeyRe  = regexp.MustCompile(`\b(?:sk|pk|rk|ghp|gho|ghu|ghs|xox[bap]|AKIA|ASIA|sk-ant|hf)[-_][A-Za-z0-9_\-]{12,}\b|\bAKIA[0-9A-Z]{16}\b`)
 	awsKeyRe  = regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)
@@ -55,7 +54,6 @@ var (
 		{ssnRe, LabelPII},
 		{cardRe, LabelFinancial},
 		{phoneRe, LabelPII},
-		{ipRe, LabelConfidential},
 	}
 )
 
