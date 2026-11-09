@@ -46,5 +46,19 @@
 	"server_requests_slack_hint": "新しいリクエストを管理者に通知するには、OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL に Slack の受信 Webhook を設定してください。",
 	"server_requests_catalog_entry": "カタログに登録済み",
 	"server_requests_grant_requester": "リクエスト者がまだ接続できない場合は、このサーバーへのアクセスを付与する",
-	"server_requests_matched": "このサーバーはカタログに {entry} として登録済みです。承認すると、重複を作らずにそのエントリが追加されます。"
+	"server_requests_matched": "このサーバーはカタログに {entry} として登録済みです。承認すると、重複を作らずにそのエントリが追加されます。",
+	"server_requests_slack_title": "Slack 通知",
+	"server_requests_slack_description": "新しいリクエストを、確認用リンク付きで Slack チャンネルに投稿します。Slack アプリでチャンネルの Incoming Webhook を作成し、その URL をここに貼り付けてください。",
+	"server_requests_slack_url": "Incoming Webhook URL",
+	"server_requests_slack_connected": "{hint} に投稿中",
+	"server_requests_slack_off": "未設定です。管理者はここと Obot AI で新しいリクエストを確認できます。",
+	"server_requests_slack_deployment": "Obot のデプロイ時に設定されているため、ここでは変更できません。デプロイの OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL を変更してください。",
+	"server_requests_slack_save": "保存",
+	"server_requests_slack_replace": "置き換え",
+	"server_requests_slack_remove": "削除",
+	"server_requests_slack_test": "テストメッセージを送信",
+	"server_requests_slack_test_sent": "テストメッセージを送信しました。チャンネルを確認してください。",
+	"server_requests_slack_saved": "Slack 通知を保存しました。",
+	"server_requests_slack_removed": "Slack 通知をオフにしました。",
+	"server_requests_slack_cancel": "キャンセル"
 }

@@ -46,5 +46,19 @@
 	"server_requests_slack_hint": "새 요청을 관리자에게 알리려면 OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL에 Slack 수신 웹후크를 설정하세요.",
 	"server_requests_catalog_entry": "이미 카탈로그에 있음",
 	"server_requests_grant_requester": "요청자가 아직 연결할 수 없으면 이 서버에 대한 액세스 권한 부여",
-	"server_requests_matched": "이 서버는 이미 카탈로그에 {entry}(으)로 있습니다. 승인하면 중복 항목 대신 해당 항목이 추가됩니다."
+	"server_requests_matched": "이 서버는 이미 카탈로그에 {entry}(으)로 있습니다. 승인하면 중복 항목 대신 해당 항목이 추가됩니다.",
+	"server_requests_slack_title": "Slack 알림",
+	"server_requests_slack_description": "새 요청을 검토 링크와 함께 Slack 채널에 게시합니다. Slack 앱에서 채널의 수신 웹훅을 만든 다음 URL을 여기에 붙여넣으세요.",
+	"server_requests_slack_url": "수신 웹훅 URL",
+	"server_requests_slack_connected": "{hint}에 게시 중",
+	"server_requests_slack_off": "설정되지 않았습니다. 관리자는 여기와 Obot AI에서 새 요청을 확인할 수 있습니다.",
+	"server_requests_slack_deployment": "Obot 배포 시 설정되어 여기에서 변경할 수 없습니다. 배포에서 OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL을 변경하세요.",
+	"server_requests_slack_save": "저장",
+	"server_requests_slack_replace": "교체",
+	"server_requests_slack_remove": "제거",
+	"server_requests_slack_test": "테스트 메시지 보내기",
+	"server_requests_slack_test_sent": "테스트 메시지를 보냈습니다. 채널을 확인하세요.",
+	"server_requests_slack_saved": "Slack 알림을 저장했습니다.",
+	"server_requests_slack_removed": "Slack 알림을 껐습니다.",
+	"server_requests_slack_cancel": "취소"
 }

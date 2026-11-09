@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -32,6 +33,11 @@ type MCPServerRequestHandler struct {
 	vmcps    *VMCPHandler
 	catalogs *MCPCatalogHandler
 	notifier *mcpserverrequest.Notifier
+}
+
+type mcpServerRequestSettingsUpdate struct {
+	// SlackWebhookURL is the Slack incoming webhook to post new requests to. Empty removes it.
+	SlackWebhookURL string `json:"slackWebhookURL"`
 }
 
 func NewMCPServerRequestHandler(vmcps *VMCPHandler, catalogs *MCPCatalogHandler, notifier *mcpserverrequest.Notifier) *MCPServerRequestHandler {
@@ -152,7 +158,7 @@ func (h *MCPServerRequestHandler) CreateRequest(req api.Context, manifest types.
 	}
 
 	converted := convertMCPServerRequest(request)
-	if h.notifier.Enabled() {
+	if h.notifier.Enabled(req.Context()) {
 		// Alerting must not hold up the requester, and a failure to alert must not lose the
 		// request: it is still listed for administrators in Obot.
 		go h.notify(req.Storage, req.Namespace(), converted)
@@ -660,4 +666,43 @@ func cmpOr(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// GetSettings reports how administrators are alerted about new requests.
+func (h *MCPServerRequestHandler) GetSettings(req api.Context) error {
+	settings, err := h.notifier.Settings(req.Context())
+	if err != nil {
+		return err
+	}
+	return req.Write(settings)
+}
+
+// UpdateSettings sets the Slack webhook new requests are posted to.
+func (h *MCPServerRequestHandler) UpdateSettings(req api.Context) error {
+	var in mcpServerRequestSettingsUpdate
+	if err := req.Read(&in); err != nil {
+		return types.NewErrBadRequest("invalid request: %v", err)
+	}
+	url := strings.TrimSpace(in.SlackWebhookURL)
+	if url != "" {
+		if err := mcpserverrequest.ValidateWebhookURL(url); err != nil {
+			return types.NewErrBadRequest("%v", err)
+		}
+	}
+	if err := h.notifier.SetWebhook(req.Context(), url); err != nil {
+		if errors.Is(err, mcpserverrequest.ErrSetViaDeployment) {
+			return types.NewErrHTTP(http.StatusConflict, err.Error())
+		}
+		return err
+	}
+	return h.GetSettings(req)
+}
+
+// TestSettings posts a test message to the Slack webhook.
+func (h *MCPServerRequestHandler) TestSettings(req api.Context) error {
+	if err := h.notifier.SendTest(req.Context()); err != nil {
+		return types.NewErrBadRequest("%v", err)
+	}
+	req.WriteHeader(http.StatusNoContent)
+	return nil
 }

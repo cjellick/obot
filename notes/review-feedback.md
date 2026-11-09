@@ -21,7 +21,7 @@ Craig's review of the branch, and the decisions from it. Everything here lands o
 
 ## Server requests and the built-in MCP servers
 
-- [ ] Admins set up the Slack webhook in the UI. When it was set at deploy time, show it read-only.
+- [x] Admins set up the Slack webhook in the UI. When it was set at deploy time, show it read-only.
       Later: a full Slack app, official in Obot Cloud and roll-your-own for self-hosted.
 - [ ] Snippets that turn the built-in server on by default for Codex (`config.toml` defaults), next
       to Claude's. No allowlists, and no other clients for now.

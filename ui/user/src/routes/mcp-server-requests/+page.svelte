@@ -3,6 +3,7 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import BuiltinMCPSetup from '$lib/components/mcp-server-requests/BuiltinMCPSetup.svelte';
 	import RequestStateBadge from '$lib/components/mcp-server-requests/RequestStateBadge.svelte';
+	import SlackAlertsSettings from '$lib/components/mcp-server-requests/SlackAlertsSettings.svelte';
 	import { parseErrorContent } from '$lib/errors';
 	import { m } from '$lib/i18n';
 	import {
@@ -65,6 +66,10 @@
 		</p>
 
 		<BuiltinMCPSetup admin={isAdmin} />
+
+		{#if isAdmin}
+			<SlackAlertsSettings />
+		{/if}
 
 		<div class="flex flex-wrap gap-2" role="group" aria-label={m.server_requests_title()}>
 			{#each filters as f (f.value)}

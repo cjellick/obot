@@ -1,4 +1,4 @@
-import { doGet, doPost, type Fetcher } from './http';
+import { doGet, doPost, doPut, type Fetcher } from './http';
 
 // Users' requests to add MCP servers, usually made from their agent through Obot's built-in
 // MCP server, and administrators' decisions on them.
@@ -94,6 +94,33 @@ export async function denyMCPServerRequest(
 		{ reason },
 		opts
 	)) as MCPServerRequest;
+}
+
+/** How administrators hear about new requests. The webhook itself is never returned. */
+export interface MCPServerRequestSettings {
+	slackWebhookConfigured: boolean;
+	/** Enough of the webhook to recognize it. */
+	slackWebhookHint?: string;
+	/** The webhook was set when Obot was deployed, so it can't be changed here. */
+	setViaDeployment: boolean;
+}
+
+const SETTINGS = '/mcp-server-request-settings';
+
+export async function getMCPServerRequestSettings(opts?: Opts): Promise<MCPServerRequestSettings> {
+	return (await doGet(SETTINGS, opts)) as MCPServerRequestSettings;
+}
+
+/** Sets the Slack webhook new requests are posted to. An empty URL removes it. */
+export async function updateMCPServerRequestSettings(
+	slackWebhookURL: string,
+	opts?: Opts
+): Promise<MCPServerRequestSettings> {
+	return (await doPut(SETTINGS, { slackWebhookURL }, opts)) as MCPServerRequestSettings;
+}
+
+export async function testMCPServerRequestSettings(opts?: Opts): Promise<void> {
+	await doPost(`${SETTINGS}/test`, {}, opts);
 }
 
 /** How the requested server runs, for display: its URL, package or image. */

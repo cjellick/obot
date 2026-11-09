@@ -55,6 +55,8 @@ var (
 		"/api/vmcps/",
 		"/api/mcp-server-requests",
 		"/api/mcp-server-requests/",
+		"/api/mcp-server-request-settings",
+		"/api/mcp-server-request-settings/",
 		"/api/vmcp-instances",
 		"/api/vmcp-instances/",
 		"/api/all-mcps",

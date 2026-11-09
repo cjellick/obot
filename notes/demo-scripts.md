@@ -21,9 +21,11 @@ sandbox.
   - **Engineering Tools**: Context7, Fetch, Sentry, Notion, DeepWiki, Prisma Postgres, Semgrep, Mux, Exa Search. The `default` profile grants admins; `dev` has a profile for the servers they requested.
   - **Data Tools**: Supabase.
   - **Research Tools**: DeepWiki only. It needs no third-party sign-in, which makes it the easiest vMCP to connect a live agent to.
-- Slack: the local deployment posts to a stand-in webhook (`kubectl logs deploy/webhook-echo`).
-  For a real Slack demo, set `OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL` to a Slack
-  incoming webhook. `notes/local-k8s-dev/values.yaml` sets it under `config:`.
+- Slack: set the webhook on **Server Requests → Slack alerts**. The local deployment uses a
+  stand-in (`http://webhook-echo.default:8080/slack`; see posts with
+  `kubectl logs deploy/webhook-echo`). For a real Slack demo, click **Replace** and paste a Slack
+  incoming webhook URL, then **Send a test message**. A webhook set at deployment
+  (`OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL`) shows read-only.
 
 ### Connecting Claude Code to Obot's built-in servers
 

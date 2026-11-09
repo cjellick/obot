@@ -46,5 +46,19 @@
 	"server_requests_slack_hint": "Set OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL to a Slack incoming webhook to alert administrators about new requests.",
 	"server_requests_catalog_entry": "Already in the catalog",
 	"server_requests_grant_requester": "Give the requester access to this server if they can’t already connect",
-	"server_requests_matched": "This server is already in the catalog as {entry}. Approving adds that entry instead of a duplicate."
+	"server_requests_matched": "This server is already in the catalog as {entry}. Approving adds that entry instead of a duplicate.",
+	"server_requests_slack_title": "Slack alerts",
+	"server_requests_slack_description": "Post each new request to a Slack channel, with a link to review it. Create an incoming webhook for the channel in your Slack app, then paste its URL here.",
+	"server_requests_slack_url": "Incoming webhook URL",
+	"server_requests_slack_connected": "Posting to {hint}",
+	"server_requests_slack_off": "Not set up. Administrators see new requests here and in Obot AI.",
+	"server_requests_slack_deployment": "Set when Obot was deployed, so it can't be changed here. Change OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL in your deployment instead.",
+	"server_requests_slack_save": "Save",
+	"server_requests_slack_replace": "Replace",
+	"server_requests_slack_remove": "Remove",
+	"server_requests_slack_test": "Send a test message",
+	"server_requests_slack_test_sent": "Test message sent. Check the channel.",
+	"server_requests_slack_saved": "Slack alerts saved.",
+	"server_requests_slack_removed": "Slack alerts turned off.",
+	"server_requests_slack_cancel": "Cancel"
 }

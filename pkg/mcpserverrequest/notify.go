@@ -5,34 +5,175 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
+	gclient "github.com/obot-platform/obot/pkg/gateway/client"
+	gtypes "github.com/obot-platform/obot/pkg/gateway/types"
 )
 
-// Notifier posts new requests to a Slack incoming webhook. A Notifier without a webhook
-// does nothing.
-type Notifier struct {
-	webhookURL string
-	baseURL    string
-	client     *http.Client
+const (
+	credentialContext = "mcp-server-requests"
+	credentialName    = "slack-webhook"
+	credentialKey     = "url"
+)
+
+// ErrSetViaDeployment is returned when an administrator tries to change a webhook that was
+// set at deployment.
+var (
+	ErrSetViaDeployment = errors.New("the Slack webhook was set when Obot was deployed and can't be changed here")
+)
+
+// CredentialStore keeps the webhook an administrator set in Obot, encrypted.
+type CredentialStore interface {
+	RevealCredential(ctx context.Context, contexts []string, name string) (gtypes.Credential, error)
+	UpsertCredential(ctx context.Context, credential gtypes.Credential) error
+	DeleteCredential(ctx context.Context, context, name string) (bool, error)
 }
 
-func NewNotifier(webhookURL, baseURL string) *Notifier {
+// Notifier posts new requests to a Slack incoming webhook. The webhook comes from the
+// deployment when one was configured there, and otherwise from what an administrator set
+// in Obot. A Notifier without a webhook does nothing.
+type Notifier struct {
+	deployedURL string
+	store       CredentialStore
+	baseURL     string
+	client      *http.Client
+}
+
+// Settings is where the Slack webhook stands, without revealing it.
+type Settings struct {
+	// SlackWebhookConfigured reports whether new requests are posted to Slack.
+	SlackWebhookConfigured bool `json:"slackWebhookConfigured"`
+	// SlackWebhookHint is enough of the webhook to recognize it.
+	SlackWebhookHint string `json:"slackWebhookHint,omitempty"`
+	// SetViaDeployment reports that the webhook was set when Obot was deployed, so it can't
+	// be changed in Obot.
+	SetViaDeployment bool `json:"setViaDeployment"`
+}
+
+// NewNotifier creates a notifier. deployedURL is the webhook set at deployment, which
+// administrators cannot change in Obot; store may be nil.
+func NewNotifier(deployedURL, baseURL string, store CredentialStore) *Notifier {
 	return &Notifier{
-		webhookURL: strings.TrimSpace(webhookURL),
-		baseURL:    strings.TrimSuffix(baseURL, "/"),
-		client:     &http.Client{Timeout: 15 * time.Second},
+		deployedURL: strings.TrimSpace(deployedURL),
+		store:       store,
+		baseURL:     strings.TrimSuffix(baseURL, "/"),
+		client:      &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
+// webhookURL is the webhook to post to, or "" when there is none.
+func (n *Notifier) webhookURL(ctx context.Context) (string, error) {
+	if n == nil {
+		return "", nil
+	}
+	if n.deployedURL != "" {
+		return n.deployedURL, nil
+	}
+	if n.store == nil {
+		return "", nil
+	}
+	credential, err := n.store.RevealCredential(ctx, []string{credentialContext}, credentialName)
+	if err != nil {
+		if _, ok := errors.AsType[gclient.CredentialNotFoundError](err); ok {
+			return "", nil
+		}
+		return "", err
+	}
+	return credential.Secrets[credentialKey], nil
+}
+
 // Enabled reports whether requests are sent anywhere.
-func (n *Notifier) Enabled() bool {
-	return n != nil && n.webhookURL != ""
+func (n *Notifier) Enabled(ctx context.Context) bool {
+	url, err := n.webhookURL(ctx)
+	return err == nil && url != ""
+}
+
+// Settings reports where the webhook stands.
+func (n *Notifier) Settings(ctx context.Context) (Settings, error) {
+	url, err := n.webhookURL(ctx)
+	if err != nil {
+		return Settings{}, err
+	}
+	return Settings{
+		SlackWebhookConfigured: url != "",
+		SlackWebhookHint:       webhookHint(url),
+		SetViaDeployment:       n != nil && n.deployedURL != "",
+	}, nil
+}
+
+// SetWebhook saves the webhook an administrator entered. An empty URL removes it.
+func (n *Notifier) SetWebhook(ctx context.Context, url string) error {
+	if n.deployedURL != "" {
+		return ErrSetViaDeployment
+	}
+	if n.store == nil {
+		return errors.New("no store for the Slack webhook")
+	}
+	url = strings.TrimSpace(url)
+	if url == "" {
+		_, err := n.store.DeleteCredential(ctx, credentialContext, credentialName)
+		return err
+	}
+	if err := ValidateWebhookURL(url); err != nil {
+		return err
+	}
+	return n.store.UpsertCredential(ctx, gtypes.Credential{
+		Context: credentialContext,
+		Name:    credentialName,
+		Secrets: map[string]string{credentialKey: url},
+	})
+}
+
+// ValidateWebhookURL checks that url can be posted to.
+func ValidateWebhookURL(url string) error {
+	parsed, err := neturl.Parse(url)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+		return fmt.Errorf("enter the full webhook URL, starting with https://")
+	}
+	return nil
+}
+
+// webhookHint shows the start of the webhook's host and the last few characters, so an
+// administrator can tell which webhook is set without exposing it.
+func webhookHint(url string) string {
+	if url == "" {
+		return ""
+	}
+	parsed, err := neturl.Parse(url)
+	if err != nil || parsed.Host == "" {
+		return "…"
+	}
+	tail := url
+	if len(tail) > 4 {
+		tail = tail[len(tail)-4:]
+	}
+	return parsed.Scheme + "://" + parsed.Host + "/…" + tail
+}
+
+// SendTest posts a test message, so an administrator can check the webhook.
+func (n *Notifier) SendTest(ctx context.Context) error {
+	url, err := n.webhookURL(ctx)
+	if err != nil {
+		return err
+	}
+	if url == "" {
+		return errors.New("no Slack webhook is set")
+	}
+	return n.post(ctx, url, map[string]any{
+		"text": "Obot will post new MCP server requests here.",
+		"blocks": []any{map[string]any{
+			"type": "section",
+			"text": map[string]any{"type": "mrkdwn", "text": ":white_check_mark: Obot will post new MCP server requests to this channel."},
+		}},
+	})
 }
 
 // ReviewURL is the page where an administrator approves or denies the request.
@@ -45,18 +186,19 @@ func (n *Notifier) ReviewURL(id string) string {
 
 // NotifyRequested alerts administrators that a request needs a decision.
 func (n *Notifier) NotifyRequested(ctx context.Context, request types.MCPServerRequest) error {
-	if !n.Enabled() {
-		return nil
+	url, err := n.webhookURL(ctx)
+	if err != nil || url == "" {
+		return err
 	}
-	return n.post(ctx, slackMessage(request, n.ReviewURL(request.ID)))
+	return n.post(ctx, url, slackMessage(request, n.ReviewURL(request.ID)))
 }
 
-func (n *Notifier) post(ctx context.Context, message map[string]any) error {
+func (n *Notifier) post(ctx context.Context, url string, message map[string]any) error {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.webhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

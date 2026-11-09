@@ -46,5 +46,19 @@
 	"server_requests_slack_hint": "将 OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL 设置为 Slack 传入 Webhook，即可在有新请求时通知管理员。",
 	"server_requests_catalog_entry": "已在目录中",
 	"server_requests_grant_requester": "如果请求者尚无法连接，则授予其访问此服务器的权限",
-	"server_requests_matched": "此服务器已作为 {entry} 存在于目录中。批准后将添加该条目，而不会创建重复条目。"
+	"server_requests_matched": "此服务器已作为 {entry} 存在于目录中。批准后将添加该条目，而不会创建重复条目。",
+	"server_requests_slack_title": "Slack 通知",
+	"server_requests_slack_description": "将每个新请求连同审核链接发布到 Slack 频道。在你的 Slack 应用中为该频道创建传入 Webhook，然后将其 URL 粘贴到这里。",
+	"server_requests_slack_url": "传入 Webhook URL",
+	"server_requests_slack_connected": "正在发布到 {hint}",
+	"server_requests_slack_off": "未设置。管理员可以在此处和 Obot AI 中查看新请求。",
+	"server_requests_slack_deployment": "在部署 Obot 时设置，因此无法在此处更改。请在部署中更改 OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL。",
+	"server_requests_slack_save": "保存",
+	"server_requests_slack_replace": "替换",
+	"server_requests_slack_remove": "移除",
+	"server_requests_slack_test": "发送测试消息",
+	"server_requests_slack_test_sent": "已发送测试消息。请查看频道。",
+	"server_requests_slack_saved": "已保存 Slack 通知。",
+	"server_requests_slack_removed": "已关闭 Slack 通知。",
+	"server_requests_slack_cancel": "取消"
 }

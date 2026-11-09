@@ -149,7 +149,7 @@ type Config struct {
 	SubstrateSnapshotLocation   string `usage:"Substrate snapshot bucket URI"`
 	SubstrateObotURL            string `usage:"Obot URL reachable from actors; defaults to server URL"`
 
-	MCPServerRequestSlackWebhookURL string `usage:"Slack incoming webhook URL alerted when a user requests a new MCP server" name:"mcp-server-request-slack-webhook-url" env:"OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL"`
+	MCPServerRequestSlackWebhookURL string `usage:"Slack incoming webhook URL alerted when a user requests a new MCP server. When set, administrators cannot change it in Obot" name:"mcp-server-request-slack-webhook-url" env:"OBOT_SERVER_MCP_SERVER_REQUEST_SLACK_WEBHOOK_URL"`
 
 	MCPNetworkPolicyProviderChartRepo    string `usage:"Helm repository URL for the network policy provider chart"`
 	MCPNetworkPolicyProviderChartName    string `usage:"Helm chart name for the network policy provider chart"`
@@ -1200,7 +1200,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	svcs := &Services{
 		EncryptionConfig:         encryptionConfig,
 		ServerURL:                config.Hostname,
-		MCPServerRequestNotifier: mcpserverrequest.NewNotifier(config.MCPServerRequestSlackWebhookURL, config.UIHostname),
+		MCPServerRequestNotifier: mcpserverrequest.NewNotifier(config.MCPServerRequestSlackWebhookURL, config.UIHostname, gatewayClient),
 		LocalServerURL:           system.LocalServerURL(config.HTTPListenPort),
 		StorageClient:            storageClient,
 		StorageDB:                dbAccess,
