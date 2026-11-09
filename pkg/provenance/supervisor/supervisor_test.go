@@ -252,8 +252,8 @@ func TestClassifyTool(t *testing.T) {
 	}{
 		{
 			name:     "valid labels",
-			response: `{"labels":["reads-untrusted","writes-external"],"rationale":"fetches public pages and posts"}`,
-			want:     provenance.NewLabels(provenance.CapReadsUntrusted, provenance.CapWritesExternal),
+			response: `{"labels":["untrusted","writes-external"],"rationale":"fetches public pages and posts"}`,
+			want:     provenance.NewLabels(provenance.LabelUntrusted, provenance.CapWritesExternal),
 		},
 		{
 			name:     "empty labels",
@@ -262,7 +262,7 @@ func TestClassifyTool(t *testing.T) {
 		},
 		{
 			name:     "unknown label rejected",
-			response: `{"labels":["reads-untrusted","teleport"],"rationale":"x"}`,
+			response: `{"labels":["untrusted","teleport"],"rationale":"x"}`,
 			wantErr:  true,
 		},
 		{
@@ -276,7 +276,7 @@ func TestClassifyTool(t *testing.T) {
 			writer := &fakeTextModel{responses: []string{tc.response}}
 			s := NewWith(nil, writer)
 			labels, rationale, err := s.ClassifyTool(context.Background(), provenance.ToolDescriptor{
-				Server: "web", Tool: "fetch", Description: "Fetch a web page", Heuristic: provenance.NewLabels(provenance.CapReadsUntrusted),
+				Server: "web", Tool: "fetch", Description: "Fetch a web page", Heuristic: provenance.NewLabels(provenance.LabelUntrusted),
 			})
 			if tc.wantErr {
 				if err == nil {

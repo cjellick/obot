@@ -132,7 +132,7 @@ type ContentTagging struct {
 	// sensitivity label. Default true.
 	OnlyUnlabeled bool `json:"onlyUnlabeled"`
 	// Capabilities runs the tagger only when the producing tool has one of these
-	// capability labels. Empty means any. Default reads-private, reads-untrusted.
+	// tool labels. Empty means any. Default confidential, untrusted.
 	Capabilities []Label `json:"capabilities,omitempty"`
 	// Mode is "async" (default) or "sync", which tag content as it arrives, or
 	// "batch", which queues it in memory and tags the queue every
@@ -176,7 +176,7 @@ func DefaultSettings() Settings {
 			Enabled:       false,
 			MinBytes:      200,
 			OnlyUnlabeled: true,
-			Capabilities:  []Label{CapReadsPrivate, CapReadsUntrusted},
+			Capabilities:  []Label{LabelConfidential, LabelUntrusted},
 			Mode:          ContentTagAsync,
 			BudgetSeconds: 3,
 		},

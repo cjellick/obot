@@ -43,13 +43,13 @@ func setContentTagging(t *testing.T, e *Engine, cfg ContentTagging) {
 	e.Invalidate()
 }
 
-// taggableIngest produces a reads-untrusted tool result with benign long
+// taggableIngest produces an untrusted tool result with benign long
 // content: the deterministic pass labels it only "untrusted" (a trust label, not
 // a sensitivity one), so OnlyUnlabeled still allows the tagger to run.
 func taggableIngest(content string) IngestRequest {
 	return IngestRequest{
 		Subject: subject, Session: key, Surface: SurfaceMCP, Kind: KindToolResult,
-		Tool: "fetch", Server: "web", Capabilities: NewLabels(CapReadsUntrusted),
+		Tool: "fetch", Server: "web", Capabilities: NewLabels(LabelUntrusted),
 		Content: content,
 	}
 }
@@ -117,15 +117,15 @@ func TestShouldTagContent(t *testing.T) {
 		},
 		{
 			name:   "capabilities must intersect",
-			cfg:    ContentTagging{Enabled: true, MinBytes: 200, Capabilities: []Label{CapReadsPrivate}},
-			in:     IngestRequest{Content: taggableContent, Capabilities: NewLabels(CapReadsUntrusted)},
+			cfg:    ContentTagging{Enabled: true, MinBytes: 200, Capabilities: []Label{LabelConfidential}},
+			in:     IngestRequest{Content: taggableContent, Capabilities: NewLabels(LabelUntrusted)},
 			sample: 0,
 			want:   false,
 		},
 		{
 			name:   "capabilities intersect",
-			cfg:    ContentTagging{Enabled: true, MinBytes: 200, Capabilities: []Label{CapReadsPrivate, CapReadsUntrusted}},
-			in:     IngestRequest{Content: taggableContent, Capabilities: NewLabels(CapReadsUntrusted)},
+			cfg:    ContentTagging{Enabled: true, MinBytes: 200, Capabilities: []Label{LabelConfidential, LabelUntrusted}},
+			in:     IngestRequest{Content: taggableContent, Capabilities: NewLabels(LabelUntrusted)},
 			sample: 0,
 			want:   true,
 		},
@@ -235,7 +235,7 @@ func TestContentTaggingFiltersToContentLabels(t *testing.T) {
 	ctx := t.Context()
 	e, _ := newTestEngine(t)
 	// The model returns a content label, a capability label and an unknown label.
-	cl := &fakeContentClassifier{labels: Labels{LabelCustomerData, CapReadsPrivate, Label("bogus")}}
+	cl := &fakeContentClassifier{labels: Labels{LabelCustomerData, CapExec, Label("bogus")}}
 	e.SetContentClassifier(cl)
 	setContentTagging(t, e, ContentTagging{Enabled: true, MinBytes: 200, OnlyUnlabeled: true, Mode: ContentTagSync, BudgetSeconds: 3})
 
@@ -246,7 +246,7 @@ func TestContentTaggingFiltersToContentLabels(t *testing.T) {
 	if !ev.Labels.Has(LabelCustomerData) {
 		t.Fatalf("content label should be added, got %v", ev.Labels)
 	}
-	if ev.Labels.Has(CapReadsPrivate) || ev.Labels.Has(Label("bogus")) {
+	if ev.Labels.Has(CapExec) || ev.Labels.Has(Label("bogus")) {
 		t.Fatalf("non-content labels must be dropped, got %v", ev.Labels)
 	}
 	if !ev.Labels.Has(LabelUntrusted) {

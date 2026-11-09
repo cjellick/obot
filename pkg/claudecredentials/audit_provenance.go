@@ -76,9 +76,9 @@ func (p *AuditProcessor) newEgressProvenance(ctx context.Context, entry *types.E
 	}
 	if !model {
 		if engine.IsTrustedHost(ctx, host) {
-			caps = caps.Add(provenance.CapReadsPrivate)
+			caps = caps.Add(provenance.LabelConfidential)
 		} else {
-			caps = caps.Add(provenance.CapReadsUntrusted)
+			caps = caps.Add(provenance.LabelUntrusted)
 		}
 	}
 	actor := provenance.Actor{Agent: provenanceAgent, EnvironmentID: entry.EnvironmentID, ClientSessionID: entry.ClaudeSession}

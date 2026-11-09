@@ -53,14 +53,15 @@ export const APPROVAL_STATUSES: ApprovalStatus[] = ['pending', 'approved', 'deni
 export type KillScope = 'org' | 'user' | 'agent' | 'session';
 export const KILL_SCOPES: KillScope[] = ['org', 'user', 'agent', 'session'];
 
+/** Every label a tool can carry: what its results are, then what it can do. */
 export const CAPABILITY_LABELS = [
-	'reads-private',
-	'reads-untrusted',
+	'confidential',
+	'untrusted',
+	'secret',
 	'writes-external',
 	'writes-internal',
 	'exec',
-	'destructive',
-	'credential-bearing'
+	'destructive'
 ];
 
 export const CONTENT_LABELS = [

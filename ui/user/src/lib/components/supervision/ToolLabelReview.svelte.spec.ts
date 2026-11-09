@@ -18,11 +18,11 @@ const suggestions: ToolLabelSuggestions = {
 			server: 'catalog-entry:clinical-tools',
 			tool: 'read_patient',
 			description: 'Read patient records',
-			labels: ['reads-private'],
+			labels: ['confidential'],
 			source: 'heuristic',
 			stale: false,
 			proposal: {
-				labels: ['reads-private', 'credential-bearing'],
+				labels: ['confidential', 'secret'],
 				rationale: 'This tool also returns an access token.',
 				schemaHash: 'schema-read-v1',
 				generatedAt: '2026-10-30T10:00:00Z'
@@ -69,7 +69,7 @@ describe('Tool label review', () => {
 		await expect
 			.element(page.getByRole('link', { name: suggestions.sourceURL }))
 			.toHaveAttribute('href', suggestions.sourceURL);
-		await expect.element(page.getByText('Add: credential-bearing')).toBeVisible();
+		await expect.element(page.getByText('Add: secret')).toBeVisible();
 		await expect.element(page.getByText('This tool also returns an access token.')).toBeVisible();
 		await expect.element(page.getByRole('button', { name: 'Approve selected (0)' })).toBeDisabled();
 		expect(applied).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe('Tool label review', () => {
 		expect(generated).not.toHaveBeenCalled();
 		await page.getByRole('button', { name: 'Suggest labels' }).click();
 		await vi.waitFor(() => expect(generated).toHaveBeenCalledWith(resource));
-		await expect.element(page.getByText('Add: credential-bearing')).toBeVisible();
+		await expect.element(page.getByText('Add: secret')).toBeVisible();
 		await expect.element(page.getByRole('button', { name: 'Approve selected (0)' })).toBeDisabled();
 	});
 	it('keeps stale suggestions unselectable and refreshes on a conflict', async () => {
@@ -151,7 +151,7 @@ describe('Tool label review', () => {
 	it('lets auditors inspect suggestions without generation or approval controls', async () => {
 		mockRead();
 		await renderReview([Group.USER, Group.AUDITOR]);
-		await expect.element(page.getByText('Add: credential-bearing')).toBeVisible();
+		await expect.element(page.getByText('Add: secret')).toBeVisible();
 		await expect
 			.element(page.getByRole('button', { name: 'Suggest labels' }))
 			.not.toBeInTheDocument();

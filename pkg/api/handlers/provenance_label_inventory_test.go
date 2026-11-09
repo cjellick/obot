@@ -71,10 +71,10 @@ func TestLabelInventoryShowsEffectiveSourcesReviewStateAndContentSettings(t *tes
 	}
 	now := time.Now().UTC()
 	for _, label := range []provenance.ToolLabel{
-		{Server: "catalog-entry:entry", Tool: "read_record", Source: "admin", Labels: provenance.NewLabels(provenance.CapReadsPrivate), Rationale: "Reviewed private records access", UpdatedAt: now.Add(-time.Hour)},
+		{Server: "catalog-entry:entry", Tool: "read_record", Source: "admin", Labels: provenance.NewLabels(provenance.LabelConfidential), Rationale: "Reviewed private records access", UpdatedAt: now.Add(-time.Hour)},
 		{Server: "catalog-entry:entry", Tool: "run_task", Source: "heuristic", Labels: provenance.NewLabels(provenance.CapExec), UpdatedAt: now.Add(-time.Minute), Proposal: &provenance.ToolLabelProposal{Labels: provenance.NewLabels(provenance.CapDestructive), SchemaHash: current.Items[1].schemaHash, GeneratedAt: now}},
-		{Server: "catalog-entry:entry", Tool: "read_public", Source: "heuristic", Labels: provenance.NewLabels(provenance.CapReadsPrivate), UpdatedAt: now.Add(-time.Minute), Proposal: &provenance.ToolLabelProposal{Labels: provenance.NewLabels(provenance.CapReadsUntrusted), SchemaHash: "obsolete-schema", GeneratedAt: now}},
-		{Server: "Meridian Research", Tool: "read_public", Source: "admin", Labels: provenance.NewLabels(provenance.CapReadsUntrusted), Rationale: "Manual legacy override", UpdatedAt: now.Add(-time.Minute)},
+		{Server: "catalog-entry:entry", Tool: "read_public", Source: "heuristic", Labels: provenance.NewLabels(provenance.LabelConfidential), UpdatedAt: now.Add(-time.Minute), Proposal: &provenance.ToolLabelProposal{Labels: provenance.NewLabels(provenance.LabelUntrusted), SchemaHash: "obsolete-schema", GeneratedAt: now}},
+		{Server: "Meridian Research", Tool: "read_public", Source: "admin", Labels: provenance.NewLabels(provenance.LabelUntrusted), Rationale: "Manual legacy override", UpdatedAt: now.Add(-time.Minute)},
 		{Server: "codex", Tool: "shell", Source: "heuristic", Labels: provenance.NewLabels(provenance.CapExec), UpdatedAt: now},
 	} {
 		if err := engine.Store().PutToolLabel(t.Context(), &label); err != nil {
@@ -110,7 +110,7 @@ func TestLabelInventoryShowsEffectiveSourcesReviewStateAndContentSettings(t *tes
 	if research == nil || research.ToolCount != 3 || research.ReviewedToolCount != 2 || research.PendingToolCount != 1 || research.StaleToolCount != 1 {
 		t.Fatalf("research summary=%+v", research)
 	}
-	if research.SourceURL != entry.Spec.SourceURL || !research.Labels.Has(provenance.CapReadsPrivate) || !research.Labels.Has(provenance.CapReadsUntrusted) || !research.Labels.Has(provenance.CapExec) || research.UpdatedAt == nil || !research.UpdatedAt.Equal(now) {
+	if research.SourceURL != entry.Spec.SourceURL || !research.Labels.Has(provenance.LabelConfidential) || !research.Labels.Has(provenance.LabelUntrusted) || !research.Labels.Has(provenance.CapExec) || research.UpdatedAt == nil || !research.UpdatedAt.Equal(now) {
 		t.Fatalf("effective management metadata=%+v", research)
 	}
 	if len(out.ObservedTools) != 2 || out.ObservedTools[0].Source != "admin" || out.ObservedTools[0].Rationale != "Manual legacy override" {
@@ -134,7 +134,7 @@ func TestLabelInventorySkipsDeletingResourcesAndPropagatesErrors(t *testing.T) {
 	h, engine := newProvAPITest(t)
 	deleted := &v1.MCPServerCatalogEntry{ObjectMeta: metav1.ObjectMeta{Name: "deleted", Namespace: system.DefaultNamespace, Finalizers: []string{"cleanup"}, DeletionTimestamp: &metav1.Time{Time: time.Now().UTC()}}, Spec: v1.MCPServerCatalogEntrySpec{Manifest: types.MCPServerCatalogEntryManifest{Name: "Deleting", ToolPreview: []types.MCPServerTool{{Name: "read"}}}}}
 	storage := clientfake.NewClientBuilder().WithScheme(storagescheme.Scheme).WithObjects(deleted).Build()
-	if err := engine.Store().PutToolLabel(t.Context(), &provenance.ToolLabel{Server: "catalog-entry:deleted", Tool: "read", Source: "admin", Labels: provenance.NewLabels(provenance.CapReadsPrivate)}); err != nil {
+	if err := engine.Store().PutToolLabel(t.Context(), &provenance.ToolLabel{Server: "catalog-entry:deleted", Tool: "read", Source: "admin", Labels: provenance.NewLabels(provenance.LabelConfidential)}); err != nil {
 		t.Fatal(err)
 	}
 	out, err := labelInventoryTestCall(t, h, storage)

@@ -107,7 +107,7 @@ export const riskyEvents: ProvenanceEvent[] = [
 			kind: 'tool.call',
 			tool: 'search_issues',
 			server: 'github',
-			capabilities: ['reads-untrusted'],
+			capabilities: ['untrusted'],
 			sink: { external: false, writes: false, exec: false },
 			source: { private: false, untrusted: true }
 		},
@@ -141,7 +141,7 @@ export const riskyEvents: ProvenanceEvent[] = [
 			kind: 'tool.call',
 			tool: 'query',
 			server: 'salesforce',
-			capabilities: ['reads-private'],
+			capabilities: ['confidential'],
 			sink: { external: false, writes: false, exec: false },
 			source: { private: true, untrusted: false }
 		},

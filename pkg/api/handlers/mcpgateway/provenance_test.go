@@ -116,7 +116,7 @@ func TestProvenanceFilterBlocksSecretLineageToExternalTool(t *testing.T) {
 		t.Fatalf("send_message should be labelled writes-external, got %v", caps)
 	}
 
-	// A credential-bearing tool returns a secret: the call is allowed, the result is ingested.
+	// A tool labelled secret returns a secret: the call is allowed, the result is ingested.
 	request := mustMCPHookRequest(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_secret","arguments":{"name":"aws"}}}`)
 	processor = chain.process(t, request)
 	if _, blocked, err := processor.blockedRequest(); blocked {
@@ -441,7 +441,7 @@ func TestProvenanceReviewedResourceLabelsControlGatewayDecisions(t *testing.T) {
 func TestProfileSelectedComponentLabelsCannotMatchAnotherComponent(t *testing.T) {
 	engine := newTestProvenanceEngine(t)
 	for _, label := range []provenance.ToolLabel{
-		{Server: "vmcp:vmcp1", Tool: "lookup", Source: "admin", Labels: provenance.NewLabels(provenance.CapCredentialBearing)},
+		{Server: "vmcp:vmcp1", Tool: "lookup", Source: "admin", Labels: provenance.NewLabels(provenance.LabelSecret)},
 		{Server: "vmcp:vmcp1", Tool: "care__lookup", Source: "admin", Labels: provenance.NewLabels(provenance.CapDestructive)},
 	} {
 		if err := engine.Store().PutToolLabel(t.Context(), &label); err != nil {
@@ -452,12 +452,12 @@ func TestProfileSelectedComponentLabelsCannotMatchAnotherComponent(t *testing.T)
 	config := mcp.ServerConfig{Runtime: "vmcp", MCPServerName: "instance1", MCPServerDisplayName: "Care", AuditLogMetadata: map[string]string{"mcpID": "vmcp1"},
 		Components: []mcp.ComponentServer{{DisplayName: "care", ProvenanceToolPrefix: "care"}}}
 	care := newMCPProvenance(engine, nil, config, httptest.NewRequest(http.MethodPost, "/mcp", nil), nil, new(sync.Map))
-	if labels := care.capabilities(t.Context(), "lookup"); !labels.Has(provenance.CapDestructive) || labels.Has(provenance.CapCredentialBearing) {
+	if labels := care.capabilities(t.Context(), "lookup"); !labels.Has(provenance.CapDestructive) || labels.Has(provenance.LabelSecret) {
 		t.Fatalf("wrong canonical component label: %v", labels)
 	}
 	config.Components[0] = mcp.ComponentServer{DisplayName: "claims", ProvenanceToolPrefix: "claims"}
 	claims := newMCPProvenance(engine, nil, config, httptest.NewRequest(http.MethodPost, "/mcp", nil), nil, new(sync.Map))
-	if labels := claims.capabilities(t.Context(), "lookup"); labels.HasAny(provenance.CapDestructive, provenance.CapCredentialBearing) {
+	if labels := claims.capabilities(t.Context(), "lookup"); labels.HasAny(provenance.CapDestructive, provenance.LabelSecret) {
 		t.Fatalf("claims inherited another component's reviewed label: %v", labels)
 	}
 }

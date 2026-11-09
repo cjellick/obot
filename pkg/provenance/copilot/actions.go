@@ -126,13 +126,13 @@ func Destination(inputs map[string]any) string {
 }
 
 // ToolResultCapabilities returns the labels to ingest a tool output with: the
-// engine's labelling of the tool, and reads-untrusted when the labelling says
+// engine's labelling of the tool, and untrusted when the labelling says
 // nothing about what the tool reads, since an unknown Copilot connector may
 // return content anyone could have written.
 func ToolResultCapabilities(ctx context.Context, engine Engine, server, tool string) provenance.Labels {
 	caps := engine.ToolCapabilities(ctx, server, tool, "")
-	if !caps.HasAny(provenance.CapReadsPrivate, provenance.CapReadsUntrusted) {
-		caps = caps.Add(provenance.CapReadsUntrusted)
+	if !caps.HasAny(provenance.LabelConfidential, provenance.LabelUntrusted) {
+		caps = caps.Add(provenance.LabelUntrusted)
 	}
 	return caps
 }

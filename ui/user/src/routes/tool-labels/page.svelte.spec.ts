@@ -21,7 +21,7 @@ it('opens the central overview without a resource query', async () => {
 			HttpResponse.json({
 				resources: [],
 				observedTools: [],
-				capabilities: ['reads-private'],
+				capabilities: ['confidential'],
 				contentLabels: [],
 				contentTagging: { enabled: false },
 				supervisorEnabled: true

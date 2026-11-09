@@ -722,8 +722,8 @@ func TestProvenanceStoreRecords(t *testing.T) {
 
 	// Tool labels upsert on server+tool.
 	for _, l := range []provenance.ToolLabel{
-		{Server: "github", Tool: "search_issues", Labels: provenance.NewLabels(provenance.CapReadsUntrusted), Source: "heuristic", UpdatedAt: now},
-		{Server: "github", Tool: "search_issues", Labels: provenance.NewLabels(provenance.CapReadsUntrusted, provenance.CapReadsPrivate), Source: "admin", Rationale: "confirmed", UpdatedAt: now.Add(time.Minute)},
+		{Server: "github", Tool: "search_issues", Labels: provenance.NewLabels(provenance.LabelUntrusted), Source: "heuristic", UpdatedAt: now},
+		{Server: "github", Tool: "search_issues", Labels: provenance.NewLabels(provenance.LabelUntrusted, provenance.LabelConfidential), Source: "admin", Rationale: "confirmed", UpdatedAt: now.Add(time.Minute)},
 		{Server: "github", Tool: "create_issue", Labels: provenance.NewLabels(provenance.CapWritesInternal), Source: "heuristic"},
 	} {
 		if err := store.PutToolLabel(ctx, &l); err != nil {
@@ -847,7 +847,7 @@ func TestProvenanceStoreToolLabelProposal(t *testing.T) {
 	store := newTestClient(t).ProvenanceStore()
 	label := provenance.ToolLabel{
 		Server: "catalog-entry:entry1", Tool: "read_record", Source: "heuristic", Labels: provenance.NewLabels(provenance.CapExec),
-		Proposal: &provenance.ToolLabelProposal{Labels: provenance.NewLabels(provenance.CapReadsPrivate), Rationale: "Reads patient records", SchemaHash: "inventory-v1", GeneratedAt: time.Now().UTC()},
+		Proposal: &provenance.ToolLabelProposal{Labels: provenance.NewLabels(provenance.LabelConfidential), Rationale: "Reads patient records", SchemaHash: "inventory-v1", GeneratedAt: time.Now().UTC()},
 	}
 	if err := store.PutToolLabel(t.Context(), &label); err != nil {
 		t.Fatal(err)
@@ -861,7 +861,7 @@ func TestProvenanceStoreToolLabelProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	labels, err = store.ListToolLabels(t.Context())
-	if err != nil || len(labels) != 1 || labels[0].Proposal != nil || !labels[0].Labels.Has(provenance.CapReadsPrivate) {
+	if err != nil || len(labels) != 1 || labels[0].Proposal != nil || !labels[0].Labels.Has(provenance.LabelConfidential) {
 		t.Fatalf("approved proposal: %+v (%v)", labels, err)
 	}
 }

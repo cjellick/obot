@@ -1,22 +1,19 @@
 package provenance
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 )
 
 const (
-	// Capability labels describe what a tool can do. They are assigned to catalog
-	// tools, automatically from schemas and observed traffic and confirmed by an
-	// administrator, and to built-in agent tools by kind.
+	// Tool labels describe a tool. They are assigned to catalog tools,
+	// automatically from schemas and observed traffic and confirmed by an
+	// administrator, and to built-in agent tools by kind. A tool is labelled
+	// with what its results are (confidential, untrusted, secret: the content
+	// labels below, which its results carry into the session) and with what it
+	// can do (the capability labels here).
 
-	// CapReadsPrivate: the tool reads organization-private data (CRM, code,
-	// documents, email, databases).
-	CapReadsPrivate Label = "reads-private"
-	// CapReadsUntrusted: the tool reads content an outsider could have written
-	// (web pages, inbound email, public issues and PRs, tickets, chat from
-	// external users).
-	CapReadsUntrusted Label = "reads-untrusted"
 	// CapWritesExternal: the tool sends data somewhere outside the
 	// organization's control (HTTP to arbitrary hosts, email, public posts).
 	CapWritesExternal Label = "writes-external"
@@ -26,8 +23,6 @@ const (
 	CapExec Label = "exec"
 	// CapDestructive: the tool can delete or irreversibly change data.
 	CapDestructive Label = "destructive"
-	// CapCredentialBearing: the tool carries or returns credentials.
-	CapCredentialBearing Label = "credential-bearing"
 
 	// Sensitivity labels describe content that entered a session.
 	LabelPII          Label = "pii"
@@ -47,10 +42,20 @@ const (
 )
 
 var (
-	// CapabilityLabels lists every capability label, for validation and UIs.
+	// CapabilityLabels lists every label a tool can carry, for validation and
+	// UIs: the content labels its results carry, then what it can do.
 	CapabilityLabels = Labels{
-		CapReadsPrivate, CapReadsUntrusted, CapWritesExternal, CapWritesInternal,
-		CapExec, CapDestructive, CapCredentialBearing,
+		LabelConfidential, LabelUntrusted, LabelSecret, CapWritesExternal, CapWritesInternal,
+		CapExec, CapDestructive,
+	}
+
+	// legacyToolLabels maps the capability labels that only ever implied a
+	// content label to that label, so tool labels stored before they were
+	// collapsed read the same.
+	legacyToolLabels = map[Label]Label{
+		"reads-private":      LabelConfidential,
+		"reads-untrusted":    LabelUntrusted,
+		"credential-bearing": LabelSecret,
 	}
 
 	// ContentLabels lists every sensitivity and trust label.
@@ -85,12 +90,31 @@ func (l Labels) Add(labels ...Label) Labels {
 		if label == "" {
 			continue
 		}
+		if current, ok := legacyToolLabels[label]; ok {
+			label = current
+		}
 		if !slices.Contains(out, label) {
 			out = append(out, label)
 		}
 	}
 	slices.Sort(out)
 	return out
+}
+
+// UnmarshalJSON reads a label list in order, mapping legacy tool labels to
+// their current names.
+func (l *Labels) UnmarshalJSON(data []byte) error {
+	var raw []Label
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for i, label := range raw {
+		if current, ok := legacyToolLabels[label]; ok {
+			raw[i] = current
+		}
+	}
+	*l = raw
+	return nil
 }
 
 // Has reports whether the set contains label.
@@ -156,8 +180,8 @@ func (l Labels) Normalize() Labels {
 // capability labels.
 func SourceFromCapabilities(caps Labels) Source {
 	return Source{
-		Private:   caps.Has(CapReadsPrivate),
-		Untrusted: caps.Has(CapReadsUntrusted),
+		Private:   caps.HasAny(LabelConfidential, LabelSecret),
+		Untrusted: caps.Has(LabelUntrusted),
 	}
 }
 
@@ -212,13 +236,13 @@ func ToolCapabilityHeuristics(server, tool, description string) Labels {
 		caps = caps.Add(CapWritesInternal)
 	}
 	if nameHas("search", "fetch", "browse", "web", "scrape", "crawl", "issue", "ticket", "inbox", "read_email", "list_messages", "pull_request", "review") || has("public", "internet", "web page", "inbound") {
-		caps = caps.Add(CapReadsUntrusted)
+		caps = caps.Add(LabelUntrusted)
 	}
 	if nameHas("query", "get", "read", "list", "search", "salesforce", "crm", "hubspot", "database", "sql", "customer", "contact", "drive", "sharepoint", "confluence", "notion", "jira", "gmail", "outlook", "slack", "github", "gitlab", "repo", "file") || has("private", "internal", "customer") {
-		caps = caps.Add(CapReadsPrivate)
+		caps = caps.Add(LabelConfidential)
 	}
 	if nameHas("secret", "credential", "token", "password", "apikey", "api_key", "vault", "keychain") {
-		caps = caps.Add(CapCredentialBearing)
+		caps = caps.Add(LabelSecret)
 	}
 	return caps
 }
@@ -228,9 +252,9 @@ func ToolCapabilityHeuristics(server, tool, description string) Labels {
 func BuiltinToolCapabilities(kind string) Labels {
 	switch kind {
 	case "shell":
-		return NewLabels(CapExec, CapReadsPrivate, CapWritesExternal, CapWritesInternal, CapDestructive)
+		return NewLabels(CapExec, LabelConfidential, CapWritesExternal, CapWritesInternal, CapDestructive)
 	case "read":
-		return NewLabels(CapReadsPrivate)
+		return NewLabels(LabelConfidential)
 	case "write":
 		return NewLabels(CapWritesInternal, CapDestructive)
 	case "task":

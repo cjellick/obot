@@ -240,13 +240,13 @@ func (p *mcpProvenance) ingestToolResult(ctx context.Context, result json.RawMes
 }
 
 // ingestResource records a resource's contents as content that entered the session. A
-// resource is the server's own data (reads-private) unless its URI is a web address, which
-// anyone could have authored (reads-untrusted).
+// resource is the server's own data (confidential) unless its URI is a web address, which
+// anyone could have authored (untrusted).
 func (p *mcpProvenance) ingestResource(ctx context.Context, result json.RawMessage, uri, callEventID string) error {
-	caps := provenance.NewLabels(provenance.CapReadsPrivate)
+	caps := provenance.NewLabels(provenance.LabelConfidential)
 	var host string
 	if u, err := url.Parse(uri); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
-		caps = provenance.NewLabels(provenance.CapReadsUntrusted)
+		caps = provenance.NewLabels(provenance.LabelUntrusted)
 		host = u.Hostname()
 	}
 	_, err := p.engine.Ingest(ctx, provenance.IngestRequest{

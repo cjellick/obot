@@ -19,7 +19,7 @@ const inventory: LabelInventory = {
 			reviewedToolCount: 1,
 			pendingToolCount: 1,
 			staleToolCount: 1,
-			labels: ['reads-private', 'credential-bearing']
+			labels: ['confidential', 'secret']
 		},
 		{
 			resourceType: 'vmcp',
@@ -29,14 +29,14 @@ const inventory: LabelInventory = {
 			reviewedToolCount: 2,
 			pendingToolCount: 0,
 			staleToolCount: 0,
-			labels: ['reads-untrusted', 'writes-external']
+			labels: ['untrusted', 'writes-external']
 		}
 	],
 	observedTools: [
 		{
 			server: 'old-crm',
 			tool: 'legacy_query',
-			labels: ['reads-private'],
+			labels: ['confidential'],
 			source: 'supervisor',
 			rationale: 'The model described a private database query.',
 			updatedAt: '2026-10-30T10:00:00Z'
@@ -44,14 +44,14 @@ const inventory: LabelInventory = {
 		{
 			server: 'vault',
 			tool: 'read_token',
-			labels: ['credential-bearing'],
+			labels: ['secret'],
 			source: 'admin',
 			updatedAt: '2026-10-30T10:00:00Z'
 		},
 		{
 			server: 'web',
 			tool: 'fetch',
-			labels: ['reads-untrusted'],
+			labels: ['untrusted'],
 			source: 'heuristic',
 			updatedAt: '0001-01-01T00:00:00Z'
 		}
@@ -96,9 +96,7 @@ describe('Labels overview', () => {
 	it('searches effective labels and filters pending or outdated suggestions', async () => {
 		mockInventory();
 		await renderOverview();
-		await page
-			.getByRole('searchbox', { name: 'Search names or labels' })
-			.fill('credential-bearing');
+		await page.getByRole('searchbox', { name: 'Search names or labels' }).fill('secret');
 		await expect.element(page.getByText('Clinical records', { exact: true })).toBeVisible();
 		await expect
 			.element(page.getByText('Support workspace', { exact: true }))
@@ -163,7 +161,7 @@ describe('Labels overview', () => {
 		await expect
 			.element(page.getByRole('row').filter({ hasText: 'fetch' }).getByText('Not recorded'))
 			.toBeVisible();
-		await page.getByRole('searchbox').fill('credential-bearing');
+		await page.getByRole('searchbox').fill('secret');
 		await expect.element(page.getByText('read_token', { exact: true })).toBeVisible();
 		await expect.element(page.getByText('legacy_query', { exact: true })).not.toBeInTheDocument();
 	});
@@ -178,7 +176,7 @@ describe('Labels overview', () => {
 			.element(page.getByText('No observed tool label records are available yet.'))
 			.toBeVisible();
 		await page.getByRole('tab', { name: 'Label library' }).click();
-		await expect.element(page.getByText('reads-private', { exact: true })).toBeVisible();
+		await expect.element(page.getByText('writes-external', { exact: true })).toBeVisible();
 	});
 	it('retries inventory errors without generating labels', async () => {
 		worker.use(

@@ -520,14 +520,15 @@ func (e *Engine) Ingest(ctx context.Context, in IngestRequest) (*Event, error) {
 	}
 	class := Classify(in.Content)
 	labels := in.Labels.Add(class.Labels...)
-	if in.Capabilities.Has(CapReadsUntrusted) && (in.Host == "" || !e.IsTrustedHost(ctx, in.Host)) {
+	// A tool's content labels pass to its results. Untrusted is waived for a
+	// trusted host.
+	if in.Capabilities.Has(LabelUntrusted) && (in.Host == "" || !e.IsTrustedHost(ctx, in.Host)) {
 		labels = labels.Add(LabelUntrusted)
 	}
-	if in.Capabilities.Has(CapReadsPrivate) {
-		labels = labels.Add(LabelConfidential)
-	}
-	if in.Capabilities.Has(CapCredentialBearing) {
-		labels = labels.Add(LabelSecret)
+	for _, l := range []Label{LabelConfidential, LabelSecret} {
+		if in.Capabilities.Has(l) {
+			labels = labels.Add(l)
+		}
 	}
 	labels = labels.Normalize()
 

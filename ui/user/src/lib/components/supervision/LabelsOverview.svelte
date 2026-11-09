@@ -112,13 +112,10 @@
 	}
 	function meaning(label: string): string {
 		const descriptions: Record<string, () => string> = {
-			'reads-private': m.supervision_labels_meaning_reads_private,
-			'reads-untrusted': m.supervision_labels_meaning_reads_untrusted,
 			'writes-external': m.supervision_labels_meaning_writes_external,
 			'writes-internal': m.supervision_labels_meaning_writes_internal,
 			exec: m.supervision_labels_meaning_exec,
 			destructive: m.supervision_labels_meaning_destructive,
-			'credential-bearing': m.supervision_labels_meaning_credential_bearing,
 			pii: m.supervision_labels_meaning_pii,
 			secret: m.supervision_labels_meaning_secret,
 			'customer-data': m.supervision_labels_meaning_customer_data,

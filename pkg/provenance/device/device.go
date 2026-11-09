@@ -263,13 +263,13 @@ func BuildIngest(ev types.LocalAgentToolCallAuditLogInput, deviceID, userID stri
 		command := stringArg(Arguments(ev.Details.Request.Body), "command", "cmd")
 		if hosts := CommandHosts(command); len(hosts) > 0 {
 			req.Host = hosts[0]
-			req.Capabilities = provenance.NewLabels(provenance.CapReadsUntrusted)
+			req.Capabilities = provenance.NewLabels(provenance.LabelUntrusted)
 		} else {
-			req.Capabilities = provenance.NewLabels(provenance.CapReadsPrivate)
+			req.Capabilities = provenance.NewLabels(provenance.LabelConfidential)
 		}
 	case ev.Action.Kind == enforcement.KindRead:
 		req.Kind = provenance.KindFileRead
-		req.Capabilities = provenance.NewLabels(provenance.CapReadsPrivate)
+		req.Capabilities = provenance.NewLabels(provenance.LabelConfidential)
 	default:
 		req.Capabilities = provenance.BuiltinToolCapabilities(ev.Action.Kind)
 	}

@@ -27,7 +27,7 @@ type toolLabelTestSupervisor struct {
 
 func (f *toolLabelTestSupervisor) ClassifyTool(_ context.Context, tool provenance.ToolDescriptor) (provenance.Labels, string, error) {
 	f.seen = append(f.seen, tool)
-	return provenance.NewLabels(provenance.CapReadsPrivate), "Reads private patient records.", nil
+	return provenance.NewLabels(provenance.LabelConfidential), "Reads private patient records.", nil
 }
 
 func toolLabelsTestCall(t *testing.T, storage storage.Client, handler func(api.Context) error, method, path string, body any) (*toolLabelInventory, error) {
@@ -105,10 +105,10 @@ func TestProvenanceToolLabelReviewForGitCatalogAndVMCP(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if out.Items[0].Source != "admin" || out.Items[0].Proposal != nil || !out.Items[0].Labels.Has(provenance.CapReadsPrivate) {
+			if out.Items[0].Source != "admin" || out.Items[0].Proposal != nil || !out.Items[0].Labels.Has(provenance.LabelConfidential) {
 				t.Fatalf("approved labels: %+v", out.Items[0])
 			}
-			if labels, ok := engine.ReviewedToolCapabilities(t.Context(), scope, tool); !ok || !labels.Has(provenance.CapReadsPrivate) || labels.Has(provenance.CapExec) {
+			if labels, ok := engine.ReviewedToolCapabilities(t.Context(), scope, tool); !ok || !labels.Has(provenance.LabelConfidential) || labels.Has(provenance.CapExec) {
 				t.Fatalf("effective labels: %v %v", labels, ok)
 			}
 			// Source definitions, including Git-managed ones, are never written by

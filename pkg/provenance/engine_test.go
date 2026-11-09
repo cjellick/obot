@@ -232,7 +232,7 @@ func TestJudgeEffectUsesSupervisorAndDegradesWithoutIt(t *testing.T) {
 	e, _ := newTestEngine(t)
 	setMode(t, e, "builtin-untrusted-destructive", ModeEnforce)
 	if _, err := e.Ingest(ctx, IngestRequest{Subject: subject, Session: key, Surface: SurfaceMCP, Tool: "fetch", Server: "web",
-		Capabilities: NewLabels(CapReadsUntrusted), Content: "a web page"}); err != nil {
+		Capabilities: NewLabels(LabelUntrusted), Content: "a web page"}); err != nil {
 		t.Fatal(err)
 	}
 	rm := Action{Surface: SurfaceDevice, Kind: KindShellExec, Command: "rm -rf build/", Capabilities: BuiltinToolCapabilities("shell"), Sink: Sink{Exec: true}}
@@ -270,7 +270,7 @@ func TestJudgeEffectUsesSupervisorAndDegradesWithoutIt(t *testing.T) {
 func TestSimulateReplaysHistory(t *testing.T) {
 	ctx := t.Context()
 	e, _ := newTestEngine(t)
-	if _, err := e.Ingest(ctx, IngestRequest{Subject: subject, Session: key, Surface: SurfaceMCP, Tool: "fetch", Server: "web", Capabilities: NewLabels(CapReadsUntrusted), Content: "page"}); err != nil {
+	if _, err := e.Ingest(ctx, IngestRequest{Subject: subject, Session: key, Surface: SurfaceMCP, Tool: "fetch", Server: "web", Capabilities: NewLabels(LabelUntrusted), Content: "page"}); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {

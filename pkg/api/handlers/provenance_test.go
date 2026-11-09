@@ -646,7 +646,7 @@ func TestProvenanceKills(t *testing.T) {
 func TestProvenanceToolLabels(t *testing.T) {
 	h, e := newProvAPITest(t)
 	heuristic := e.ToolCapabilities(t.Context(), "github", "search_issues", "Search issues")
-	if !heuristic.Has(provenance.CapReadsUntrusted) {
+	if !heuristic.Has(provenance.LabelUntrusted) {
 		t.Fatalf("heuristic labels: %v", heuristic)
 	}
 
@@ -658,11 +658,11 @@ func TestProvenanceToolLabels(t *testing.T) {
 	}
 
 	var label provenance.ToolLabel
-	provAPIOK(t, h.PutToolLabel, http.MethodPut, "/api/provenance/tool-labels", toolLabelRequest{Server: "github", Tool: "search_issues", Labels: []string{"reads-private", " reads-private ", "exec"}}, nil, &label)
-	if label.Source != "admin" || label.Labels.String() != "exec,reads-private" || label.UpdatedAt.IsZero() {
+	provAPIOK(t, h.PutToolLabel, http.MethodPut, "/api/provenance/tool-labels", toolLabelRequest{Server: "github", Tool: "search_issues", Labels: []string{"confidential", " confidential ", "exec"}}, nil, &label)
+	if label.Source != "admin" || label.Labels.String() != "confidential,exec" || label.UpdatedAt.IsZero() {
 		t.Fatalf("tool label: %+v", label)
 	}
-	if got := e.ToolCapabilities(t.Context(), "github", "search_issues", "Search issues"); got.String() != "exec,reads-private" {
+	if got := e.ToolCapabilities(t.Context(), "github", "search_issues", "Search issues"); got.String() != "confidential,exec" {
 		t.Fatalf("the engine should use the admin labels, got %v", got)
 	}
 
