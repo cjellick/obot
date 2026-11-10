@@ -64,6 +64,7 @@
 	import { m } from '$lib/i18n';
 	import { localState } from '$lib/runes/localState.svelte';
 	import { Group } from '$lib/services';
+	import { listMCPServerRequests } from '$lib/services/mcpserverrequests';
 	import { getPendingApprovalCount } from '$lib/services/provenance';
 	import {
 		license as licenseStore,
@@ -120,12 +121,17 @@
 	$effect(() => {
 		if (!hasAdminAccess) return;
 		let cancelled = false;
+		// Held agent actions and pending MCP server requests both wait on an administrator.
 		const poll = () =>
-			getPendingApprovalCount({ dontLogErrors: true })
-				.then((n) => {
-					if (!cancelled) pendingApprovals = n;
-				})
-				.catch(() => undefined);
+			Promise.allSettled([
+				getPendingApprovalCount({ dontLogErrors: true }),
+				listMCPServerRequests({ state: 'pending' }, { dontLogErrors: true })
+			]).then(([held, requests]) => {
+				if (cancelled || (held.status === 'rejected' && requests.status === 'rejected')) return;
+				pendingApprovals =
+					(held.status === 'fulfilled' ? held.value : 0) +
+					(requests.status === 'fulfilled' ? requests.value.length : 0);
+			});
 		poll();
 		const timer = setInterval(poll, PENDING_APPROVALS_REFRESH_MS);
 		return () => {

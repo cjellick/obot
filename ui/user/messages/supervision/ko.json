@@ -222,8 +222,8 @@
 	"supervision_cheat_labels": "콘텐츠 라벨(action.labels, session.labels, action.lineage.labels)",
 	"supervision_cheat_capabilities": "기능 라벨(action.capabilities)",
 	"supervision_cheat_examples": "예시",
-	"supervision_approvals_title": "승인",
-	"supervision_approvals_description": "사람의 결정을 기다리는 보류된 작업입니다. 슈퍼바이저의 권장 사항이 먼저 표시됩니다.",
+	"supervision_approvals_title": "요청 및 승인",
+	"supervision_approvals_description": "관리자를 기다리는 모든 항목: 사용자가 요청한 MCP 서버와 정책이 보류한 에이전트 작업. 슈퍼바이저의 권장 사항이 먼저 표시됩니다.",
 	"supervision_approvals_tab_pending": "대기 중",
 	"supervision_approvals_tab_approved": "승인됨",
 	"supervision_approvals_tab_denied": "거부됨",
@@ -516,5 +516,7 @@
 	"supervision_label_origin_ai": "AI 태거",
 	"supervision_label_origin_ai_detail": "AI 태거: {detail}",
 	"supervision_cheat_custom_labels": "사용자 지정 레이블",
-	"supervision_cheat_custom_labels_example": "예: {example}"
+	"supervision_cheat_custom_labels_example": "예: {example}",
+	"supervision_approvals_requests": "MCP 서버 요청",
+	"supervision_approvals_actions": "보류된 에이전트 작업"
 }

@@ -2,9 +2,12 @@
 	import { page } from '$app/state';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import TabLayout from '$lib/components/TabLayout.svelte';
+	import ServerRequestCard from '$lib/components/ai/ServerRequestCard.svelte';
 	import ApprovalCard from '$lib/components/supervision/ApprovalCard.svelte';
 	import { parseErrorContent } from '$lib/errors';
 	import { m } from '$lib/i18n';
+	import { listVMCPs, type VMCP } from '$lib/services';
+	import { listMCPServerRequests, type MCPServerRequest } from '$lib/services/mcpserverrequests';
 	import {
 		APPROVAL_STATUSES,
 		approvalStatusLabel,
@@ -20,6 +23,9 @@
 	const REFRESH_MS = 10_000;
 
 	let approvals = $state<Approval[]>([]);
+	// Pending MCP server requests wait on an administrator too; they show on the pending tab.
+	let requests = $state<MCPServerRequest[]>([]);
+	let vmcps = $state<VMCP[]>([]);
 	let loading = $state(true);
 	let error = $state('');
 	let generation = 0;
@@ -38,9 +44,20 @@
 		if (!quiet) loading = true;
 		error = '';
 		try {
-			const resp = await listApprovals({ status: forStatus, limit: 100 }, { dontLogErrors: true });
+			const [resp, asked] = await Promise.all([
+				listApprovals({ status: forStatus, limit: 100 }, { dontLogErrors: true }),
+				forStatus === 'pending'
+					? listMCPServerRequests({ state: 'pending' }, { dontLogErrors: true }).catch(() => [])
+					: Promise.resolve([])
+			]);
 			if (gen !== generation) return;
 			approvals = resp.items ?? [];
+			requests = asked;
+			if (asked.length && vmcps.length === 0) {
+				listVMCPs({ dontLogErrors: true })
+					.then((all) => (vmcps = all.filter((v) => !v.userID && !v.sourceURL)))
+					.catch(() => undefined);
+			}
 		} catch (e) {
 			if (gen !== generation) return;
 			error = parseErrorContent(e).message;
@@ -106,10 +123,30 @@
 			<div class="notification-error rounded-md p-3 text-sm" role="alert">{error}</div>
 		{/if}
 
+		{#if status === 'pending' && requests.length}
+			<section class="flex flex-col gap-3" aria-label={m.supervision_approvals_requests()}>
+				<h2 class="text-base font-semibold">
+					{m.supervision_approvals_requests()} ({requests.length})
+				</h2>
+				<ul class="flex flex-col gap-3">
+					{#each requests as request (request.id)}
+						<li class="paper">
+							<ServerRequestCard {request} {vmcps} />
+						</li>
+					{/each}
+				</ul>
+			</section>
+			{#if approvals.length}
+				<h2 class="text-base font-semibold">
+					{m.supervision_approvals_actions()} ({approvals.length})
+				</h2>
+			{/if}
+		{/if}
+
 		{#if loading && approvals.length === 0}
 			<Skeleton type="card" class="min-h-40 w-full" />
 			<Skeleton type="card" class="min-h-40 w-full" />
-		{:else if approvals.length === 0}
+		{:else if approvals.length === 0 && !(status === 'pending' && requests.length)}
 			<div class="mt-12 flex w-md max-w-full flex-col items-center gap-4 self-center text-center">
 				<Inbox class="text-muted-content size-24 opacity-25" />
 				<p class="text-muted-content text-sm">

@@ -222,8 +222,8 @@
 	"supervision_cheat_labels": "コンテンツラベル (action.labels、session.labels、action.lineage.labels)",
 	"supervision_cheat_capabilities": "ケイパビリティラベル (action.capabilities)",
 	"supervision_cheat_examples": "例",
-	"supervision_approvals_title": "承認",
-	"supervision_approvals_description": "人の判断を待っている保留中の操作です。スーパーバイザーの推奨が先頭に表示されます。",
+	"supervision_approvals_title": "リクエストと承認",
+	"supervision_approvals_description": "管理者の対応を待っているもの：ユーザーが求めた MCP サーバーと、ポリシーが保留したエージェントの操作。スーパーバイザーの推奨が先に表示されます。",
 	"supervision_approvals_tab_pending": "保留中",
 	"supervision_approvals_tab_approved": "承認済み",
 	"supervision_approvals_tab_denied": "拒否済み",
@@ -516,5 +516,7 @@
 	"supervision_label_origin_ai": "AI タガー",
 	"supervision_label_origin_ai_detail": "AI タガー: {detail}",
 	"supervision_cheat_custom_labels": "カスタムラベル",
-	"supervision_cheat_custom_labels_example": "例: {example}"
+	"supervision_cheat_custom_labels_example": "例: {example}",
+	"supervision_approvals_requests": "MCP サーバーリクエスト",
+	"supervision_approvals_actions": "保留中のエージェント操作"
 }

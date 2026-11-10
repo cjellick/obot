@@ -222,8 +222,8 @@
 	"supervision_cheat_labels": "Content labels (action.labels, session.labels, action.lineage.labels)",
 	"supervision_cheat_capabilities": "Capability labels (action.capabilities)",
 	"supervision_cheat_examples": "Examples",
-	"supervision_approvals_title": "Approvals",
-	"supervision_approvals_description": "Actions held for a person to decide. The Supervisor's recommendation comes first.",
+	"supervision_approvals_title": "Requests & Approvals",
+	"supervision_approvals_description": "Everything waiting on an administrator: MCP servers people asked for, and agent actions a policy held. The Supervisor's recommendation comes first.",
 	"supervision_approvals_tab_pending": "Pending",
 	"supervision_approvals_tab_approved": "Approved",
 	"supervision_approvals_tab_denied": "Denied",
@@ -516,5 +516,7 @@
 	"supervision_label_origin_ai": "AI tagger",
 	"supervision_label_origin_ai_detail": "AI tagger: {detail}",
 	"supervision_cheat_custom_labels": "Custom labels",
-	"supervision_cheat_custom_labels_example": "For example: {example}"
+	"supervision_cheat_custom_labels_example": "For example: {example}",
+	"supervision_approvals_requests": "MCP server requests",
+	"supervision_approvals_actions": "Held agent actions"
 }

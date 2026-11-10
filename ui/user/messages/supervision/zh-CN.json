@@ -222,8 +222,8 @@
 	"supervision_cheat_labels": "内容标签（action.labels、session.labels、action.lineage.labels）",
 	"supervision_cheat_capabilities": "能力标签（action.capabilities）",
 	"supervision_cheat_examples": "示例",
-	"supervision_approvals_title": "审批",
-	"supervision_approvals_description": "等待人工决定的保留操作。监督者的建议显示在最前面。",
+	"supervision_approvals_title": "请求与审批",
+	"supervision_approvals_description": "所有等待管理员处理的事项：用户请求的 MCP 服务器，以及被策略暂停的代理操作。监督者的建议排在最前。",
 	"supervision_approvals_tab_pending": "待处理",
 	"supervision_approvals_tab_approved": "已批准",
 	"supervision_approvals_tab_denied": "已拒绝",
@@ -516,5 +516,7 @@
 	"supervision_label_origin_ai": "AI 标记器",
 	"supervision_label_origin_ai_detail": "AI 标记器：{detail}",
 	"supervision_cheat_custom_labels": "自定义标签",
-	"supervision_cheat_custom_labels_example": "例如：{example}"
+	"supervision_cheat_custom_labels_example": "例如：{example}",
+	"supervision_approvals_requests": "MCP 服务器请求",
+	"supervision_approvals_actions": "已暂停的代理操作"
 }
