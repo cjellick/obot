@@ -374,6 +374,7 @@
 									{ property: 'lastActivityAt', title: m.supervision_col_last_activity() }
 								]}
 								onClickRow={(row, isCtrl) => openUrl(`/sessions/${row.id}`, isCtrl)}
+								classes={{ thead: 'static' }}
 							>
 								{#snippet onRenderColumn(property, row)}
 									{#if property === 'risk'}
