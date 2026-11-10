@@ -48,6 +48,10 @@ type ContentToClassify struct {
 	Capabilities Labels
 	// Found are the labels the deterministic classifier already found.
 	Found Labels
+	// Labels is the vocabulary the tagger may apply, with the description of
+	// each label it follows: the built-in content labels and every custom label
+	// with AI on (Engine.TaggerLabels). Empty means the built-in labels.
+	Labels []LabelDefinition
 }
 
 // ContentClassification is what the tagger returned.
@@ -107,26 +111,26 @@ func contentCacheKey(content string) uint64 {
 	return hashExact(strings.Join(normalizeWords(content), " "))
 }
 
-// contentLabelsOnly keeps only the labels that are in ContentLabels. It is the
+// contentLabelsOnly keeps only the labels the tagger may apply. It is the
 // universal filter the cache stores; the per-ingest "minus Found" step is
 // applied when the result is used.
-func contentLabelsOnly(labels Labels) Labels {
+func contentLabelsOnly(labels, allowed Labels) Labels {
 	var out Labels
 	for _, l := range labels {
-		if ContentLabels.Has(l) {
+		if allowed.Has(l) {
 			out = out.Add(l)
 		}
 	}
 	return out
 }
 
-// filterContentLabels keeps only ContentLabels that are not already in found,
+// filterContentLabels keeps only allowed labels that are not already in found,
 // then normalizes. The tagger is additive: it can never remove a deterministic
 // label and can never add a non-content label.
-func filterContentLabels(labels, found Labels) Labels {
+func filterContentLabels(labels, found, allowed Labels) Labels {
 	var out Labels
 	for _, l := range labels {
-		if ContentLabels.Has(l) && !found.Has(l) {
+		if allowed.Has(l) && !found.Has(l) {
 			out = out.Add(l)
 		}
 	}
@@ -195,7 +199,7 @@ func (e *Engine) tagContent(ctx context.Context, in IngestRequest, ev *Event, s 
 	if !cfg.Enabled {
 		return
 	}
-	key := contentCacheKey(in.Content)
+	key := contentCacheKey(in.Content) ^ e.taggerVocabularyKey(ctx)
 	if cached, ok := e.contentCacheGet(key); ok {
 		e.applyContentTags(ctx, in, ev, s, cached, found, ev.ID)
 		return
@@ -232,15 +236,16 @@ func (e *Engine) classifyContentNow(ctx context.Context, in IngestRequest, ev *E
 	if classifier == nil {
 		return
 	}
+	vocabulary := e.TaggerLabels(ctx)
 	out, err := classifier.ClassifyContent(ctx, ContentToClassify{
 		Text: in.Content, Tool: in.Tool, Server: in.Server, Surface: in.Surface,
-		Capabilities: in.Capabilities, Found: found,
+		Capabilities: in.Capabilities, Found: found, Labels: vocabulary,
 	})
 	if err != nil {
 		e.logger.Debug("provenance: content tagging failed", "tool", in.Tool, "server", in.Server, "error", err)
 		return
 	}
-	out.Labels = contentLabelsOnly(out.Labels)
+	out.Labels = contentLabelsOnly(out.Labels, LabelDefinitionNames(vocabulary))
 	e.contentCachePut(key, out)
 	e.applyContentTags(ctx, in, ev, s, out, found, eventID)
 }
@@ -249,11 +254,11 @@ func (e *Engine) classifyContentNow(ctx context.Context, in IngestRequest, ev *E
 // event, when one is given). It is additive and idempotent: labels already
 // present are no-ops, and deterministic labels are never removed.
 func (e *Engine) applyContentTags(ctx context.Context, in IngestRequest, ev *Event, s *Session, class ContentClassification, found Labels, eventID string) {
-	add := filterContentLabels(class.Labels, found)
+	add := filterContentLabels(class.Labels, found, e.taggerLabelNames(ctx))
 	if len(add) == 0 {
 		return
 	}
-	origin := LabelOrigin{EventID: eventID, Summary: contentTagSummary(in), At: e.now()}
+	origin := LabelOrigin{EventID: eventID, Summary: contentTagSummary(in), At: e.now(), Detector: DetectorAI, Detail: class.Rationale}
 	e.lock.Lock()
 	s.State.AddLabels(add, origin)
 	s.State.Recompute()
@@ -334,7 +339,7 @@ func (e *Engine) FlushContentBatch(ctx context.Context) int {
 		} else {
 			e.applyContentTags(ctx, item.in, nil, item.s, cached, item.found, item.eventID)
 		}
-		if ok && len(filterContentLabels(cached.Labels, item.found)) > 0 {
+		if ok && len(filterContentLabels(cached.Labels, item.found, e.taggerLabelNames(ctx))) > 0 {
 			tagged++
 		}
 	}
@@ -342,4 +347,24 @@ func (e *Engine) FlushContentBatch(ctx context.Context) int {
 	e.contentBatchTagged = tagged
 	e.contentBatchLock.Unlock()
 	return tagged
+}
+
+func (e *Engine) taggerLabelNames(ctx context.Context) Labels {
+	return LabelDefinitionNames(e.TaggerLabels(ctx))
+}
+
+// taggerVocabularyKey changes whenever the tagger's labels or their
+// descriptions do, so a cached classification made against an older custom
+// label set is not reused.
+func (e *Engine) taggerVocabularyKey(ctx context.Context) uint64 {
+	var custom []string
+	for _, d := range e.TaggerLabels(ctx) {
+		if d.Custom {
+			custom = append(custom, string(d.Name)+"\x00"+d.Description)
+		}
+	}
+	if len(custom) == 0 {
+		return 0
+	}
+	return hashExact(strings.Join(custom, "\x01"))
 }

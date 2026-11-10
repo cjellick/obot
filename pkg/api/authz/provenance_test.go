@@ -199,6 +199,27 @@ func TestProvenanceRouteAuthorization(t *testing.T) {
 			method: http.MethodPut,
 			path:   "/api/provenance/settings",
 		},
+		{
+			name:     "list custom labels",
+			method:   http.MethodGet,
+			path:     "/api/provenance/custom-labels",
+			readOnly: true,
+		},
+		{
+			name:   "create custom label",
+			method: http.MethodPost,
+			path:   "/api/provenance/custom-labels",
+		},
+		{
+			name:   "update custom label",
+			method: http.MethodPut,
+			path:   "/api/provenance/custom-labels/project-atlas",
+		},
+		{
+			name:   "delete custom label",
+			method: http.MethodDelete,
+			path:   "/api/provenance/custom-labels/project-atlas",
+		},
 	}
 
 	for _, route := range routes {

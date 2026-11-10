@@ -100,6 +100,9 @@ type policyValidateRequest struct {
 type policyValidateResponse struct {
 	Valid bool   `json:"valid"`
 	Error string `json:"error,omitempty"`
+	// Warnings flag a valid condition that can never match as intended, such
+	// as one testing a label that is neither built-in nor a custom label.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type policySimulateRequest struct {
@@ -600,7 +603,11 @@ func (h *ProvenanceHandler) ValidatePolicy(req api.Context) error {
 	if err := probe.Validate(); err != nil {
 		return req.Write(policyValidateResponse{Valid: false, Error: err.Error()})
 	}
-	return req.Write(policyValidateResponse{Valid: true})
+	var warnings []string
+	for _, label := range provenance.UnknownPolicyLabels(in.Condition, h.engine.CustomLabels(req.Context()).Names()) {
+		warnings = append(warnings, fmt.Sprintf("%q is not a built-in or custom label, so this test never matches", label))
+	}
+	return req.Write(policyValidateResponse{Valid: true, Warnings: warnings})
 }
 
 func (h *ProvenanceHandler) SimulatePolicy(req api.Context) error {

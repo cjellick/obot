@@ -24,6 +24,7 @@ type MemStore struct {
 	approvals  map[string]*Approval
 	kills      map[string]*Kill
 	toolLabels map[string]*ToolLabel
+	custom     map[Label]CustomLabel
 	narratives map[string]SavedNarrative
 	settings   *Settings
 }
@@ -37,6 +38,7 @@ func NewMemStore() *MemStore {
 		approvals:  map[string]*Approval{},
 		kills:      map[string]*Kill{},
 		toolLabels: map[string]*ToolLabel{},
+		custom:     map[Label]CustomLabel{},
 		narratives: map[string]SavedNarrative{},
 	}
 }
@@ -373,5 +375,40 @@ func (m *MemStore) PutNarrative(_ context.Context, n SavedNarrative) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.narratives[n.SessionID] = n
+	return nil
+}
+
+func (m *MemStore) ListCustomLabels(context.Context) ([]CustomLabel, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	out := make([]CustomLabel, 0, len(m.custom))
+	for _, l := range m.custom {
+		out = append(out, l)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (m *MemStore) GetCustomLabel(_ context.Context, name Label) (*CustomLabel, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	l, ok := m.custom[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return &l, nil
+}
+
+func (m *MemStore) PutCustomLabel(_ context.Context, l *CustomLabel) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.custom[l.Name] = *l
+	return nil
+}
+
+func (m *MemStore) DeleteCustomLabel(_ context.Context, name Label) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	delete(m.custom, name)
 	return nil
 }

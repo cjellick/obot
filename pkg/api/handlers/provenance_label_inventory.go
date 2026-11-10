@@ -31,6 +31,7 @@ type labelInventory struct {
 	ObservedTools     []provenance.ToolLabel    `json:"observedTools"`
 	Capabilities      provenance.Labels         `json:"capabilities"`
 	ContentLabels     provenance.Labels         `json:"contentLabels"`
+	CustomLabels      []provenance.CustomLabel  `json:"customLabels"`
 	ContentTagging    provenance.ContentTagging `json:"contentTagging"`
 	SupervisorEnabled bool                      `json:"supervisorEnabled"`
 }
@@ -47,8 +48,16 @@ func (h *ProvenanceHandler) LabelInventory(req api.Context) error {
 	if err != nil {
 		return err
 	}
+	custom, err := h.engine.Store().ListCustomLabels(req.Context())
+	if err != nil {
+		return err
+	}
+	if custom == nil {
+		custom = []provenance.CustomLabel{}
+	}
 	out := labelInventory{
-		Resources: []labelResourceSummary{}, ObservedTools: []provenance.ToolLabel{},
+		CustomLabels: custom,
+		Resources:    []labelResourceSummary{}, ObservedTools: []provenance.ToolLabel{},
 		Capabilities: slices.Clone(provenance.CapabilityLabels), ContentLabels: slices.Clone(provenance.ContentLabels),
 		ContentTagging: settings.ContentTagging, SupervisorEnabled: settings.SupervisorEnabled,
 	}

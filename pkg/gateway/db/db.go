@@ -211,6 +211,7 @@ func (db *DB) AutoMigrate() (err error) {
 		types.ProvenanceApproval{},
 		types.ProvenanceKill{},
 		types.ProvenanceToolLabel{},
+		types.ProvenanceCustomLabel{},
 		types.ProvenanceSettings{},
 		types.ProvenanceNarrative{},
 		types.AIConversation{},
