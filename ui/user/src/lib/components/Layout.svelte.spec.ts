@@ -20,7 +20,7 @@ import { worker } from '../../tests/mocks/worker';
 import Layout from './Layout.svelte';
 import { http, HttpResponse } from 'msw';
 import { createRawSnippet, tick } from 'svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 
@@ -233,6 +233,10 @@ describe('Layout.svelte', () => {
 	});
 
 	describe('Supervisor navigation', () => {
+		beforeEach(() => {
+			worker.use(http.get('/api/mcp-server-requests', () => HttpResponse.json({ items: [] })));
+		});
+
 		function mockPending(count: number) {
 			worker.use(
 				http.get('/api/provenance/supervisor/status', () =>
@@ -262,7 +266,7 @@ describe('Layout.svelte', () => {
 				.element(page.getByRole('link', { name: 'Rules', exact: true }))
 				.toHaveAttribute('href', '/tool-labels');
 			await expect
-				.element(page.getByRole('link', { name: /Approvals.*3 pending approvals/ }))
+				.element(page.getByRole('link', { name: /Requests & Approvals.*3 waiting for you/ }))
 				.toHaveAttribute('href', '/approvals');
 		});
 
@@ -291,7 +295,7 @@ describe('Layout.svelte', () => {
 			await expandSection('supervision-group', '/supervision');
 
 			await expect
-				.element(page.getByRole('link', { name: /Approvals.*5 pending approvals/ }))
+				.element(page.getByRole('link', { name: /Requests & Approvals.*5 waiting for you/ }))
 				.toBeInTheDocument();
 		});
 
@@ -301,7 +305,7 @@ describe('Layout.svelte', () => {
 			await expandSection('supervision-group', '/supervision');
 
 			await expectLink('/approvals');
-			await expect.element(page.getByText(/pending approvals/)).not.toBeInTheDocument();
+			await expect.element(page.getByText(/waiting for you/)).not.toBeInTheDocument();
 		});
 
 		it('does not ask for pending approvals for basic users', async () => {
