@@ -83,6 +83,7 @@ func (e *Engine) newMux() *http.ServeMux {
 		e.serveCount(w, r, dialectResponses)
 	})
 	mux.HandleFunc("POST /v1/chat/completions", e.serveChat)
+	mux.HandleFunc("POST /v1/decisions", e.serveDecision)
 	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, r *http.Request) {
 		e.serve(w, r, dialectResponses)
 	})
