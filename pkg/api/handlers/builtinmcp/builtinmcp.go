@@ -48,7 +48,8 @@ func (h *Handler) Serve(req api.Context) error {
 		http.Error(req.ResponseWriter, "token was not issued for this MCP server", http.StatusForbidden)
 		return nil
 	}
-	if authorized := req.User.GetExtra()["authorized_mcp_ids"]; len(authorized) > 0 && !slices.Contains(authorized, id) {
+	// An API key for "*" may use every server its user can, the built-in ones included.
+	if authorized := req.User.GetExtra()["authorized_mcp_ids"]; len(authorized) > 0 && !slices.Contains(authorized, id) && !slices.Contains(authorized, "*") {
 		http.Error(req.ResponseWriter, "token is not authorized for this MCP server", http.StatusForbidden)
 		return nil
 	}
