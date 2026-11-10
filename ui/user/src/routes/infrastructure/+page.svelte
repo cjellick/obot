@@ -11,7 +11,9 @@
 	} from '$lib/services/admin/infrastructure';
 	import { formatTimeAgo } from '$lib/time';
 	import { resolve } from '$lib/url';
+	import ClaudeSummary from './ClaudeSummary.svelte';
 	import HealthBadge from './HealthBadge.svelte';
+	import McpServersSummary from './McpServersSummary.svelte';
 	import ObotLogs from './ObotLogs.svelte';
 	import WorkloadDetail from './WorkloadDetail.svelte';
 	import { CircleAlert, CircleCheck, RefreshCw, TriangleAlert } from '@lucide/svelte';
@@ -207,6 +209,13 @@
 					</div>
 				{/if}
 			</div>
+
+			<McpServersSummary
+				section={infra.mcpServers}
+				onSelect={(name) => (selected = { area: 'mcp', name })}
+			/>
+
+			<ClaudeSummary section={infra.claude} />
 
 			<div class="flex flex-col gap-2">
 				<h2 class="text-lg font-semibold">{m.infrastructure_obot_server()}</h2>

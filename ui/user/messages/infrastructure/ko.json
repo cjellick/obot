@@ -74,5 +74,14 @@
 	"infrastructure_since_6h": "최근 6시간",
 	"infrastructure_follow": "따라가기",
 	"infrastructure_logs_summary": "일치하는 {matched}줄 중 {shown}줄을 표시합니다. Obot는 최근 {capacity}줄을 메모리에 보관합니다 (현재 {buffered}줄).",
-	"infrastructure_logs_replica": "복제본 {pod}"
+	"infrastructure_logs_replica": "복제본 {pod}",
+	"infrastructure_col_owner": "소유자",
+	"infrastructure_view_all_mcp": "모두 보기 ({count})",
+	"infrastructure_view_all_claude": "모두 보기",
+	"infrastructure_health_breakdown": "상태 분포",
+	"infrastructure_overview_no_mcp": "아직 Kubernetes에서 실행 중인 MCP 서버가 없습니다.",
+	"infrastructure_overview_no_claude": "아직 Kubernetes에서 실행 중인 Claude 환경이 없습니다.",
+	"infrastructure_overview_claude_summary": "워커 풀 {pools}개 · 활성 세션 {sessions}개",
+	"infrastructure_overview_workers": "워커 {ready}/{total}",
+	"infrastructure_overview_restarts": "재시작 {count}회"
 }

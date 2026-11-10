@@ -74,5 +74,14 @@
 	"infrastructure_since_6h": "過去 6 時間",
 	"infrastructure_follow": "追従",
 	"infrastructure_logs_summary": "一致する {matched} 行のうち {shown} 行を表示しています。Obot はメモリに直近 {capacity} 行を保持します (現在 {buffered} 行)。",
-	"infrastructure_logs_replica": "レプリカ {pod}"
+	"infrastructure_logs_replica": "レプリカ {pod}",
+	"infrastructure_col_owner": "所有者",
+	"infrastructure_view_all_mcp": "すべて表示 ({count})",
+	"infrastructure_view_all_claude": "すべて表示",
+	"infrastructure_health_breakdown": "ヘルスの内訳",
+	"infrastructure_overview_no_mcp": "Kubernetes 上で実行中の MCP サーバーはまだありません。",
+	"infrastructure_overview_no_claude": "Kubernetes 上で実行中の Claude 環境はまだありません。",
+	"infrastructure_overview_claude_summary": "ワーカープール {pools} 件 · アクティブなセッション {sessions} 件",
+	"infrastructure_overview_workers": "ワーカー {ready}/{total}",
+	"infrastructure_overview_restarts": "再起動 {count} 回"
 }

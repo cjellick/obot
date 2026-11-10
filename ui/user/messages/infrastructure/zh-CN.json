@@ -74,5 +74,14 @@
 	"infrastructure_since_6h": "最近 6 小时",
 	"infrastructure_follow": "跟随",
 	"infrastructure_logs_summary": "显示 {matched} 条匹配行中的 {shown} 条。Obot 在内存中保留最近 {capacity} 行（当前 {buffered} 行）。",
-	"infrastructure_logs_replica": "副本 {pod}"
+	"infrastructure_logs_replica": "副本 {pod}",
+	"infrastructure_col_owner": "所有者",
+	"infrastructure_view_all_mcp": "查看全部 ({count})",
+	"infrastructure_view_all_claude": "查看全部",
+	"infrastructure_health_breakdown": "健康状况分布",
+	"infrastructure_overview_no_mcp": "尚无 MCP 服务器在 Kubernetes 上运行。",
+	"infrastructure_overview_no_claude": "尚无 Claude 环境在 Kubernetes 上运行。",
+	"infrastructure_overview_claude_summary": "{pools} 个工作节点池 · {sessions} 个活动会话",
+	"infrastructure_overview_workers": "{ready}/{total} 个工作节点",
+	"infrastructure_overview_restarts": "重启 {count} 次"
 }

@@ -74,5 +74,14 @@
 	"infrastructure_since_6h": "Last 6 hours",
 	"infrastructure_follow": "Follow",
 	"infrastructure_logs_summary": "Showing {shown} of {matched} matching lines. Obot keeps the last {capacity} lines in memory ({buffered} now).",
-	"infrastructure_logs_replica": "Replica {pod}"
+	"infrastructure_logs_replica": "Replica {pod}",
+	"infrastructure_col_owner": "Owner",
+	"infrastructure_view_all_mcp": "View all {count}",
+	"infrastructure_view_all_claude": "View all",
+	"infrastructure_health_breakdown": "Health breakdown",
+	"infrastructure_overview_no_mcp": "No MCP servers are running on Kubernetes yet.",
+	"infrastructure_overview_no_claude": "No Claude environments are running on Kubernetes yet.",
+	"infrastructure_overview_claude_summary": "{pools} worker pools · {sessions} active sessions",
+	"infrastructure_overview_workers": "{ready}/{total} workers",
+	"infrastructure_overview_restarts": "{count} restarts"
 }
