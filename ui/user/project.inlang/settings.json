@@ -17,6 +17,7 @@
 			"./messages/guardrails/{locale}.json",
 			"./messages/identity_access/{locale}.json",
 			"./messages/install_cli/{locale}.json",
+			"./messages/infrastructure/{locale}.json",
 			"./messages/inventory_enforcement/{locale}.json",
 			"./messages/mcps/{locale}.json",
 			"./messages/models/{locale}.json",
