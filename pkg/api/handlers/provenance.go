@@ -484,15 +484,16 @@ func (h *ProvenanceHandler) ListEvents(req api.Context) error {
 	}
 	decided := true
 	events, total, err := h.engine.Store().ListEvents(req.Context(), provenance.EventQuery{
-		UserID:  q.Get("user_id"),
-		Surface: surface,
-		Kind:    provenance.EventKind(q.Get("kind")),
-		Decided: &decided,
-		Denied:  denied,
-		Start:   start,
-		End:     end,
-		Limit:   limit,
-		Offset:  offset,
+		UserID:   q.Get("user_id"),
+		Surface:  surface,
+		Kind:     provenance.EventKind(q.Get("kind")),
+		PolicyID: q.Get("policy_id"),
+		Decided:  &decided,
+		Denied:   denied,
+		Start:    start,
+		End:      end,
+		Limit:    limit,
+		Offset:   offset,
 	})
 	if err != nil {
 		return err

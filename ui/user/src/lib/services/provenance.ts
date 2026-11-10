@@ -388,6 +388,8 @@ export interface SessionFilters {
 
 export interface EventFilters {
 	userId?: string;
+	/** Events the policy decided or matched, in shadow mode too. */
+	policyId?: string;
 	surface?: Surface;
 	kind?: EventKind;
 	denied?: boolean;

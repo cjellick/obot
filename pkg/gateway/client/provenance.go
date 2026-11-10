@@ -285,6 +285,10 @@ func (s *provenanceStore) ListEvents(ctx context.Context, q provenance.EventQuer
 	if q.Kind != "" {
 		db = db.Where("kind = ?", string(q.Kind))
 	}
+	if q.PolicyID != "" {
+		// Shadow matches are only in the payload's matched list.
+		db = db.Where("(policy_id = ? OR payload LIKE ?)", q.PolicyID, `%"policyID":"`+strings.ReplaceAll(q.PolicyID, "%", "")+`"%`)
+	}
 	if q.Decided != nil {
 		if *q.Decided {
 			db = db.Where("allowed IS NOT NULL")

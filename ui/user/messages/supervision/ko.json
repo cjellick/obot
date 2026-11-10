@@ -442,5 +442,18 @@
 	"supervision_decision_approval_approved": "승인됨",
 	"supervision_decision_approval_denied": "승인 거부됨",
 	"supervision_decision_approval_expired": "승인 만료됨",
-	"supervision_ask_opens_ai": "답변은 Obot AI에서 열리며 이어서 질문할 수 있습니다."
+	"supervision_ask_opens_ai": "답변은 Obot AI에서 열리며 이어서 질문할 수 있습니다.",
+	"supervision_label_details_origin": "이 세션이 레이블을 얻은 곳",
+	"supervision_label_details_no_origin": "출처가 기록되지 않았습니다.",
+	"supervision_label_details_policies": "이 레이블을 사용하는 정책",
+	"supervision_label_details_no_policies": "아직 이 레이블을 검사하는 정책이 없습니다.",
+	"supervision_label_details_shadow": "섀도",
+	"supervision_label_details_enforced": "적용됨",
+	"supervision_label_details_disabled": "사용 안 함",
+	"supervision_label_details_sessions": "{label} 레이블이 있는 세션",
+	"supervision_label_details_open": "{label} 정보",
+	"supervision_policy_matches_title": "최근 일치",
+	"supervision_policy_matches_empty": "이 정책은 아직 일치한 항목이 없습니다.",
+	"supervision_policy_matches_more": "{total}개 중 {shown}개",
+	"supervision_policy_matches_open_session": "세션 열기"
 }

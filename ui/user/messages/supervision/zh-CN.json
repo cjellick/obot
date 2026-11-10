@@ -442,5 +442,18 @@
 	"supervision_decision_approval_approved": "已批准",
 	"supervision_decision_approval_denied": "审批被拒绝",
 	"supervision_decision_approval_expired": "审批已过期",
-	"supervision_ask_opens_ai": "回答将在 Obot AI 中打开，你可以继续追问。"
+	"supervision_ask_opens_ai": "回答将在 Obot AI 中打开，你可以继续追问。",
+	"supervision_label_details_origin": "此会话获得该标签的来源",
+	"supervision_label_details_no_origin": "未记录来源。",
+	"supervision_label_details_policies": "使用该标签的策略",
+	"supervision_label_details_no_policies": "还没有策略检查此标签。",
+	"supervision_label_details_shadow": "影子",
+	"supervision_label_details_enforced": "已执行",
+	"supervision_label_details_disabled": "已禁用",
+	"supervision_label_details_sessions": "带有 {label} 标签的会话",
+	"supervision_label_details_open": "关于 {label}",
+	"supervision_policy_matches_title": "最近匹配",
+	"supervision_policy_matches_empty": "此策略尚未匹配任何内容。",
+	"supervision_policy_matches_more": "{shown} / {total}",
+	"supervision_policy_matches_open_session": "打开会话"
 }

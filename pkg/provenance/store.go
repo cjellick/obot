@@ -47,6 +47,8 @@ type EventQuery struct {
 	UserID    string
 	Surface   Surface
 	Kind      EventKind
+	// PolicyID keeps events the policy decided or matched, in shadow mode too.
+	PolicyID  string
 	Decided   *bool // only events with a decision
 	Denied    *bool
 	Start     time.Time

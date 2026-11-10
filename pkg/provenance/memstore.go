@@ -169,6 +169,9 @@ func (m *MemStore) ListEvents(_ context.Context, q EventQuery) ([]Event, int64, 
 		if q.Kind != "" && ev.Kind != q.Kind {
 			continue
 		}
+		if q.PolicyID != "" && !eventMatchesPolicy(ev, q.PolicyID) {
+			continue
+		}
 		if q.Decided != nil && (ev.Decision != nil) != *q.Decided {
 			continue
 		}
@@ -374,4 +377,20 @@ func (m *MemStore) PutNarrative(_ context.Context, n SavedNarrative) error {
 	defer m.lock.Unlock()
 	m.narratives[n.SessionID] = n
 	return nil
+}
+
+// eventMatchesPolicy reports whether the policy decided the event or matched it.
+func eventMatchesPolicy(ev Event, policyID string) bool {
+	if ev.Decision == nil {
+		return false
+	}
+	if ev.Decision.PolicyID == policyID {
+		return true
+	}
+	for _, m := range ev.Decision.Matched {
+		if m.PolicyID == policyID {
+			return true
+		}
+	}
+	return false
 }

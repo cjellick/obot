@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import Layout from '$lib/components/Layout.svelte';
 	import PolicyForm from '$lib/components/supervision/PolicyForm.svelte';
+	import PolicyMatches from '$lib/components/supervision/PolicyMatches.svelte';
 	import { m } from '$lib/i18n';
 	import { goto } from '$lib/url';
 
@@ -20,6 +21,11 @@
 
 <Layout {title} showBackButton onBackButtonClick={back}>
 	{#key routeID}
+		{#if routeID !== 'new'}
+			<div class="mb-6">
+				<PolicyMatches policyID={routeID} />
+			</div>
+		{/if}
 		<PolicyForm
 			id={routeID === 'new' ? undefined : routeID}
 			startWithDraft={page.url.searchParams.get('draft') === '1'}

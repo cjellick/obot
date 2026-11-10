@@ -442,5 +442,18 @@
 	"supervision_decision_approval_approved": "承認済み",
 	"supervision_decision_approval_denied": "承認が拒否されました",
 	"supervision_decision_approval_expired": "承認の期限切れ",
-	"supervision_ask_opens_ai": "回答は Obot AI で開き、続けて質問できます。"
+	"supervision_ask_opens_ai": "回答は Obot AI で開き、続けて質問できます。",
+	"supervision_label_details_origin": "このセッションがラベルを得た場所",
+	"supervision_label_details_no_origin": "出どころは記録されていません。",
+	"supervision_label_details_policies": "このラベルを使うポリシー",
+	"supervision_label_details_no_policies": "このラベルをテストするポリシーはまだありません。",
+	"supervision_label_details_shadow": "シャドウ",
+	"supervision_label_details_enforced": "適用中",
+	"supervision_label_details_disabled": "無効",
+	"supervision_label_details_sessions": "{label} のセッション",
+	"supervision_label_details_open": "{label} について",
+	"supervision_policy_matches_title": "最近の一致",
+	"supervision_policy_matches_empty": "このポリシーはまだ何にも一致していません。",
+	"supervision_policy_matches_more": "{total} 件中 {shown} 件",
+	"supervision_policy_matches_open_session": "セッションを開く"
 }

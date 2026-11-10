@@ -442,5 +442,18 @@
 	"supervision_decision_approval_approved": "Approved",
 	"supervision_decision_approval_denied": "Approval denied",
 	"supervision_decision_approval_expired": "Approval expired",
-	"supervision_ask_opens_ai": "Answers open in Obot AI, where you can follow up."
+	"supervision_ask_opens_ai": "Answers open in Obot AI, where you can follow up.",
+	"supervision_label_details_origin": "Where this session picked it up",
+	"supervision_label_details_no_origin": "No origin was recorded.",
+	"supervision_label_details_policies": "Policies that use it",
+	"supervision_label_details_no_policies": "No policy tests this label yet.",
+	"supervision_label_details_shadow": "Shadow",
+	"supervision_label_details_enforced": "Enforced",
+	"supervision_label_details_disabled": "Disabled",
+	"supervision_label_details_sessions": "Sessions labeled {label}",
+	"supervision_label_details_open": "About {label}",
+	"supervision_policy_matches_title": "Recent matches",
+	"supervision_policy_matches_empty": "This policy hasn't matched anything yet.",
+	"supervision_policy_matches_more": "{shown} of {total}",
+	"supervision_policy_matches_open_session": "Open session"
 }

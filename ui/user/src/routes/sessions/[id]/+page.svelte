@@ -209,7 +209,11 @@
 				<div class="flex flex-col gap-1">
 					<span class="text-muted-content text-xs uppercase">{m.supervision_labels()}</span>
 					{#if session.state.labels?.length}
-						<LabelBadges labels={session.state.labels} origins={session.state.origins} />
+						<LabelBadges
+							labels={session.state.labels}
+							origins={session.state.origins}
+							interactive
+						/>
 					{:else}
 						<span class="text-muted-content text-sm">{m.supervision_none()}</span>
 					{/if}

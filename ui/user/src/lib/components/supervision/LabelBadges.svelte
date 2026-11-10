@@ -3,6 +3,7 @@
 	import { m } from '$lib/i18n';
 	import type { LabelOrigin } from '$lib/services/provenance';
 	import { formatTimeAgo } from '$lib/time';
+	import LabelDetails from './LabelDetails.svelte';
 	import { twMerge } from 'tailwind-merge';
 
 	interface Props {
@@ -11,9 +12,13 @@
 		origins?: Record<string, LabelOrigin[]>;
 		max?: number;
 		class?: string;
+		/** Each label opens its details: where it came from, the policies that use it and the
+		 * other sessions that carry it. */
+		interactive?: boolean;
 	}
 
-	let { labels, origins, max, class: klass }: Props = $props();
+	let { labels, origins, max, class: klass, interactive = false }: Props = $props();
+	let details = $state<ReturnType<typeof LabelDetails>>();
 
 	let shown = $derived(max ? (labels ?? []).slice(0, max) : (labels ?? []));
 	let hidden = $derived((labels?.length ?? 0) - shown.length);
@@ -48,7 +53,19 @@
 	<span class={twMerge('flex flex-wrap items-center gap-1', klass)}>
 		{#each shown as label (label)}
 			{@const text = originText(label)}
-			{#if text}
+			{#if interactive}
+				<button
+					type="button"
+					class={twMerge(
+						'badge badge-sm badge-soft cursor-pointer whitespace-nowrap hover:brightness-95',
+						badgeClass(label)
+					)}
+					aria-label={m.supervision_label_details_open({ label })}
+					onclick={() => details?.show(label, origins?.[label] ?? [])}
+				>
+					{label}
+				</button>
+			{:else if text}
 				<span
 					class={twMerge(
 						'badge badge-sm badge-soft cursor-help whitespace-nowrap',
@@ -68,4 +85,8 @@
 			<span class="badge badge-sm badge-ghost whitespace-nowrap">+{hidden}</span>
 		{/if}
 	</span>
+{/if}
+
+{#if interactive}
+	<LabelDetails bind:this={details} />
 {/if}
