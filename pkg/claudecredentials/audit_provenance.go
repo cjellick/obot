@@ -245,7 +245,7 @@ func (e *egressProvenance) decide(ctx context.Context) *ext.ProcessingResponse {
 // would otherwise leave every Claude session listed as "model call to Anthropic".
 func (e *egressProvenance) sessionTitle() string {
 	if e.class.category == egressGit && e.class.host != "" && e.class.path != "" {
-		return e.class.host + e.class.path
+		return strings.TrimPrefix(e.class.path, "/")
 	}
 	return ""
 }
