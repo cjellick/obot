@@ -81,6 +81,9 @@ type SessionState struct {
 	Shadowed    int `json:"shadowed"`
 	Approvals   int `json:"approvals"`
 	ExternalOut int `json:"externalOut"`
+	// ControlPlane counts requests the agent's platform made to keep the session running,
+	// such as heartbeats and sync, which are not recorded as events.
+	ControlPlane int `json:"controlPlane,omitempty"`
 	// Surfaces that have reported into the session, for coverage.
 	Surfaces []Surface `json:"surfaces,omitempty"`
 	// Killed reports that the session was killed.

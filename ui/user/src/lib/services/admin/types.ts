@@ -469,12 +469,16 @@ export interface EgressAuditLog {
 	scheme: string;
 	updatedAt: string;
 	userID: string;
+	/** What the request is: egress, model, git, mcp, control-plane, runner or obot. */
+	category?: string;
 }
 export type EgressAuditLogURLFilters = {
 	claudeAccount?: string;
 	claudeSession?: string;
 	endTime?: string;
 	environmentId?: string;
+	/** Comma-separated categories to hide. */
+	excludeCategory?: string;
 	host?: string;
 	limit?: number;
 	offset?: number;

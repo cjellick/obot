@@ -21,8 +21,11 @@ var (
 
 type EgressAuditLogOptions struct {
 	UserID, ClaudeAccount, EnvironmentID, ClaudeSession, Host, Outcome string
-	StartTime, EndTime                                                 time.Time
-	Limit, Offset                                                      int
+	// ExcludeCategories hides requests of these categories, such as Anthropic's control
+	// plane and Obot's runner.
+	ExcludeCategories  []string
+	StartTime, EndTime time.Time
+	Limit, Offset      int
 }
 
 // EgressAuditEnvironments exposes names without loading configuration or secrets.
@@ -123,6 +126,10 @@ func (c *Client) ListEgressAuditLogs(ctx context.Context, opts EgressAuditLogOpt
 		if val != "" {
 			query = query.Where(column+" = ?", val)
 		}
+	}
+	if len(opts.ExcludeCategories) > 0 {
+		// Entries from before categories were recorded have none and stay visible.
+		query = query.Where("category IS NULL OR category NOT IN ?", opts.ExcludeCategories)
 	}
 	if !opts.StartTime.IsZero() {
 		query = query.Where("created_at >= ?", opts.StartTime)

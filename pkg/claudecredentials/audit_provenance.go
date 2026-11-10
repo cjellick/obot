@@ -2,10 +2,12 @@ package claudecredentials
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	ext "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -38,10 +40,13 @@ type egressProvenance struct {
 	subject provenance.Subject
 	session provenance.SessionKey
 	action  provenance.Action
-	// model reports model or Obot-internal traffic: decided on headers,
-	// bodies never scanned, responses never ingested (the model is not a
-	// source and the LLM gateway has its own surface).
-	model    bool
+	class   egressClass
+	// controlPlane reports a request that is only counted on the session, never recorded as
+	// an event.
+	controlPlane bool
+	// noScan reports traffic decided on headers whose bodies are never scanned and whose
+	// responses are never ingested: model calls (the model is not a source) and git packs.
+	noScan   bool
 	decided  bool
 	eventID  string
 	request  []byte
@@ -51,21 +56,61 @@ type egressProvenance struct {
 	ingested     bool
 }
 
-// newEgressProvenance builds the action for an attributed request. It returns
-// nil when no engine is configured.
-func (p *AuditProcessor) newEgressProvenance(ctx context.Context, entry *types.EgressAuditLog) *egressProvenance {
+// newEgressProvenance builds the action for an attributed request. It returns nil when no
+// engine is configured or the request is plumbing the session graph doesn't record.
+func (p *AuditProcessor) newEgressProvenance(ctx context.Context, entry *types.EgressAuditLog, class egressClass) *egressProvenance {
 	engine := p.Provider.Provenance
 	if engine == nil {
 		return nil
 	}
+	actor := provenance.Actor{Agent: provenanceAgent, EnvironmentID: entry.EnvironmentID, ClientSessionID: entry.ClaudeSession}
+	e := &egressProvenance{
+		engine:  engine,
+		entry:   entry,
+		class:   class,
+		subject: provenance.Subject{UserID: entry.UserID, Email: p.userEmail(ctx, entry.UserID), Actor: actor},
+		session: provenance.SessionKey{ClientSessionID: entry.ClaudeSession, Agent: provenanceAgent, EnvironmentID: entry.EnvironmentID},
+	}
+	switch class.category {
+	case egressRunner, egressObot:
+		// Obot's runner is Obot's own plumbing, and Obot's gateways record their own traffic.
+		return nil
+	case egressControlPlane:
+		e.controlPlane = true
+		return e
+	case egressModel:
+		e.noScan = true
+		e.action = provenance.Action{Surface: provenance.SurfaceEgress, Kind: provenance.KindLLMTurn, Host: anthropicAPIHost, Method: entry.Method}
+		return e
+	case egressGit:
+		// Git carries packs, not text worth scanning. A push writes to the repository host.
+		e.noScan = true
+		external := class.push && class.host != "" && engine.IsExternal(ctx, class.host)
+		var caps provenance.Labels
+		if class.push {
+			caps = caps.Add(provenance.CapWritesInternal)
+			if external {
+				caps = provenance.NewLabels(provenance.CapWritesExternal)
+			}
+		}
+		e.action = provenance.Action{
+			Surface: provenance.SurfaceEgress, Kind: provenance.KindNetEgress, Host: class.host, Method: entry.Method, Path: class.path,
+			Capabilities: caps, Sink: provenance.Sink{External: external, Destination: class.host, Writes: class.push},
+		}
+		return e
+	case egressMCP:
+		// The tool is known once the JSON-RPC body is read; see decide.
+		e.action = provenance.Action{Surface: provenance.SurfaceEgress, Kind: provenance.KindToolCall, Server: class.server, Method: entry.Method}
+		return e
+	}
+
 	host := hostname(entry.Host)
-	model := strings.EqualFold(host, anthropicAPIHost) || sameHost(p.Provider.ObotURL, host)
 	writes := false
 	switch entry.Method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 		writes = true
 	}
-	external := !model && engine.IsExternal(ctx, host)
+	external := engine.IsExternal(ctx, host)
 	var caps provenance.Labels
 	if writes {
 		if external {
@@ -74,38 +119,29 @@ func (p *AuditProcessor) newEgressProvenance(ctx context.Context, entry *types.E
 			caps = caps.Add(provenance.CapWritesInternal)
 		}
 	}
-	if !model {
-		if engine.IsTrustedHost(ctx, host) {
-			caps = caps.Add(provenance.LabelConfidential)
-		} else {
-			caps = caps.Add(provenance.LabelUntrusted)
-		}
+	if engine.IsTrustedHost(ctx, host) {
+		caps = caps.Add(provenance.LabelConfidential)
+	} else {
+		caps = caps.Add(provenance.LabelUntrusted)
 	}
-	actor := provenance.Actor{Agent: provenanceAgent, EnvironmentID: entry.EnvironmentID, ClientSessionID: entry.ClaudeSession}
-	return &egressProvenance{
-		engine:  engine,
-		entry:   entry,
-		subject: provenance.Subject{UserID: entry.UserID, Actor: actor},
-		session: provenance.SessionKey{ClientSessionID: entry.ClaudeSession, Agent: provenanceAgent, EnvironmentID: entry.EnvironmentID},
-		action: provenance.Action{
-			Surface:      provenance.SurfaceEgress,
-			Kind:         provenance.KindNetEgress,
-			Host:         host,
-			Method:       entry.Method,
-			Path:         entry.Path,
-			Capabilities: caps,
-			Sink:         provenance.Sink{External: external, Destination: host, Writes: writes},
-			Source:       provenance.SourceFromCapabilities(caps),
-		},
-		model: model,
+	e.action = provenance.Action{
+		Surface:      provenance.SurfaceEgress,
+		Kind:         provenance.KindNetEgress,
+		Host:         host,
+		Method:       entry.Method,
+		Path:         entry.Path,
+		Capabilities: caps,
+		Sink:         provenance.Sink{External: external, Destination: host, Writes: writes},
+		Source:       provenance.SourceFromCapabilities(caps),
 	}
+	return e
 }
 
 // decideOnHeaders reports whether the request can be decided before its body:
 // there is no body, Envoy will not stream one (upgrades), or the body is
 // model traffic that is never scanned.
 func (e *egressProvenance) decideOnHeaders(headers map[string][]string, endOfStream, upgrade bool) bool {
-	if e.model || endOfStream || upgrade {
+	if e.noScan || e.controlPlane || endOfStream || upgrade {
 		return true
 	}
 	switch e.entry.Method {
@@ -118,7 +154,7 @@ func (e *egressProvenance) decideOnHeaders(headers map[string][]string, endOfStr
 // addRequest buffers a request body chunk and reports whether the request is
 // ready to decide: the body ended or the scan limit was reached.
 func (e *egressProvenance) addRequest(chunk []byte, endOfStream bool) bool {
-	if e.decided || e.model {
+	if e.decided || e.noScan || e.controlPlane {
 		return false
 	}
 	e.request = append(e.request, chunk[:min(len(chunk), provenanceBodyLimit-len(e.request))]...)
@@ -137,11 +173,37 @@ func (e *egressProvenance) decide(ctx context.Context) *ext.ProcessingResponse {
 	action := e.action
 	action.Text = string(e.request)
 	e.request = nil
+	summary := e.class.summary
+	if e.class.category == egressMCP {
+		tool, ok := mcpToolCall(action.Text)
+		if !ok {
+			// initialize, tools/list and notifications keep the relay running.
+			e.controlPlane = true
+		} else {
+			action.Tool = tool
+			action.Capabilities = e.engine.ToolCapabilities(ctx, action.Server, tool, "")
+			if !action.Capabilities.HasAny(provenance.LabelConfidential, provenance.LabelUntrusted) {
+				// A relayed server like GitHub returns content outsiders can write.
+				action.Capabilities = action.Capabilities.Add(provenance.LabelUntrusted)
+			}
+			action.Sink = provenance.SinkFromCapabilities(action.Capabilities)
+			action.Source = provenance.SourceFromCapabilities(action.Capabilities)
+			e.action = action
+			summary = "tools/call " + action.Server + "." + tool
+		}
+	}
+	if e.controlPlane {
+		if err := e.engine.CountControlPlane(ctx, e.subject, e.session, provenance.SurfaceEgress); err != nil {
+			slog.WarnContext(ctx, "Obot Policy could not count a Claude control-plane request", "error", err)
+		}
+		return nil
+	}
 	ev, decision, err := e.engine.Decide(ctx, provenance.DecideRequest{
 		Subject: e.subject,
 		Session: e.session,
 		Action:  action,
 		Ref:     provenance.SurfaceRef{EgressAuditLogUUID: e.entry.ID},
+		Summary: summary,
 		Budget:  provenanceBudget,
 	})
 	if err != nil {
@@ -175,7 +237,7 @@ func (e *egressProvenance) responseHeaders(headers map[string][]string) {
 
 // addResponse buffers a response body chunk.
 func (e *egressProvenance) addResponse(chunk []byte) {
-	if e.model || e.ingested {
+	if e.noScan || e.controlPlane || e.ingested {
 		return
 	}
 	e.response = append(e.response, chunk[:min(len(chunk), provenanceBodyLimit-len(e.response))]...)
@@ -185,7 +247,7 @@ func (e *egressProvenance) addResponse(chunk []byte) {
 // an untrusted host taints the session; content from a trusted host is
 // first-party and private. Model traffic is skipped.
 func (e *egressProvenance) ingest(ctx context.Context) {
-	if e.model || e.ingested || len(e.response) == 0 {
+	if e.noScan || e.controlPlane || e.ingested || len(e.response) == 0 {
 		return
 	}
 	e.ingested = true
@@ -204,7 +266,9 @@ func (e *egressProvenance) ingest(ctx context.Context) {
 		Capabilities: e.action.Capabilities,
 		Content:      content,
 		Ref:          provenance.SurfaceRef{EgressAuditLogUUID: e.entry.ID},
-		Summary:      strings.TrimSpace(e.action.Method + " " + e.action.Host + e.action.Path),
+		Server:       e.action.Server,
+		Tool:         e.action.Tool,
+		Summary:      e.ingestSummary(),
 		Bytes:        int(e.entry.ResponseBytes),
 	})
 	if err != nil {
@@ -257,4 +321,53 @@ func textualContent(contentType string) bool {
 		return false
 	}
 	return !strings.HasPrefix(mediaType, "application/vnd.")
+}
+
+// ingestSummary describes the response for the session timeline.
+func (e *egressProvenance) ingestSummary() string {
+	if e.action.Kind == provenance.KindToolCall {
+		return e.action.Server + "." + e.action.Tool + " result"
+	}
+	return strings.TrimSpace(e.action.Method + " " + e.action.Host + e.action.Path)
+}
+
+// mcpToolCall returns the tool a JSON-RPC request calls, and false for any other request.
+func mcpToolCall(body string) (string, bool) {
+	var msg struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(body), &msg); err != nil || msg.Method != "tools/call" || msg.Params.Name == "" {
+		return "", false
+	}
+	return msg.Params.Name, true
+}
+
+// emailCacheTTL bounds how long a user's email is reused for their sessions.
+const emailCacheTTL = 10 * time.Minute
+
+type cachedEmail struct {
+	email   string
+	fetched time.Time
+}
+
+var userEmails sync.Map // user ID -> cachedEmail
+
+// userEmail is the user's email, so sessions show who they belong to. Failures leave it
+// empty; the session still has the user's ID.
+func (p *AuditProcessor) userEmail(ctx context.Context, userID string) string {
+	if userID == "" || p.Provider.Gateway == nil {
+		return ""
+	}
+	if c, ok := userEmails.Load(userID); ok && time.Since(c.(cachedEmail).fetched) < emailCacheTTL {
+		return c.(cachedEmail).email
+	}
+	user, err := p.Provider.Gateway.UserByID(ctx, userID)
+	if err != nil {
+		return ""
+	}
+	userEmails.Store(userID, cachedEmail{email: user.Email, fetched: time.Now()})
+	return user.Email
 }

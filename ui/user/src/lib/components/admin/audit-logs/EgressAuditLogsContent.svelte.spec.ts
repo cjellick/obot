@@ -319,3 +319,26 @@ for (const value of ['account,unknown', 'account,account', '["one","two"]']) {
 		await vi.waitFor(() => expect(requests).toHaveBeenLastCalledWith([null, value, value]));
 	});
 }
+
+it('hides background traffic until asked and labels what each request is', async () => {
+	profile.initialize(createMockProfile([Group.ADMIN]));
+	vi.spyOn(UserService, 'listUsersIncludeDeleted').mockResolvedValue([]);
+	mockEgressApis();
+	const excluded = vi.fn();
+	worker.use(
+		http.get('*/api/egress-audit-logs', ({ request }) => {
+			excluded(new URL(request.url).searchParams.get('exclude_category'));
+			return HttpResponse.json({
+				items: [{ ...west, host: 'api.anthropic.com', path: '/v1/messages', category: 'model' }],
+				total: 1
+			});
+		})
+	);
+	render(EgressAuditLogsContent);
+
+	await vi.waitFor(() => expect(excluded).toHaveBeenLastCalledWith('control-plane,runner'));
+	await expect.element(page.getByText('model', { exact: true })).toBeVisible();
+
+	await page.getByRole('switch', { name: 'Show background traffic' }).click();
+	await vi.waitFor(() => expect(excluded).toHaveBeenLastCalledWith(null));
+});

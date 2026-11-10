@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
@@ -31,6 +32,11 @@ func (h *EgressAuditLogHandler) List(req api.Context) error {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	offset = max(offset, 0)
 	opts := client.EgressAuditLogOptions{Limit: limit, Offset: offset, UserID: q.Get("user_id"), ClaudeAccount: q.Get("claude_account"), EnvironmentID: q.Get("environment_id"), ClaudeSession: q.Get("claude_session"), Host: q.Get("host"), Outcome: q.Get("outcome")}
+	for _, category := range strings.Split(q.Get("exclude_category"), ",") {
+		if category = strings.TrimSpace(category); category != "" {
+			opts.ExcludeCategories = append(opts.ExcludeCategories, category)
+		}
+	}
 	for key, dest := range map[string]*time.Time{"start_time": &opts.StartTime, "end_time": &opts.EndTime} {
 		if q.Get(key) != "" {
 			parsed, err := time.Parse(time.RFC3339, q.Get(key))

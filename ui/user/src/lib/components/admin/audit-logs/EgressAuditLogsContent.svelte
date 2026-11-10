@@ -3,6 +3,7 @@
 	import { columnResize } from '$lib/actions/resize';
 	import { buildPillSearchParamFilters, buildSearchParamFiltersArray } from '$lib/auditlogs';
 	import FilterPills from '$lib/components/FilterPills.svelte';
+	import Toggle from '$lib/components/Toggle.svelte';
 	import AuditLogCalendar from '$lib/components/admin/audit-logs/AuditLogCalendar.svelte';
 	import Pagination from '$lib/components/table/Pagination.svelte';
 	import { setVirtualPageData } from '$lib/components/ui/virtual-page/context';
@@ -87,9 +88,15 @@
 		return { startTime, endTime };
 	});
 
+	// Anthropic's control plane and Obot's runner keep a session running; they are not the
+	// agent's own traffic, so they are hidden unless asked for.
+	const BACKGROUND_CATEGORIES = 'control-plane,runner';
+	let showBackground = $state(false);
+
 	const filterPaginationKey = $derived(
 		JSON.stringify({
 			...pillsSearchParamFilters,
+			showBackground,
 			query,
 			start_time: timeRangeFilters.startTime.toISOString(),
 			end_time: timeRangeFilters.endTime.toISOString()
@@ -116,6 +123,7 @@
 			claudeSession: appliedFilter(searchParamFilters.claude_session),
 			host: appliedFilter(searchParamFilters.host),
 			outcome: appliedFilter(searchParamFilters.outcome),
+			excludeCategory: showBackground ? undefined : BACKGROUND_CATEGORIES,
 			startTime: timeRangeFilters.startTime.toISOString(),
 			endTime: timeRangeFilters.endTime.toISOString()
 		};
@@ -277,7 +285,13 @@
 		<div class="flex flex-col gap-4 justify-between @min-[768px]:flex-row">
 			<div></div>
 
-			<div class="flex gap-4 self-start @min-[768px]:self-end">
+			<div class="flex flex-wrap items-center gap-4 self-start @min-[768px]:self-end">
+				<Toggle
+					label={m.audit_usage_egress_show_background()}
+					labelInline
+					checked={showBackground}
+					onChange={(checked) => (showBackground = checked)}
+				/>
 				<AuditLogCalendar
 					start={timeRangeFilters.startTime}
 					end={timeRangeFilters.endTime}

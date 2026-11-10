@@ -7,18 +7,21 @@ import (
 
 // EgressAuditLog snapshots attribution so session cleanup cannot change history.
 type EgressAuditLog struct {
-	ID                string          `json:"id" gorm:"primaryKey"`
-	CreatedAt         time.Time       `json:"createdAt" gorm:"index"`
-	UpdatedAt         time.Time       `json:"updatedAt" gorm:"index"`
-	UserID            string          `json:"userID" gorm:"index"`
-	ClaudeAccount     string          `json:"claudeAccount" gorm:"index"`
-	EnvironmentID     string          `json:"environmentID" gorm:"index"`
-	ClaudeSession     string          `json:"claudeSession" gorm:"index"`
-	Actor             string          `json:"actor" gorm:"index"`
-	Method            string          `json:"method"`
-	Scheme            string          `json:"scheme"`
-	Host              string          `json:"host" gorm:"index"`
-	Path              string          `json:"path"`
+	ID            string    `json:"id" gorm:"primaryKey"`
+	CreatedAt     time.Time `json:"createdAt" gorm:"index"`
+	UpdatedAt     time.Time `json:"updatedAt" gorm:"index"`
+	UserID        string    `json:"userID" gorm:"index"`
+	ClaudeAccount string    `json:"claudeAccount" gorm:"index"`
+	EnvironmentID string    `json:"environmentID" gorm:"index"`
+	ClaudeSession string    `json:"claudeSession" gorm:"index"`
+	Actor         string    `json:"actor" gorm:"index"`
+	Method        string    `json:"method"`
+	Scheme        string    `json:"scheme"`
+	Host          string    `json:"host" gorm:"index"`
+	Path          string    `json:"path"`
+	// Category is what the request is: the agent's own egress, a model call, git or a relayed
+	// MCP server, or plumbing such as Anthropic's control plane or Obot's runner.
+	Category          string          `json:"category" gorm:"index"`
 	ResponseStatus    int             `json:"responseStatus" gorm:"index"`
 	Outcome           string          `json:"outcome" gorm:"index"`
 	DurationMs        int64           `json:"durationMs"`

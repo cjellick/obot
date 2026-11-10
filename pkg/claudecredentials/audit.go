@@ -122,6 +122,8 @@ func (p *AuditProcessor) Process(stream ext.ExternalProcessor_ProcessServer) err
 			entry.Scheme = firstHeader(headers, ":scheme")
 			entry.Host = firstHeader(headers, ":authority")
 			entry.Path = redactPath(firstHeader(headers, ":path"))
+			class := classifyEgress(p.Provider.ObotURL, hostname(entry.Host), firstHeader(headers, ":path"))
+			entry.Category = class.category
 			entry.RequestHeaders = redactedEgressHeaders(headers)
 			started = true
 
@@ -148,7 +150,7 @@ func (p *AuditProcessor) Process(stream ext.ExternalProcessor_ProcessServer) err
 			// Obot Policy sees the request before the egress gateway's own policy.
 			// Requests without a body are decided here; the rest once the body
 			// (or its first provenanceBodyLimit bytes) has been seen.
-			prov = p.newEgressProvenance(stream.Context(), &entry)
+			prov = p.newEgressProvenance(stream.Context(), &entry, class)
 			if prov != nil && prov.decideOnHeaders(headers, data.RequestHeaders.EndOfStream, firstHeader(headers, "upgrade") != "") {
 				if denied := prov.decide(stream.Context()); denied != nil {
 					return stream.Send(denied)

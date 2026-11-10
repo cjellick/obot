@@ -17,6 +17,19 @@
 
 	let { onSelectRow, getUserDisplayName, getEnvironmentName, outcomeLabel }: Props = $props();
 
+	// What a request is, when it isn't the agent reaching a host directly.
+	const categoryLabels: Record<string, () => string> = {
+		model: m.audit_usage_egress_category_model,
+		git: m.audit_usage_egress_category_git,
+		mcp: m.audit_usage_egress_category_mcp,
+		'control-plane': m.audit_usage_egress_category_control_plane,
+		runner: m.audit_usage_egress_category_runner,
+		obot: m.audit_usage_egress_category_obot
+	};
+	function categoryLabel(category: string) {
+		return categoryLabels[category]?.() ?? '';
+	}
+
 	let startX = 0;
 	let startWidth = 0;
 	let currentCell: HTMLElement | null | undefined = undefined;
@@ -191,11 +204,14 @@
 	</td>
 {/snippet}
 
-{#snippet requestCell(method: string, host: string, path: string)}
+{#snippet requestCell(method: string, host: string, path: string, category?: string)}
 	<td class="text-sm whitespace-nowrap">
 		<div class="box-content flex h-full px-6">
 			<div class="flex-1 truncate py-4">
 				<span class="font-mono badge badge-soft badge-xs">{method}</span>
+				{#if category && category !== 'egress' && categoryLabel(category)}
+					<span class="badge badge-ghost badge-xs">{categoryLabel(category)}</span>
+				{/if}
 				{host}{path}
 			</div>
 			{@render tdResizeHandler()}
@@ -248,7 +264,7 @@
 						{@render td(getUserDisplayName(entry.userID))}
 						{@render td(entry.claudeAccount)}
 						{@render twoLine(getEnvironmentName(entry.environmentID), entry.claudeSession)}
-						{@render requestCell(entry.method, entry.host, entry.path)}
+						{@render requestCell(entry.method, entry.host, entry.path, entry.category)}
 						{@render responseCell(entry)}
 						{@render td(`${entry.durationMs} ms`)}
 					</tr>

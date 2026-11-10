@@ -494,5 +494,12 @@
 	"audit_usage_egress_outcome_denied": "拒否",
 	"audit_usage_egress_outcome_error": "エラー",
 	"audit_usage_egress_outcome_interrupted": "中断",
-	"audit_usage_usage_unknown_provider": "不明"
+	"audit_usage_usage_unknown_provider": "不明",
+	"audit_usage_egress_show_background": "バックグラウンドの通信を表示",
+	"audit_usage_egress_category_model": "モデル",
+	"audit_usage_egress_category_git": "git",
+	"audit_usage_egress_category_mcp": "MCP",
+	"audit_usage_egress_category_control_plane": "Anthropic コントロールプレーン",
+	"audit_usage_egress_category_runner": "Obot ランナー",
+	"audit_usage_egress_category_obot": "Obot"
 }

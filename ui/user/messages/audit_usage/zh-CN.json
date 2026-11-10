@@ -494,5 +494,12 @@
 	"audit_usage_egress_outcome_denied": "已拒绝",
 	"audit_usage_egress_outcome_error": "错误",
 	"audit_usage_egress_outcome_interrupted": "已中断",
-	"audit_usage_usage_unknown_provider": "未知"
+	"audit_usage_usage_unknown_provider": "未知",
+	"audit_usage_egress_show_background": "显示后台流量",
+	"audit_usage_egress_category_model": "模型",
+	"audit_usage_egress_category_git": "git",
+	"audit_usage_egress_category_mcp": "MCP",
+	"audit_usage_egress_category_control_plane": "Anthropic 控制平面",
+	"audit_usage_egress_category_runner": "Obot 运行器",
+	"audit_usage_egress_category_obot": "Obot"
 }

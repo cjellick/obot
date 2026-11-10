@@ -416,6 +416,20 @@ func (e *Engine) cache(s *Session) {
 	}
 }
 
+// CountControlPlane counts a request the agent's platform made to keep the session
+// running, such as a heartbeat, without recording an event: it is not something the agent
+// did. The count is saved with the session's next event.
+func (e *Engine) CountControlPlane(ctx context.Context, subject Subject, key SessionKey, surface Surface) error {
+	s, _, err := e.resolve(ctx, subject, key, surface)
+	if err != nil {
+		return err
+	}
+	e.lock.Lock()
+	s.State.ControlPlane++
+	e.lock.Unlock()
+	return nil
+}
+
 // Resolve returns the session for a key, creating one when none matches.
 func (e *Engine) Resolve(ctx context.Context, subject Subject, key SessionKey, surface Surface) (*Session, error) {
 	s, _, err := e.resolve(ctx, subject, key, surface)

@@ -171,7 +171,8 @@ func TestEgressProvenanceIngestsResponses(t *testing.T) {
 	events = sessionEvents(t, engine)
 	require.Len(t, events, 4, "only the model request is recorded, not its response")
 	model := events[3]
-	require.Equal(t, provenance.KindNetEgress, model.Kind)
+	require.Equal(t, provenance.KindLLMTurn, model.Kind)
+	require.Equal(t, "model call to Anthropic", model.Summary)
 	require.Equal(t, "api.anthropic.com", model.Action.Host)
 	require.False(t, model.Action.Sink.External)
 	require.Zero(t, model.Bytes, "model request bodies are never scanned")
@@ -199,9 +200,67 @@ func TestEgressProvenanceIngestsResponses(t *testing.T) {
 	}}
 	require.NoError(t, processor.Process(stream))
 	events = sessionEvents(t, engine)
-	require.Len(t, events, 7)
-	require.Equal(t, provenance.KindNetEgress, events[6].Kind)
-	require.False(t, events[6].Action.Sink.External)
+	require.Len(t, events, 6, "Obot's own gateways record their traffic themselves")
+}
+
+func TestEgressProvenanceSeparatesPlumbingFromWork(t *testing.T) {
+	processor, engine, attrs := newProvenanceProcessor(t)
+	ctx := t.Context()
+	run := func(messages ...*ext.ProcessingRequest) {
+		t.Helper()
+		require.NoError(t, processor.Process(&auditStream{ctx: auditContext(t), messages: messages}))
+	}
+	ok := &ext.ProcessingRequest{Request: &ext.ProcessingRequest_ResponseHeaders{ResponseHeaders: &ext.HttpHeaders{Headers: auditHeaders(map[string]string{":status": "200"}).Headers, EndOfStream: true}}}
+
+	// Obot's runner reporting status, and Anthropic's heartbeats, are not the agent's work.
+	run(requestHeaders(attrs, map[string]string{":method": "POST", ":scheme": "http", ":authority": "obot.internal:8080", ":path": "/api/claude-runners/acr-1/status"}, true), ok)
+	run(requestHeaders(attrs, map[string]string{":method": "POST", ":scheme": "https", ":authority": "api.anthropic.com", ":path": "/v1/code/sessions/cse_1/worker/heartbeat"}, true), ok)
+	run(requestHeaders(attrs, map[string]string{":method": "POST", ":scheme": "https", ":authority": "api.anthropic.com", ":path": "/v1/code/sessions/cse_1/worker/heartbeat"}, true), ok)
+
+	// Cloning through Anthropic's git proxy is a fetch from the real repository.
+	run(requestHeaders(attrs, map[string]string{":method": "GET", ":scheme": "https", ":authority": "api.anthropic.com", ":path": "/v1/code/agent-proxy/git/github.com/acme/web/info/refs?service=git-upload-pack"}, true), ok)
+
+	// A relayed MCP tool call is a tool call, and its result enters the session.
+	run(
+		requestHeaders(attrs, map[string]string{":method": "POST", ":scheme": "https", ":authority": "api.anthropic.com", ":path": "/v2/ccr-sessions/cse_1/github/mcp"}, false),
+		&ext.ProcessingRequest{Request: &ext.ProcessingRequest_RequestBody{RequestBody: &ext.HttpBody{Body: []byte(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_issue","arguments":{"issue_number":4411}}}`), EndOfStream: true}}},
+		&ext.ProcessingRequest{Request: &ext.ProcessingRequest_ResponseHeaders{ResponseHeaders: auditHeaders(map[string]string{":status": "200", "content-type": "application/json"})}},
+		&ext.ProcessingRequest{Request: &ext.ProcessingRequest_ResponseBody{ResponseBody: &ext.HttpBody{Body: []byte(`{"result":{"content":[{"type":"text","text":"Reported by ada@customer.example"}]}}`), EndOfStream: true}}},
+	)
+	// Its JSON-RPC housekeeping is not.
+	run(
+		requestHeaders(attrs, map[string]string{":method": "POST", ":scheme": "https", ":authority": "api.anthropic.com", ":path": "/v2/ccr-sessions/cse_1/github/mcp"}, false),
+		&ext.ProcessingRequest{Request: &ext.ProcessingRequest_RequestBody{RequestBody: &ext.HttpBody{Body: []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`), EndOfStream: true}}},
+		ok,
+	)
+
+	events := sessionEvents(t, engine)
+	var summaries []string
+	for _, ev := range events {
+		summaries = append(summaries, ev.Summary)
+	}
+	require.Equal(t, []string{"session started", "git fetch github.com/acme/web", "tools/call github.get_issue", "github.get_issue result"}, summaries)
+	git, call, result := events[1], events[2], events[3]
+	require.Equal(t, "github.com", git.Action.Host)
+	require.Equal(t, "/acme/web", git.Action.Path)
+	require.Equal(t, provenance.KindToolCall, call.Kind)
+	require.Equal(t, "github", call.Action.Server)
+	require.Equal(t, "get_issue", call.Action.Tool)
+	require.True(t, result.Labels.Has(provenance.LabelUntrusted))
+	require.True(t, result.Labels.Has(provenance.LabelPII))
+
+	session, err := engine.Resolve(ctx, provenanceTestSubject, provenanceTestSession, provenance.SurfaceEgress)
+	require.NoError(t, err)
+	require.Equal(t, 3, session.State.ControlPlane, "two heartbeats and the tools/list")
+
+	require.NoError(t, processor.Provider.Gateway.FlushEgressAuditLogs())
+	entries, _, err := processor.Provider.Gateway.ListEgressAuditLogs(ctx, gclient.EgressAuditLogOptions{Limit: 10})
+	require.NoError(t, err)
+	categories := map[string]int{}
+	for _, e := range entries {
+		categories[e.Category]++
+	}
+	require.Equal(t, map[string]int{"runner": 1, "control-plane": 2, "git": 1, "mcp": 2}, categories)
 }
 
 func TestEgressProvenanceDecidesLateWithoutBody(t *testing.T) {
@@ -281,4 +340,21 @@ func TestEgressProvenanceHelpers(t *testing.T) {
 	} {
 		require.Equal(t, text, textualContent(contentType), contentType)
 	}
+}
+
+func TestEgressAuditLogsHidePlumbing(t *testing.T) {
+	processor, _, attrs := newProvenanceProcessor(t)
+	ctx := t.Context()
+	ok := &ext.ProcessingRequest{Request: &ext.ProcessingRequest_ResponseHeaders{ResponseHeaders: &ext.HttpHeaders{Headers: auditHeaders(map[string]string{":status": "200"}).Headers, EndOfStream: true}}}
+	for _, path := range []string{"/v1/code/sessions/cse_1/worker/heartbeat", "/v1/messages"} {
+		require.NoError(t, processor.Process(&auditStream{ctx: auditContext(t), messages: []*ext.ProcessingRequest{
+			requestHeaders(attrs, map[string]string{":method": "POST", ":scheme": "https", ":authority": "api.anthropic.com", ":path": path}, true), ok,
+		}}))
+	}
+	require.NoError(t, processor.Provider.Gateway.FlushEgressAuditLogs())
+	entries, total, err := processor.Provider.Gateway.ListEgressAuditLogs(ctx, gclient.EgressAuditLogOptions{Limit: 10, ExcludeCategories: []string{"control-plane", "runner"}})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, entries, 1)
+	require.Equal(t, "model", entries[0].Category)
 }
