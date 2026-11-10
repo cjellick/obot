@@ -116,6 +116,16 @@ type ProvenanceToolLabel struct {
 	Proposal  *provenance.ToolLabelProposal `json:"proposal,omitempty" gorm:"serializer:json"`
 }
 
+// ProvenanceNarrative is the Supervisor's saved commentary on a session. LastActivityAt is
+// the session's, so retention removes it with the session.
+type ProvenanceNarrative struct {
+	SessionID      string                    `json:"sessionID" gorm:"primaryKey"`
+	Events         int                       `json:"events"`
+	LastActivityAt time.Time                 `json:"lastActivityAt" gorm:"index"`
+	UpdatedAt      time.Time                 `json:"updatedAt"`
+	Payload        provenance.SavedNarrative `json:"payload" gorm:"serializer:json"`
+}
+
 // ProvenanceSettings is the single row (ID 1) of organization-wide settings.
 type ProvenanceSettings struct {
 	ID        uint                `json:"id" gorm:"primaryKey"`

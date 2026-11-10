@@ -443,8 +443,13 @@ export async function listSessionEvents(
 	return { ...resp, items: resp.items ?? [] };
 }
 
-export async function getSessionNarrative(id: string, opts?: Opts): Promise<Narrative> {
-	return (await doGet(`${B}/sessions/${enc(id)}/narrative`, opts)) as Narrative;
+/** The Supervisor's commentary. It is saved until the session changes; refresh rewrites it. */
+export async function getSessionNarrative(
+	id: string,
+	opts?: Opts & { refresh?: boolean }
+): Promise<Narrative> {
+	const suffix = opts?.refresh ? '?refresh=true' : '';
+	return (await doGet(`${B}/sessions/${enc(id)}/narrative${suffix}`, opts)) as Narrative;
 }
 
 export async function endSession(id: string, opts?: Opts): Promise<void> {

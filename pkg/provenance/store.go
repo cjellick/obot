@@ -171,6 +171,24 @@ type Store interface {
 
 	GetSettings(ctx context.Context) (Settings, error)
 	PutSettings(ctx context.Context, s Settings) error
+
+	// GetNarrative returns the commentary saved for a session, or ErrNotFound.
+	GetNarrative(ctx context.Context, sessionID string) (SavedNarrative, error)
+	PutNarrative(ctx context.Context, n SavedNarrative) error
+}
+
+// SavedNarrative is the Supervisor's commentary on a session, with the session state it
+// was written for: it stands until the session has new events.
+type SavedNarrative struct {
+	SessionID      string    `json:"sessionID"`
+	Events         int       `json:"events"`
+	LastActivityAt time.Time `json:"lastActivityAt"`
+	Narrative      Narrative `json:"narrative"`
+}
+
+// Current reports whether the commentary was written for the session as it is now.
+func (n SavedNarrative) Current(s *Session) bool {
+	return s != nil && n.Events == s.State.Events && n.LastActivityAt.Equal(s.LastActivityAt)
 }
 
 // Matches reports whether the kill applies to a session.

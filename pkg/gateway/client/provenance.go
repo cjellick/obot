@@ -589,6 +589,26 @@ func (s *provenanceStore) PutSettings(ctx context.Context, settings provenance.S
 	}).Create(&row).Error
 }
 
+// ---- narratives ----
+
+func (s *provenanceStore) GetNarrative(ctx context.Context, sessionID string) (provenance.SavedNarrative, error) {
+	var row types.ProvenanceNarrative
+	if err := s.db(ctx).Where("session_id = ?", sessionID).First(&row).Error; err != nil {
+		return provenance.SavedNarrative{}, provenanceErr(err)
+	}
+	return row.Payload, nil
+}
+
+func (s *provenanceStore) PutNarrative(ctx context.Context, n provenance.SavedNarrative) error {
+	row := types.ProvenanceNarrative{
+		SessionID: n.SessionID, Events: n.Events, LastActivityAt: n.LastActivityAt, UpdatedAt: time.Now().UTC(), Payload: n,
+	}
+	return s.db(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "session_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"events", "last_activity_at", "updated_at", "payload"}),
+	}).Create(&row).Error
+}
+
 // ---- retention ----
 
 // RunProvenanceRetention deletes sessions, their events, links and approvals
@@ -608,6 +628,7 @@ func (c *Client) RunProvenanceRetention(ctx context.Context, now time.Time, days
 		{table: "provenance_events", key: "seq", column: `"at"`},
 		{table: "provenance_approvals", key: "id", column: "created_at"},
 		{table: "provenance_session_links", key: "key", column: "updated_at"},
+		{table: "provenance_narratives", key: "session_id", column: "last_activity_at"},
 		{table: "provenance_sessions", key: "id", column: "last_activity_at"},
 	} {
 		if err := c.deleteProvenanceBatches(ctx, stmt.table, stmt.key, stmt.column, cutoff); err != nil {

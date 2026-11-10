@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -388,7 +389,19 @@ func (h *ProvenanceHandler) SessionNarrative(req api.Context) error {
 		return err
 	}
 	if sup := h.engine.Supervisor(); sup != nil && h.engine.Settings(req.Context()).SupervisorEnabled {
+		// The commentary stands until the session has new events; refresh=true rewrites it.
+		store := h.engine.Store()
+		if req.URL.Query().Get("refresh") != "true" {
+			if saved, err := store.GetNarrative(req.Context(), s.ID); err == nil && saved.Current(s) {
+				return req.Write(saved.Narrative)
+			}
+		}
 		if n, err := sup.Narrate(req.Context(), s, events); err == nil {
+			if err := store.PutNarrative(req.Context(), provenance.SavedNarrative{
+				SessionID: s.ID, Events: s.State.Events, LastActivityAt: s.LastActivityAt, Narrative: n,
+			}); err != nil {
+				slog.Warn("Failed to save the Supervisor's commentary", "session", s.ID, "error", err)
+			}
 			return req.Write(n)
 		}
 	}

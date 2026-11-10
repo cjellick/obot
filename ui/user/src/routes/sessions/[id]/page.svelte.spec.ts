@@ -109,6 +109,23 @@ describe('Session replay', () => {
 		await expect.element(panel.getByText('Narrated by claude-sonnet-4')).toBeInTheDocument();
 	});
 
+	it('rewrites the commentary only when asked to', async () => {
+		mockSession();
+		const requested = vi.fn();
+		worker.use(
+			http.get('/api/provenance/sessions/ses-risky/narrative', ({ request }) => {
+				requested(new URL(request.url).searchParams.get('refresh'));
+				return HttpResponse.json(narrative);
+			})
+		);
+		await renderPage();
+
+		await vi.waitFor(() => expect(requested).toHaveBeenCalledWith(null));
+		const panel = page.getByRole('region', { name: 'Supervisor commentary' });
+		await panel.getByRole('button', { name: 'Refresh' }).click();
+		await vi.waitFor(() => expect(requested).toHaveBeenCalledWith('true'));
+	});
+
 	it('ends the session after confirmation', async () => {
 		mockSession();
 		const ended = vi.fn();

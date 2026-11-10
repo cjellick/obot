@@ -22,11 +22,11 @@
 	let loading = $state(true);
 	let error = $state('');
 
-	export async function load() {
+	export async function load(refresh = false) {
 		loading = true;
 		error = '';
 		try {
-			narrative = await getSessionNarrative(sessionId, { dontLogErrors: true });
+			narrative = await getSessionNarrative(sessionId, { dontLogErrors: true, refresh });
 		} catch (e) {
 			error = parseErrorContent(e).message;
 		} finally {
@@ -34,7 +34,7 @@
 		}
 	}
 
-	onMount(load);
+	onMount(() => load());
 </script>
 
 <section class="paper border-primary/30 gap-3 border" aria-label={m.supervision_commentary_title()}>
@@ -53,7 +53,7 @@
 			class="btn btn-ghost btn-sm"
 			aria-label={m.supervision_refresh()}
 			disabled={loading}
-			onclick={load}
+			onclick={() => load(true)}
 		>
 			<RefreshCw class="size-4 {loading ? 'animate-spin' : ''}" />
 		</button>

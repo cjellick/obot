@@ -28,7 +28,8 @@ var (
 )
 
 type fakeProvAPISupervisor struct {
-	draft provenance.PolicyDraft
+	draft      provenance.PolicyDraft
+	narrations int
 }
 
 func (f *fakeProvAPISupervisor) Judge(context.Context, provenance.JudgeInput) (provenance.JudgeOutput, error) {
@@ -44,6 +45,7 @@ func (f *fakeProvAPISupervisor) DraftPolicy(context.Context, string, []provenanc
 }
 
 func (f *fakeProvAPISupervisor) Narrate(context.Context, *provenance.Session, []provenance.Event) (provenance.Narrative, error) {
+	f.narrations++
 	return provenance.Narrative{Summary: "supervisor summary", Model: "fake"}, nil
 }
 
@@ -281,10 +283,28 @@ func TestProvenanceNarrative(t *testing.T) {
 		t.Fatalf("fallback narrative has no model, got %q", n.Model)
 	}
 
-	e.SetSupervisor(&fakeProvAPISupervisor{})
-	provAPIOK(t, h.SessionNarrative, http.MethodGet, "/api/provenance/sessions/"+s.ID+"/narrative", nil, id, &n)
+	fake := &fakeProvAPISupervisor{}
+	e.SetSupervisor(fake)
+	path := "/api/provenance/sessions/" + s.ID + "/narrative"
+	provAPIOK(t, h.SessionNarrative, http.MethodGet, path, nil, id, &n)
 	if n.Summary != "supervisor summary" || n.Model != "fake" {
 		t.Fatalf("the Supervisor should narrate when configured, got %+v", n)
+	}
+	provAPIOK(t, h.SessionNarrative, http.MethodGet, path, nil, id, &n)
+	if fake.narrations != 1 || n.Summary != "supervisor summary" {
+		t.Fatalf("an unchanged session should reuse the saved commentary, narrated %d times", fake.narrations)
+	}
+	provAPIOK(t, h.SessionNarrative, http.MethodGet, path+"?refresh=true", nil, id, &n)
+	if fake.narrations != 2 {
+		t.Fatalf("refresh should rewrite the commentary, narrated %d times", fake.narrations)
+	}
+	if _, _, err := e.Decide(t.Context(), provenance.DecideRequest{Subject: provAPISubject, Session: provAPIKey,
+		Action: provenance.Action{Surface: provenance.SurfaceMCP, Kind: provenance.KindToolCall, Server: "github", Tool: "search_issues"}}); err != nil {
+		t.Fatal(err)
+	}
+	provAPIOK(t, h.SessionNarrative, http.MethodGet, path, nil, id, &n)
+	if fake.narrations != 3 {
+		t.Fatalf("a session with new events should be narrated again, narrated %d times", fake.narrations)
 	}
 	if code := provAPIStatus(t, h.SessionNarrative, http.MethodGet, "/api/provenance/sessions/nope/narrative", nil, map[string]string{"id": "nope"}); code != http.StatusNotFound {
 		t.Fatalf("narrative of an unknown session should be a 404, got %d", code)

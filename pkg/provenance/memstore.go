@@ -24,6 +24,7 @@ type MemStore struct {
 	approvals  map[string]*Approval
 	kills      map[string]*Kill
 	toolLabels map[string]*ToolLabel
+	narratives map[string]SavedNarrative
 	settings   *Settings
 }
 
@@ -36,6 +37,7 @@ func NewMemStore() *MemStore {
 		approvals:  map[string]*Approval{},
 		kills:      map[string]*Kill{},
 		toolLabels: map[string]*ToolLabel{},
+		narratives: map[string]SavedNarrative{},
 	}
 }
 
@@ -354,5 +356,22 @@ func (m *MemStore) PutSettings(_ context.Context, s Settings) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.settings = &s
+	return nil
+}
+
+func (m *MemStore) GetNarrative(_ context.Context, sessionID string) (SavedNarrative, error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	n, ok := m.narratives[sessionID]
+	if !ok {
+		return SavedNarrative{}, ErrNotFound
+	}
+	return n, nil
+}
+
+func (m *MemStore) PutNarrative(_ context.Context, n SavedNarrative) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.narratives[n.SessionID] = n
 	return nil
 }
