@@ -957,6 +957,8 @@ func New(ctx context.Context, config Config) (*Services, error) {
 
 	// Message policies are now LLM judge guardrails, evaluated with the message policy judge.
 	judge := messagepolicy.NewHelper(storageClient, bifrostEngine)
+	// Obot's own model calls are counted in usage and spend and logged like gateway requests.
+	judge.SetUsageRecorder(gserver.NewInternalUsageRecorder(gatewayClient))
 	guardrailEngine := guardrails.New(gatewayClient, judge)
 	go backfillIdentityGroupLookupIDHashes(ctx, gatewayClient)
 	// The provenance engine is the cross-surface session graph and Obot Policy engine.

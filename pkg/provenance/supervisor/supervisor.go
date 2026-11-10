@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/provenance"
 )
 
@@ -213,6 +214,7 @@ func NewWith(decider provenance.Decider, writer TextModel, opts ...Option) *Supe
 // Judge resolves a judge-effect policy by asking the decider to choose
 // between allow, require_approval and deny with the causal chain in view.
 func (s *Supervisor) Judge(ctx context.Context, in provenance.JudgeInput) (provenance.JudgeOutput, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeatureSupervisorJudge)
 	if s.decider == nil {
 		return provenance.JudgeOutput{}, errors.New("the Supervisor has no decider")
 	}
@@ -244,6 +246,7 @@ func (s *Supervisor) Judge(ctx context.Context, in provenance.JudgeInput) (prove
 // TriageApproval reviews a pending approval and recommends approve, deny or
 // escalate.
 func (s *Supervisor) TriageApproval(ctx context.Context, a provenance.Approval, sess *provenance.Session, recent []provenance.Event) (provenance.Triage, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeatureSupervisorTriage)
 	if s.decider == nil {
 		return provenance.Triage{}, errors.New("the Supervisor has no decider")
 	}
@@ -268,6 +271,7 @@ func (s *Supervisor) TriageApproval(ctx context.Context, a provenance.Approval, 
 
 // Narrate explains a session from its content-free events.
 func (s *Supervisor) Narrate(ctx context.Context, sess *provenance.Session, events []provenance.Event) (provenance.Narrative, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeatureSupervisorNarrative)
 	if sess == nil {
 		return provenance.Narrative{}, errors.New("no session to narrate")
 	}
@@ -291,6 +295,7 @@ func (s *Supervisor) Narrate(ctx context.Context, sess *provenance.Session, even
 // ClassifyTool assigns capability labels to a tool, restricted to
 // provenance.CapabilityLabels.
 func (s *Supervisor) ClassifyTool(ctx context.Context, t provenance.ToolDescriptor) (provenance.Labels, string, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeatureToolLabels)
 	var out struct {
 		Labels    []string `json:"labels"`
 		Rationale string   `json:"rationale"`

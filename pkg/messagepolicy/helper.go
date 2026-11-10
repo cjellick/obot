@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/obot-platform/obot/apiclient/types"
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/alias"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
 	"github.com/obot-platform/obot/pkg/system"
@@ -25,7 +27,7 @@ type completionEngine interface {
 
 // streamingCompletionEngine is implemented by gateways that stream chat completions.
 type streamingCompletionEngine interface {
-	ChatCompletionStream(context.Context, string, []schemas.ChatMessage, *schemas.ChatParameters, func(*schemas.ChatStreamResponseChoiceDelta)) error
+	ChatCompletionStream(context.Context, string, []schemas.ChatMessage, *schemas.ChatParameters, func(*schemas.ChatStreamResponseChoiceDelta)) (*schemas.BifrostLLMUsage, error)
 }
 
 // structuredCompletionEngine is implemented by gateways that accept request parameters,
@@ -39,6 +41,13 @@ type structuredCompletionEngine interface {
 type Helper struct {
 	client     kclient.Client
 	llmGateway completionEngine
+	usage      aiusage.Recorder
+}
+
+// streamAccumulator assembles a streamed assistant message.
+type streamAccumulator struct {
+	text  strings.Builder
+	calls []schemas.ChatAssistantMessageToolCall
 }
 
 // ApplicablePolicy pairs a policy's ID with its manifest.
@@ -87,7 +96,9 @@ func (h *Helper) complete(ctx context.Context, resolved *resolvedModel, system, 
 			"schema": jsonSchema,
 		},
 	}
+	start := time.Now()
 	resp, err := structured.ChatCompletionWithParams(ctx, resolved.targetModel, toBifrostMessages(messages), &schemas.ChatParameters{ResponseFormat: &format})
+	h.record(ctx, resolved, responseUsage(resp), start, err)
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", err
@@ -111,6 +122,7 @@ func (h *Helper) resolveNamedModel(ctx context.Context, model string) (*resolved
 		return nil, errors.New("the LLM gateway is not available")
 	}
 	target := model
+	var resolvedResource *v1.Model
 	if h.client != nil {
 		var mdl v1.Model
 		err := alias.Get(ctx, h.client, &mdl, system.DefaultNamespace, model)
@@ -123,11 +135,12 @@ func (h *Helper) resolveNamedModel(ctx context.Context, model string) (*resolved
 				return nil, fmt.Errorf("model %q is not served by the LLM gateway", mdl.Name)
 			}
 			target = mdl.Spec.Manifest.TargetModel
+			resolvedResource = &mdl
 		case !apierrors.IsNotFound(err):
 			return nil, fmt.Errorf("failed to look up model %q: %w", model, err)
 		}
 	}
-	return &resolvedModel{targetModel: target}, nil
+	return &resolvedModel{targetModel: target, model: resolvedResource}, nil
 }
 
 // ChatTurn sends one turn of a tool-using conversation through the LLM gateway and returns
@@ -146,7 +159,9 @@ func (h *Helper) ChatTurn(ctx context.Context, model string, messages []schemas.
 	if len(tools) > 0 {
 		params = &schemas.ChatParameters{Tools: tools}
 	}
+	start := time.Now()
 	resp, err := structured.ChatCompletionWithParams(ctx, resolved.targetModel, messages, params)
+	h.record(ctx, resolved, responseUsage(resp), start, err)
 	if err != nil {
 		return nil, resolved.targetModel, fmt.Errorf("LLM call failed: %w", err)
 	}
@@ -172,20 +187,17 @@ func (h *Helper) ChatTurnStream(ctx context.Context, model string, messages []sc
 		params = &schemas.ChatParameters{Tools: tools}
 	}
 	var acc streamAccumulator
-	if err := streaming.ChatCompletionStream(ctx, resolved.targetModel, messages, params, func(d *schemas.ChatStreamResponseChoiceDelta) {
+	start := time.Now()
+	usage, err := streaming.ChatCompletionStream(ctx, resolved.targetModel, messages, params, func(d *schemas.ChatStreamResponseChoiceDelta) {
 		if text := acc.add(d); text != "" && onText != nil {
 			onText(text)
 		}
-	}); err != nil {
+	})
+	h.record(ctx, resolved, usage, start, err)
+	if err != nil {
 		return nil, resolved.targetModel, fmt.Errorf("LLM call failed: %w", err)
 	}
 	return acc.message(), resolved.targetModel, nil
-}
-
-// streamAccumulator assembles a streamed assistant message.
-type streamAccumulator struct {
-	text  strings.Builder
-	calls []schemas.ChatAssistantMessageToolCall
 }
 
 // add folds a delta into the message and returns its new text.
@@ -228,4 +240,36 @@ func (a *streamAccumulator) message() *schemas.ChatMessage {
 		m.ChatAssistantMessage = &schemas.ChatAssistantMessage{ToolCalls: a.calls}
 	}
 	return m
+}
+
+// SetUsageRecorder records every model call the helper makes.
+func (h *Helper) SetUsageRecorder(r aiusage.Recorder) {
+	h.usage = r
+}
+
+// record reports a model call to the usage recorder.
+func (h *Helper) record(ctx context.Context, resolved *resolvedModel, usage *schemas.BifrostLLMUsage, start time.Time, err error) {
+	if h == nil || h.usage == nil || resolved == nil {
+		return
+	}
+	feature := aiusage.Feature(ctx)
+	if feature == "" {
+		feature = aiusage.FeatureMessagePolicy
+	}
+	h.usage.Record(context.WithoutCancel(ctx), aiusage.Call{
+		Feature:       feature,
+		UserID:        aiusage.User(ctx),
+		Model:         resolved.targetModel,
+		ModelResource: resolved.model,
+		Usage:         usage,
+		Duration:      time.Since(start),
+		Err:           err,
+	})
+}
+
+func responseUsage(resp *schemas.BifrostChatResponse) *schemas.BifrostLLMUsage {
+	if resp == nil {
+		return nil
+	}
+	return resp.Usage
 }

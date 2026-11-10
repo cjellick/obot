@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/provenance"
 )
 
@@ -51,6 +52,7 @@ var (
 // first and keeps its labels; this only ever adds. Unknown or non-content labels
 // the model returns are dropped.
 func (s *Supervisor) ClassifyContent(ctx context.Context, in provenance.ContentToClassify) (provenance.ContentClassification, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeatureContentTagger)
 	var out struct {
 		Labels    []string `json:"labels"`
 		Rationale string   `json:"rationale"`

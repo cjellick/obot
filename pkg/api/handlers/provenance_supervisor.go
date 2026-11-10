@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/provenance"
 )
@@ -232,7 +233,7 @@ func (h *ProvenanceHandler) SupervisorAsk(req api.Context) error {
 	if len(in.Question) > supervisorMaxQuestion {
 		return types.NewErrBadRequest("question must be at most %d characters", supervisorMaxQuestion)
 	}
-	answer, model, sessions, events, err := h.askSupervisor(req.Context(), in.Question, in.SessionID)
+	answer, model, sessions, events, err := h.askSupervisor(aiusage.WithUser(req.Context(), req.User.GetUID()), in.Question, in.SessionID)
 	if errors.Is(err, errSupervisorNotConfigured) {
 		return req.WriteCode(map[string]string{"error": supervisorNotConfigured}, http.StatusServiceUnavailable)
 	} else if err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/obot/apiclient/types"
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/api"
 )
 
@@ -119,7 +120,7 @@ func (a *Assistant) Chat(req api.Context) error {
 		return types.NewErrHTTP(503, "Obot AI needs the LLM gateway")
 	}
 
-	ctx, cancel := context.WithTimeout(req.Context(), assistantTimeout)
+	ctx, cancel := context.WithTimeout(aiusage.WithUser(aiusage.WithFeature(req.Context(), aiusage.FeatureObotAI), req.User.GetUID()), assistantTimeout)
 	defer cancel()
 
 	if in.ConversationID != "" {

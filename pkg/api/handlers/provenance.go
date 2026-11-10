@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/obot-platform/obot/apiclient/types"
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/provenance"
 )
@@ -652,7 +653,7 @@ func (h *ProvenanceHandler) DraftPolicy(req api.Context) error {
 	if err != nil {
 		return err
 	}
-	draft, err := sup.DraftPolicy(req.Context(), in.Text, examples)
+	draft, err := sup.DraftPolicy(aiusage.WithUser(req.Context(), req.User.GetUID()), in.Text, examples)
 	if err != nil {
 		return types.NewErrHTTP(http.StatusBadGateway, "the Supervisor could not draft a policy: "+err.Error())
 	}

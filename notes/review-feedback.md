@@ -36,7 +36,7 @@ Craig's review of the branch, and the decisions from it. Everything here lands o
 
 ## Obot's own AI calls
 
-- [ ] Record usage and spend for every internal model call (Obot AI, judge, triage, tagger,
+- [x] Record usage and spend for every internal model call (Obot AI, judge, triage, tagger,
       commentary, policy drafting, tool labels) against the user who triggered it, or a system
       "Obot" identity for background work. Show them in audit logs. No budgets or guardrails on
       them for now.

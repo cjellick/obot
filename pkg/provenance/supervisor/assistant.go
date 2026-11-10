@@ -5,6 +5,8 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+
+	"github.com/obot-platform/obot/pkg/aiusage"
 )
 
 const (
@@ -39,6 +41,7 @@ var (
 // facts (counts, findings, decisions). It returns the briefing and the model
 // that wrote it.
 func (s *Supervisor) Brief(ctx context.Context, facts string) (string, string, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeatureSupervisorBriefing)
 	facts = strings.TrimSpace(facts)
 	if facts == "" {
 		return "", "", errors.New("no facts to brief from")
@@ -50,6 +53,7 @@ func (s *Supervisor) Brief(ctx context.Context, facts string) (string, string, e
 // Ask answers an administrator's question from a content-free context. It
 // returns the answer and the model that wrote it.
 func (s *Supervisor) Ask(ctx context.Context, question, facts string) (string, string, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeatureSupervisorAsk)
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return "", "", errors.New("no question to answer")

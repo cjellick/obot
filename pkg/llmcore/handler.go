@@ -511,8 +511,9 @@ func (e *Engine) ChatCompletionWithParams(parent context.Context, model string, 
 }
 
 // ChatCompletionStream is ChatCompletionWithParams streamed: onDelta receives each partial
-// message as the model produces it. It returns when the stream ends.
-func (e *Engine) ChatCompletionStream(parent context.Context, model string, messages []schemas.ChatMessage, params *schemas.ChatParameters, onDelta func(*schemas.ChatStreamResponseChoiceDelta)) (err error) {
+// message as the model produces it. It returns when the stream ends, with the usage the
+// stream reported.
+func (e *Engine) ChatCompletionStream(parent context.Context, model string, messages []schemas.ChatMessage, params *schemas.ChatParameters, onDelta func(*schemas.ChatStreamResponseChoiceDelta)) (usage *schemas.BifrostLLMUsage, err error) {
 	// As for ChatCompletionWithParams: callers have no HTTP recovery.
 	defer func() {
 		if recover() != nil {
@@ -524,12 +525,12 @@ func (e *Engine) ChatCompletionStream(parent context.Context, model string, mess
 	ctx.SetValue(schemas.BifrostContextKeyRequestHeaders, map[string]string{"content-type": "application/json"})
 	provider, normalized, _ := e.normalizeRequestModels(ctx, model, nil)
 	if provider == "" {
-		return fmt.Errorf("model %q must be named as provider/model", model)
+		return nil, fmt.Errorf("model %q must be named as provider/model", model)
 	}
 	stream, engineErr := e.client.ChatCompletionStreamRequest(ctx, &schemas.BifrostChatRequest{Provider: provider, Model: normalized, Input: messages, Params: params})
 	if engineErr != nil {
 		_, _, message := errorParts(engineErr)
-		return errors.New(message)
+		return nil, errors.New(message)
 	}
 	for chunk := range stream {
 		if chunk == nil {
@@ -540,10 +541,13 @@ func (e *Engine) ChatCompletionStream(parent context.Context, model string, mess
 			// Drain so the producer is never left blocked.
 			for range stream {
 			}
-			return errors.New(message)
+			return usage, errors.New(message)
 		}
 		if chunk.BifrostChatResponse == nil {
 			continue
+		}
+		if chunk.BifrostChatResponse.Usage != nil {
+			usage = chunk.BifrostChatResponse.Usage
 		}
 		for _, choice := range chunk.BifrostChatResponse.Choices {
 			if choice.ChatStreamResponseChoice != nil && choice.Delta != nil {
@@ -551,5 +555,5 @@ func (e *Engine) ChatCompletionStream(parent context.Context, model string, mess
 			}
 		}
 	}
-	return parent.Err()
+	return usage, parent.Err()
 }

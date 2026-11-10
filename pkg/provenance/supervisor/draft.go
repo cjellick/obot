@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/provenance"
 )
 
@@ -225,6 +226,7 @@ func normalizeDraftInputSchema(schema map[string]any) {
 // JSON and condition are validated; an invalid draft is sent back to the model
 // once with the decoding or compiler message. Each test is then evaluated so Actual is filled.
 func (s *Supervisor) DraftPolicy(ctx context.Context, text string, examples []provenance.Event) (provenance.PolicyDraft, error) {
+	ctx = aiusage.WithFeature(ctx, aiusage.FeaturePolicyDrafting)
 	if strings.TrimSpace(text) == "" {
 		return provenance.PolicyDraft{}, errors.New("a rule is required")
 	}
@@ -241,8 +243,7 @@ func (s *Supervisor) DraftPolicy(ctx context.Context, text string, examples []pr
 		}
 		resp = draftResponse{}
 		if _, err := s.completeJSON(ctx, draftSystemPrompt(), prompt, draftSchema, &resp); err != nil {
-			var responseErr *modelJSONError
-			if !errors.As(err, &responseErr) {
+			if _, ok := errors.AsType[*modelJSONError](err); !ok {
 				return provenance.PolicyDraft{}, err
 			}
 			lastErr = err

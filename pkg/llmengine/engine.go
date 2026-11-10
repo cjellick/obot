@@ -307,9 +307,9 @@ func (e *Engine) ChatCompletion(ctx context.Context, model string, messages []sc
 }
 
 // ChatCompletionStream streams a chat completion, calling onDelta with each partial message.
-func (e *Engine) ChatCompletionStream(ctx context.Context, model string, messages []schemas.ChatMessage, params *schemas.ChatParameters, onDelta func(*schemas.ChatStreamResponseChoiceDelta)) error {
+func (e *Engine) ChatCompletionStream(ctx context.Context, model string, messages []schemas.ChatMessage, params *schemas.ChatParameters, onDelta func(*schemas.ChatStreamResponseChoiceDelta)) (*schemas.BifrostLLMUsage, error) {
 	if !e.Ready() {
-		return errors.New("LLM gateway unavailable")
+		return nil, errors.New("LLM gateway unavailable")
 	}
 	return e.core.Load().ChatCompletionStream(ctx, model, messages, params, onDelta)
 }

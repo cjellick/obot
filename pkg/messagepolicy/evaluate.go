@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/maximhq/bifrost/core/schemas"
 
@@ -62,6 +63,8 @@ type MessagePolicyViolation struct {
 // resolvedModel holds pre-resolved model provider information to avoid redundant lookups.
 type resolvedModel struct {
 	targetModel string
+	// model is the Model the target resolved from, when it resolved from one.
+	model *v1.Model
 }
 
 // chatMessage keeps the policy prompts independent of provider wire formats.
@@ -214,13 +217,15 @@ func (h *Helper) resolveModelByAlias(ctx context.Context, aliasType types.Defaul
 	if h.llmGateway == nil {
 		return nil, fmt.Errorf("the LLM gateway is not available")
 	}
-	return &resolvedModel{targetModel: model.Spec.Manifest.TargetModel}, nil
+	return &resolvedModel{targetModel: model.Spec.Manifest.TargetModel, model: model}, nil
 }
 
 // Policies consume complete text, so a native unary call avoids an internal SSE
 // round trip while retaining core normalization, routing and policy plugins.
 func (h *Helper) callLLM(ctx context.Context, resolved *resolvedModel, messages []chatMessage) (string, error) {
+	start := time.Now()
 	resp, err := h.llmGateway.ChatCompletion(ctx, resolved.targetModel, toBifrostMessages(messages))
+	h.record(ctx, resolved, responseUsage(resp), start, err)
 	if err != nil {
 		return "", fmt.Errorf("LLM call failed: %w", err)
 	}

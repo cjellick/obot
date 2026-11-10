@@ -9,6 +9,7 @@ import (
 
 	"github.com/obot-platform/mmmcp/namespace"
 	"github.com/obot-platform/obot/apiclient/types"
+	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/provenance"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
@@ -79,7 +80,7 @@ func (h *ProvenanceHandler) SuggestToolLabels(req api.Context) error {
 	if len(inventory.Items) > 100 {
 		return types.NewErrBadRequest("this resource has more than 100 tools; review smaller component inventories first")
 	}
-	ctx, cancel := context.WithTimeout(req.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(aiusage.WithUser(req.Context(), req.User.GetUID()), 2*time.Minute)
 	defer cancel()
 	for i := range inventory.Items {
 		item := &inventory.Items[i]
