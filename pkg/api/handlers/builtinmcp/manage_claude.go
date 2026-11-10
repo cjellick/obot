@@ -167,9 +167,19 @@ func (h *Handler) addClaudeEnvironmentTools(s *mcp.Server, req api.Context) {
 		if err != nil {
 			return toolError(err)
 		}
+		still := 0
+		for i := range blocked {
+			if len(blocked[i].AllowedNow) == 0 {
+				still++
+			}
+		}
 		return jsonResult(map[string]any{
-			"blocked": blocked,
-			"next":    "Tell the administrator what was blocked and offer to allow hosts that look legitimate with update_claude_egress.",
+			"blocked":      blocked,
+			"stillBlocked": still,
+			"allowedSince": len(blocked) - still,
+			"display": "In Obot AI's chat, show the egress_blocked widget and don't repeat the hosts, counts or dates in text. " +
+				"Say in a sentence or two what matters: which hosts are still blocked and whether they look legitimate. Hosts " +
+				"with allowedNow are already allowed; never offer to allow them.",
 		})
 	})
 }
