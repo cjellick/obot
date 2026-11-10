@@ -4,13 +4,26 @@
 		CAPABILITY_LABELS,
 		CONTENT_LABELS,
 		EFFECTS,
-		effectLabel
+		effectLabel,
+		listCustomLabels,
+		type CustomLabel
 	} from '$lib/services/provenance';
 	import { ChevronDown, ChevronUp } from '@lucide/svelte';
 
 	// The CEL vocabulary a policy condition can use, mirrored from pkg/provenance/policy.go.
 
 	let open = $state(false);
+	let customLabels = $state<CustomLabel[]>([]);
+	let customLoaded = false;
+
+	// Custom labels are loaded the first time the sheet opens.
+	$effect(() => {
+		if (!open || customLoaded) return;
+		customLoaded = true;
+		listCustomLabels({ dontLogErrors: true })
+			.then((labels) => (customLabels = labels))
+			.catch(() => {});
+	});
 
 	const variables = [
 		{
@@ -136,6 +149,24 @@
 					{/each}
 				</div>
 			</div>
+
+			{#if customLabels.length}
+				<div class="flex flex-col gap-1">
+					<span class="font-semibold">{m.supervision_cheat_custom_labels()}</span>
+					<div class="flex flex-wrap gap-1">
+						{#each customLabels as l (l.name)}
+							<code class="bg-base-100 dark:bg-base-200 rounded px-1 py-0.5" title={l.description}
+								>"{l.name}"</code
+							>
+						{/each}
+					</div>
+					<span class="text-muted-content"
+						>{m.supervision_cheat_custom_labels_example({
+							example: `"${customLabels[0].name}" in session.labels`
+						})}</span
+					>
+				</div>
+			{/if}
 
 			<div class="flex flex-col gap-1">
 				<span class="font-semibold">{m.supervision_cheat_capabilities()}</span>

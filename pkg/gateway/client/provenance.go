@@ -575,6 +575,50 @@ func (s *provenanceStore) PutToolLabel(ctx context.Context, l *provenance.ToolLa
 	}).Create(&row).Error
 }
 
+// ---- custom labels ----
+
+func (s *provenanceStore) ListCustomLabels(ctx context.Context) ([]provenance.CustomLabel, error) {
+	var rows []types.ProvenanceCustomLabel
+	if err := s.db(ctx).Order("name ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]provenance.CustomLabel, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Payload)
+	}
+	return out, nil
+}
+
+func (s *provenanceStore) GetCustomLabel(ctx context.Context, name provenance.Label) (*provenance.CustomLabel, error) {
+	var row types.ProvenanceCustomLabel
+	if err := s.db(ctx).Where("name = ?", string(name)).First(&row).Error; err != nil {
+		return nil, provenanceErr(err)
+	}
+	return &row.Payload, nil
+}
+
+func (s *provenanceStore) PutCustomLabel(ctx context.Context, l *provenance.CustomLabel) error {
+	if strings.TrimSpace(string(l.Name)) == "" {
+		return errors.New("label name is required")
+	}
+	now := time.Now().UTC()
+	if l.CreatedAt.IsZero() {
+		l.CreatedAt = now
+	}
+	if l.UpdatedAt.IsZero() {
+		l.UpdatedAt = now
+	}
+	row := types.ProvenanceCustomLabel{Name: string(l.Name), CreatedAt: l.CreatedAt, UpdatedAt: l.UpdatedAt, Payload: *l}
+	return s.db(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "name"}},
+		DoUpdates: clause.AssignmentColumns([]string{"updated_at", "payload"}),
+	}).Create(&row).Error
+}
+
+func (s *provenanceStore) DeleteCustomLabel(ctx context.Context, name provenance.Label) error {
+	return s.db(ctx).Where("name = ?", string(name)).Delete(&types.ProvenanceCustomLabel{}).Error
+}
+
 // ---- settings ----
 
 func (s *provenanceStore) GetSettings(ctx context.Context) (provenance.Settings, error) {

@@ -178,6 +178,10 @@ export interface LabelOrigin {
 	eventID: string;
 	summary?: string;
 	at: string;
+	/** What applied the label: a custom label pattern or source, or the AI tagger. */
+	detector?: 'pattern' | 'source' | 'ai';
+	/** The pattern that matched, the source, or the AI tagger's rationale. */
+	detail?: string;
 }
 
 export interface SessionState {
@@ -495,10 +499,11 @@ export async function deletePolicy(id: string, opts?: Opts): Promise<void> {
 export async function validatePolicyCondition(
 	condition: string,
 	opts?: Opts
-): Promise<{ valid: boolean; error?: string }> {
+): Promise<{ valid: boolean; error?: string; warnings?: string[] }> {
 	return (await doPost(`${B}/policies/validate`, { condition }, opts)) as {
 		valid: boolean;
 		error?: string;
+		warnings?: string[];
 	};
 }
 
@@ -1077,6 +1082,7 @@ export interface LabelInventory {
 	observedTools: (ToolLabel & { proposal?: ToolLabelSuggestion['proposal'] })[];
 	capabilities: string[];
 	contentLabels: string[];
+	customLabels: CustomLabel[];
 	contentTagging: LabelContentTagging;
 	supervisorEnabled: boolean;
 }
@@ -1094,6 +1100,100 @@ export async function getLabelInventory(opts?: Opts): Promise<LabelInventory> {
 		})),
 		capabilities: value.capabilities ?? [],
 		contentLabels: value.contentLabels ?? [],
+		customLabels: (value.customLabels ?? []).map(normalizeCustomLabel),
 		contentTagging: value.contentTagging ?? { enabled: false }
 	};
+}
+
+// ---- custom labels ----
+
+export type LabelPatternType = 'regex' | 'keyword';
+export type LabelSourceType = 'catalog-entry' | 'vmcp' | 'host';
+
+export interface LabelPattern {
+	type: LabelPatternType;
+	value: string;
+}
+
+export interface LabelSource {
+	type: LabelSourceType;
+	/** Catalog entry or vMCP ID, or a host pattern such as *.example.com. */
+	id: string;
+	/** Limits an MCP source to one tool. */
+	tool?: string;
+	/** Display name, for explanations. */
+	name?: string;
+}
+
+/** An administrator-defined content label and its detectors. */
+export interface CustomLabel {
+	name: string;
+	description: string;
+	/** The AI content tagger applies the label, following the description. */
+	ai: boolean;
+	/** The label implies confidential, like built-in sensitivity labels. */
+	confidential: boolean;
+	patterns: LabelPattern[];
+	sources: LabelSource[];
+	createdBy?: string;
+	createdAt?: string;
+	updatedAt?: string;
+}
+
+export interface CustomLabelTestResult {
+	matched: boolean;
+	hits: { detector: 'pattern' | 'source'; detail: string; matches?: string[] }[];
+}
+
+/** Custom label names: lowercase words joined by single hyphens, like built-in labels. */
+export const CUSTOM_LABEL_NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+function normalizeCustomLabel(label: Partial<CustomLabel>): CustomLabel {
+	return {
+		...label,
+		name: label.name ?? '',
+		description: label.description ?? '',
+		ai: !!label.ai,
+		confidential: !!label.confidential,
+		patterns: label.patterns ?? [],
+		sources: label.sources ?? []
+	};
+}
+
+export async function listCustomLabels(opts?: Opts): Promise<CustomLabel[]> {
+	const resp = (await doGet(`${B}/custom-labels`, opts)) as { items: CustomLabel[] | null };
+	return (resp.items ?? []).map(normalizeCustomLabel);
+}
+
+export async function createCustomLabel(label: CustomLabel, opts?: Opts): Promise<CustomLabel> {
+	return normalizeCustomLabel((await doPost(`${B}/custom-labels`, label, opts)) as CustomLabel);
+}
+
+export async function updateCustomLabel(label: CustomLabel, opts?: Opts): Promise<CustomLabel> {
+	return normalizeCustomLabel(
+		(await doPut(`${B}/custom-labels/${enc(label.name)}`, label, opts)) as CustomLabel
+	);
+}
+
+export async function deleteCustomLabel(name: string, opts?: Opts): Promise<void> {
+	await doDelete(`${B}/custom-labels/${enc(name)}`, opts);
+}
+
+/** Runs a draft label's pattern and source detectors against sample text without saving. */
+export async function testCustomLabel(
+	label: CustomLabel,
+	text: string,
+	opts?: Opts
+): Promise<CustomLabelTestResult> {
+	const result = (await doPost(
+		`${B}/custom-labels/test`,
+		{ label, text },
+		opts
+	)) as CustomLabelTestResult;
+	return { matched: !!result.matched, hits: result.hits ?? [] };
+}
+
+/** Whether a label is one Obot ships, rather than an administrator's custom label. */
+export function isBuiltinLabel(label: string): boolean {
+	return CONTENT_LABELS.includes(label) || CAPABILITY_LABELS.includes(label);
 }

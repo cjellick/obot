@@ -60,6 +60,12 @@ type LabelOrigin struct {
 	EventID string    `json:"eventID"`
 	Summary string    `json:"summary,omitempty"`
 	At      time.Time `json:"at"`
+	// Detector names what applied the label when it was a custom label
+	// detector or the AI tagger: pattern, source or ai.
+	Detector string `json:"detector,omitempty"`
+	// Detail explains the detection: the pattern that matched, the source, or
+	// the AI tagger's rationale.
+	Detail string `json:"detail,omitempty"`
 }
 
 // SessionState is everything the engine needs to decide an action in a

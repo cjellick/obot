@@ -14,6 +14,7 @@
 	import { m } from '$lib/i18n';
 	import {
 		CONTENT_LABELS,
+		listCustomLabels,
 		listSessions,
 		sessionDisplayName,
 		SURFACES,
@@ -173,10 +174,16 @@
 		{ id: '', label: m.supervision_sessions_all_surfaces() },
 		...SURFACES.map((s) => ({ id: s, label: surfaceLabel(s) }))
 	];
-	const labelOptions = [
+	let customLabelNames = $state<string[]>([]);
+	$effect(() => {
+		listCustomLabels({ dontLogErrors: true })
+			.then((labels) => (customLabelNames = labels.map((l) => l.name)))
+			.catch(() => {});
+	});
+	let labelOptions = $derived([
 		{ id: '', label: m.supervision_sessions_all_labels() },
-		...CONTENT_LABELS.map((l) => ({ id: l, label: l }))
-	];
+		...[...CONTENT_LABELS, ...customLabelNames].map((l) => ({ id: l, label: l }))
+	]);
 	const rangeOptions = RANGES.map((r) => ({ id: r, label: rangeLabel(r) }));
 	const selectClass =
 		'bg-base-100 dark:bg-base-200 dark:border-base-400 border border-transparent shadow-sm';

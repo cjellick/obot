@@ -58,6 +58,7 @@ const inventory: LabelInventory = {
 	],
 	capabilities: CAPABILITY_LABELS,
 	contentLabels: CONTENT_LABELS,
+	customLabels: [],
 	contentTagging: { enabled: false },
 	supervisorEnabled: true
 };

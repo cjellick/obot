@@ -79,3 +79,27 @@ func TestContentClassifyContextIsQuoted(t *testing.T) {
 		t.Fatalf("found labels should be shown: %s", ctx)
 	}
 }
+
+func TestClassifyContentCustomLabels(t *testing.T) {
+	vocabulary := provenance.TaggerLabelSet([]provenance.CustomLabel{
+		{Name: "board-minutes", Description: "Minutes or decisions of the board of directors", AI: true},
+	})
+	prompt := contentClassifySystemPrompt(vocabulary)
+	if !strings.Contains(prompt, "- board-minutes (organization-defined): Minutes or decisions of the board of directors") {
+		t.Fatalf("custom label instruction missing from prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- pii: ") {
+		t.Fatalf("built-in label missing from prompt:\n%s", prompt)
+	}
+
+	writer := &fakeTextModel{responses: []string{`{"labels":["board-minutes","roadmap"],"rationale":"board vote"}`}, model: "tagger"}
+	out, err := NewWith(nil, writer).ClassifyContent(context.Background(), provenance.ContentToClassify{
+		Text: "The board voted to approve the acquisition.", Labels: vocabulary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Labels.String() != "board-minutes" {
+		t.Fatalf("labels = %v, want only the known custom label", out.Labels)
+	}
+}

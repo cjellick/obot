@@ -1,6 +1,7 @@
 package provenance
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -42,6 +43,8 @@ type Engine struct {
 	kills       []Kill
 	toolLabels  map[string]ToolLabel
 	settings    Settings
+	// customLabels are the administrator-defined labels, compiled.
+	customLabels *CustomLabelSet
 
 	waitersLock sync.Mutex
 	waiters     map[string][]chan Approval
@@ -92,6 +95,11 @@ type IngestRequest struct {
 	// Content is scanned for sensitivity labels and fingerprinted. It is not
 	// stored.
 	Content string
+	// LabelScope is the producing MCP server's tool label scope
+	// (catalog-entry:<id> or vmcp:<id>) and LabelTool its canonical tool name,
+	// for custom label source detectors. LabelTool defaults to Tool.
+	LabelScope string
+	LabelTool  string
 	// Labels are labels the adapter already knows apply.
 	Labels  Labels
 	Ref     SurfaceRef
@@ -254,6 +262,10 @@ func (e *Engine) loadRefs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	custom, err := e.store.ListCustomLabels(ctx)
+	if err != nil {
+		return err
+	}
 	settings, err := e.store.GetSettings(ctx)
 	if errors.Is(err, ErrNotFound) {
 		settings = DefaultSettings()
@@ -265,6 +277,7 @@ func (e *Engine) loadRefs(ctx context.Context) error {
 		byTool[toolLabelKey(l.Server, l.Tool)] = l
 	}
 	e.policies, e.kills, e.toolLabels, e.settings = policies, kills, byTool, settings
+	e.customLabels = CompileCustomLabels(custom)
 	e.refLoadedAt = time.Now()
 	return nil
 }
@@ -282,6 +295,28 @@ func (e *Engine) Settings(ctx context.Context) Settings {
 	e.refLock.Lock()
 	defer e.refLock.Unlock()
 	return e.settings
+}
+
+// CustomLabels returns the compiled administrator-defined labels. It is never
+// nil.
+func (e *Engine) CustomLabels(ctx context.Context) *CustomLabelSet {
+	if err := e.loadRefs(ctx); err != nil {
+		e.logger.Warn("provenance: loading custom labels", "error", err)
+	}
+	e.refLock.Lock()
+	defer e.refLock.Unlock()
+	if e.customLabels == nil {
+		return &CustomLabelSet{}
+	}
+	return e.customLabels
+}
+
+// TaggerLabels is the label vocabulary the AI content tagger may apply: the
+// built-in content labels and every custom label with AI on, with the
+// descriptions the tagger follows. Every tagger implementation takes its labels
+// from here.
+func (e *Engine) TaggerLabels(ctx context.Context) []LabelDefinition {
+	return TaggerLabelSet(e.CustomLabels(ctx).Labels())
 }
 
 // Policies returns the current policies.
@@ -547,6 +582,23 @@ func (e *Engine) Ingest(ctx context.Context, in IngestRequest) (*Event, error) {
 			labels = labels.Add(l)
 		}
 	}
+	// Custom label detectors: patterns over the content and the content's
+	// source. Each hit keeps its own origin so the UI can explain it.
+	custom := e.CustomLabels(ctx)
+	hits := custom.MatchPatterns(in.Content)
+	hits = append(hits, custom.MatchSources(ContentOrigin{Scope: in.LabelScope, Tool: cmp.Or(in.LabelTool, in.Tool), Host: in.Host})...)
+	for _, h := range hits {
+		labels = labels.Add(h.Label)
+		if l, ok := custom.Get(h.Label); ok && l.Confidential {
+			labels = labels.Add(LabelConfidential)
+		}
+		if len(h.Matches) > 0 {
+			if class.Identifiers == nil {
+				class.Identifiers = map[Label][]string{}
+			}
+			class.Identifiers[h.Label] = append(class.Identifiers[h.Label], h.Matches...)
+		}
+	}
 	labels = labels.Normalize()
 
 	summary := in.Summary
@@ -561,7 +613,19 @@ func (e *Engine) Ingest(ctx context.Context, in IngestRequest) (*Event, error) {
 	}
 
 	e.lock.Lock()
-	s.State.AddLabels(labels, LabelOrigin{EventID: ev.ID, Summary: summary, At: now})
+	// Custom label hits are recorded first so their origin explains them.
+	for _, h := range hits {
+		hitLabels := NewLabels(h.Label)
+		if l, ok := custom.Get(h.Label); ok && l.Confidential {
+			hitLabels = hitLabels.Add(LabelConfidential)
+		}
+		s.State.AddLabels(hitLabels, LabelOrigin{EventID: ev.ID, Summary: summary, At: now, Detector: h.Detector, Detail: h.Detail})
+	}
+	var hitNames Labels
+	for _, h := range hits {
+		hitNames = hitNames.Add(h.Label)
+	}
+	s.State.AddLabels(slices.DeleteFunc(slices.Clone(labels), hitNames.Has), LabelOrigin{EventID: ev.ID, Summary: summary, At: now})
 	s.State.AddFingerprints(FingerprintContent(ev.ID, in.Content, labels, class))
 	s.State.Events++
 	s.State.LastSummary = summary
@@ -635,6 +699,11 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 		lineage[i].OriginSummary = e.originSummary(state, lineage[i].OriginEventID)
 	}
 	class := Classify(a.Text)
+	// Custom label patterns apply to the action's own content too, so a policy
+	// can test action.labels for them.
+	for _, h := range e.CustomLabels(ctx).MatchPatterns(a.Text) {
+		class.Labels = class.Labels.Add(h.Label)
+	}
 
 	e.refLock.Lock()
 	policies := slices.Clone(e.policies)

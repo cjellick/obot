@@ -865,3 +865,63 @@ func TestProvenanceStoreToolLabelProposal(t *testing.T) {
 		t.Fatalf("approved proposal: %+v (%v)", labels, err)
 	}
 }
+
+func TestProvenanceStoreCustomLabels(t *testing.T) {
+	e, store, _ := newProvenanceTestEngine(t)
+	ctx := t.Context()
+	if _, err := store.GetCustomLabel(ctx, "project-atlas"); !errors.Is(err, provenance.ErrNotFound) {
+		t.Fatalf("missing label: %v", err)
+	}
+	label := provenance.CustomLabel{
+		Name:         "project-atlas",
+		Description:  "Anything about Project Atlas",
+		AI:           true,
+		Confidential: true,
+		Patterns:     []provenance.LabelPattern{{Type: provenance.PatternRegex, Value: `\bATL-\d{4}\b`}},
+		Sources:      []provenance.LabelSource{{Type: provenance.SourceHost, ID: "*.atlas.example"}},
+		CreatedBy:    "craig@example.com",
+	}
+	if err := label.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutCustomLabel(ctx, &label); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetCustomLabel(ctx, "project-atlas")
+	if err != nil || got.Description != label.Description || !got.AI || !got.Confidential || len(got.Patterns) != 1 || len(got.Sources) != 1 || got.CreatedAt.IsZero() {
+		t.Fatalf("round-trip: %+v (%v)", got, err)
+	}
+
+	label.Description = "Project Atlas, the unannounced launch"
+	label.UpdatedAt = time.Now().UTC().Add(time.Minute)
+	if err := store.PutCustomLabel(ctx, &label); err != nil {
+		t.Fatal(err)
+	}
+	labels, err := store.ListCustomLabels(ctx)
+	if err != nil || len(labels) != 1 || labels[0].Description != label.Description {
+		t.Fatalf("update: %+v (%v)", labels, err)
+	}
+
+	// The engine picks the label up from the database and applies it.
+	e.Invalidate()
+	ev, err := e.Ingest(ctx, provenance.IngestRequest{
+		Subject: provenanceTestSubject, Session: provenanceTestKey, Surface: provenance.SurfaceEgress,
+		Kind: provenance.KindToolResult, Host: "api.atlas.example", Content: "status page",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ev.Labels.Has("project-atlas") || !ev.Labels.Has(provenance.LabelConfidential) {
+		t.Fatalf("event labels = %v", ev.Labels)
+	}
+	if names := provenance.LabelDefinitionNames(e.TaggerLabels(ctx)); !names.Has("project-atlas") {
+		t.Fatalf("tagger labels = %v", names)
+	}
+
+	if err := store.DeleteCustomLabel(ctx, "project-atlas"); err != nil {
+		t.Fatal(err)
+	}
+	if labels, err := store.ListCustomLabels(ctx); err != nil || len(labels) != 0 {
+		t.Fatalf("after delete: %+v (%v)", labels, err)
+	}
+}

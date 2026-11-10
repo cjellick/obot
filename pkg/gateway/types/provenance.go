@@ -116,6 +116,15 @@ type ProvenanceToolLabel struct {
 	Proposal  *provenance.ToolLabelProposal `json:"proposal,omitempty" gorm:"serializer:json"`
 }
 
+// ProvenanceCustomLabel is one administrator-defined content label and its
+// detectors.
+type ProvenanceCustomLabel struct {
+	Name      string                 `json:"name" gorm:"primaryKey"`
+	CreatedAt time.Time              `json:"createdAt"`
+	UpdatedAt time.Time              `json:"updatedAt"`
+	Payload   provenance.CustomLabel `json:"payload" gorm:"serializer:json"`
+}
+
 // ProvenanceNarrative is the Supervisor's saved commentary on a session. LastActivityAt is
 // the session's, so retention removes it with the session.
 type ProvenanceNarrative struct {

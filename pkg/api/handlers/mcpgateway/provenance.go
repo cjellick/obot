@@ -229,6 +229,8 @@ func (p *mcpProvenance) ingestToolResult(ctx context.Context, result json.RawMes
 		Server:       p.server,
 		ServerID:     p.serverID,
 		Capabilities: caps,
+		LabelScope:   p.labelScope,
+		LabelTool:    p.labelTool(tool),
 		Content:      toolResultContent(result),
 		Summary:      p.server + "." + tool + " result",
 		Bytes:        len(result),
@@ -260,6 +262,7 @@ func (p *mcpProvenance) ingestResource(ctx context.Context, result json.RawMessa
 		ServerID:     p.serverID,
 		Capabilities: caps,
 		Host:         host,
+		LabelScope:   p.labelScope,
 		Content:      resourceContent(result),
 		Summary:      p.server + " resource " + resourceSummary(uri),
 		Bytes:        len(result),
@@ -292,15 +295,19 @@ func (p *mcpProvenance) cacheToolList(ctx context.Context, result json.RawMessag
 	}
 }
 
-func (p *mcpProvenance) capabilities(ctx context.Context, tool string) provenance.Labels {
-	labelTool := tool
+// labelTool maps a profile's single unprefixed runtime component back to the
+// full definition's component identity, never by a suffix search.
+func (p *mcpProvenance) labelTool(tool string) string {
 	if p.labelPrefix != "" {
-		// Map a profile's single unprefixed runtime component back to the
-		// full definition's component identity, never by a suffix search.
 		if canonical, err := namespace.Tool(p.labelPrefix, tool); err == nil {
-			labelTool = canonical
+			return canonical
 		}
 	}
+	return tool
+}
+
+func (p *mcpProvenance) capabilities(ctx context.Context, tool string) provenance.Labels {
+	labelTool := p.labelTool(tool)
 	if labels, ok := p.engine.ReviewedToolCapabilities(ctx, p.labelScope, labelTool); ok {
 		return labels
 	}

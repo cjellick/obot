@@ -162,6 +162,13 @@ type Store interface {
 	ListToolLabels(ctx context.Context) ([]ToolLabel, error)
 	PutToolLabel(ctx context.Context, l *ToolLabel) error
 
+	// ListCustomLabels returns the administrator-defined labels; GetCustomLabel
+	// returns ErrNotFound for a missing one.
+	ListCustomLabels(ctx context.Context) ([]CustomLabel, error)
+	GetCustomLabel(ctx context.Context, name Label) (*CustomLabel, error)
+	PutCustomLabel(ctx context.Context, l *CustomLabel) error
+	DeleteCustomLabel(ctx context.Context, name Label) error
+
 	GetSettings(ctx context.Context) (Settings, error)
 	PutSettings(ctx context.Context, s Settings) error
 
