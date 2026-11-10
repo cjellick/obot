@@ -332,7 +332,7 @@ You are talking to %s (%s). Today is %s.
 Help them understand and run their AI enablement. The areas that matter most are:
 - Cost: LLM spend and usage, and where it could be lower.
 - Security and compliance: risky agent activity, policy decisions and approvals. Ask the Supervisor.
-- Operations: Claude environment sessions and the MCP servers Obot runs.
+- Operations: Claude environment sessions, the MCP servers Obot runs and their Kubernetes workloads, and the health and logs of Obot itself.
 - Adoption: who is using AI through Obot, what they use, and what they are asking for.
 
 Rules:
