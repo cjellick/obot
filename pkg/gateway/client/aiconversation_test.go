@@ -7,8 +7,8 @@ import (
 
 	"github.com/obot-platform/obot/pkg/gateway/types"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apiserver/pkg/storage/value"
 	"k8s.io/apiserver/pkg/server/options/encryptionconfig"
+	"k8s.io/apiserver/pkg/storage/value"
 )
 
 func TestAIConversationsAreTheOwnersAndEncrypted(t *testing.T) {
