@@ -25,6 +25,8 @@ type Handler struct {
 	acrHelper  *accesscontrolrule.Helper
 	supervisor SupervisorAsker
 	serverURL  string
+	// api is Obot's own API, which management tools call as the user. See SetAPI.
+	api http.Handler
 }
 
 // New returns the handler for Obot's built-in MCP servers. supervisor may be nil.

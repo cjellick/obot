@@ -759,6 +759,7 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	// MCP Gateway Endpoints. Obot serves its built-in MCP servers itself; every other ID is
 	// proxied.
 	builtinMCP := builtinmcp.New(mcpServerRequests, services.AccessControlRuleHelper, prov, services.ServerURL)
+	builtinMCP.SetAPI(services.APIServer)
 	mcpConnect := func(req api.Context) error {
 		if system.IsBuiltinMCPID(req.PathValue("mcp_id")) {
 			return builtinMCP.Serve(req)
