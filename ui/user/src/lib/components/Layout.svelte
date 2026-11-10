@@ -1018,7 +1018,7 @@
 {/snippet}
 
 {#snippet rootLinkContent(link: NavLink)}
-	{@const isActive = link.href && (link.href === pathname || pathname.startsWith(`${link.href}/`))}
+	{@const isActive = isLinkActive(link, pathname)}
 	{#if link.disabled}
 		<div class="sidebar-link disabled">
 			{@render linkContent(link)}
