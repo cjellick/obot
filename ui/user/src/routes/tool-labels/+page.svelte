@@ -3,6 +3,7 @@
 	import Layout from '$lib/components/Layout.svelte';
 	import ContentTaggingSettings from '$lib/components/supervision/ContentTaggingSettings.svelte';
 	import LabelsOverview from '$lib/components/supervision/LabelsOverview.svelte';
+	import RulesTabs from '$lib/components/supervision/RulesTabs.svelte';
 	import ToolLabelReview from '$lib/components/supervision/ToolLabelReview.svelte';
 	import { m } from '$lib/i18n';
 	import type { ToolLabelResourceType } from '$lib/services/provenance';
@@ -12,7 +13,7 @@
 	let resourceID = $derived(page.url.searchParams.get('resourceID') ?? '');
 	let valid = $derived(resourceType === 'catalog-entry' || resourceType === 'vmcp');
 	let overview = $derived(!resourceType && !resourceID);
-	let title = $derived(overview ? m.supervision_labels_title() : m.supervision_tool_labels_title());
+	let title = $derived(overview ? m.nav_rules() : m.supervision_tool_labels_title());
 </script>
 
 <svelte:head><title>Obot | {title}</title></svelte:head>
@@ -30,6 +31,7 @@
 		)}
 >
 	{#if overview}
+		<RulesTabs />
 		<div class="flex flex-col gap-6">
 			<LabelsOverview />
 			<ContentTaggingSettings />

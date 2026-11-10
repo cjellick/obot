@@ -181,6 +181,8 @@ type blockedHost struct {
 	Users         []string  `json:"users"`
 	LastSeen      time.Time `json:"lastSeen"`
 	Example       string    `json:"example"`
+	// AllowedNow names where the host is allowed today, when it has been allowed since.
+	AllowedNow []string `json:"allowedNow,omitempty"`
 }
 
 func (h *Handler) blockedEgress(ctx context.Context, req api.Context, in blockedEgressInput) ([]blockedHost, error) {
@@ -200,9 +202,11 @@ func (h *Handler) blockedEgress(ctx context.Context, req api.Context, in blocked
 		return nil, err
 	}
 	names := map[string]string{}
+	envs := map[string]gtypes.ClaudeEnvironment{}
 	if environments, err := h.claudeEnvironments(ctx, req); err == nil {
 		for _, e := range environments {
 			names[e.ID] = e.DisplayName
+			envs[e.ID] = e
 		}
 	}
 	groups := map[string]*blockedHost{}
@@ -231,6 +235,9 @@ func (h *Handler) blockedEgress(ctx context.Context, req api.Context, in blocked
 	}
 	out := make([]blockedHost, 0, len(groups))
 	for _, g := range groups {
+		if env, ok := envs[g.EnvironmentID]; ok {
+			g.AllowedNow = allowedIn(env, g.Host)
+		}
 		out = append(out, *g)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
@@ -333,4 +340,27 @@ func trimRecord(m map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// allowedIn names where env allows host today: the whole environment or a profile.
+func allowedIn(env gtypes.ClaudeEnvironment, host string) []string {
+	var where []string
+	if hostAllowed(env.Runtime.EgressHosts, host) {
+		where = append(where, "the whole environment")
+	}
+	for _, p := range env.Profiles {
+		if p.AllowAllEgress || hostAllowed(p.EgressHosts, host) {
+			where = append(where, "profile "+p.Name)
+		}
+	}
+	return where
+}
+
+func hostAllowed(allowed []string, host string) bool {
+	for _, a := range allowed {
+		if a == host || (strings.HasPrefix(a, "*.") && strings.HasSuffix(host, a[1:])) {
+			return true
+		}
+	}
+	return false
 }

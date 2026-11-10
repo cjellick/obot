@@ -6,6 +6,7 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import Toggle from '$lib/components/Toggle.svelte';
 	import IconButton from '$lib/components/primitives/IconButton.svelte';
+	import RulesTabs from '$lib/components/supervision/RulesTabs.svelte';
 	import SupervisorInsights from '$lib/components/supervision/SupervisorInsights.svelte';
 	import SurfaceBadge from '$lib/components/supervision/SurfaceBadge.svelte';
 	import Table from '$lib/components/table/Table.svelte';
@@ -130,10 +131,11 @@
 </script>
 
 <svelte:head>
-	<title>Obot | {m.supervision_policies_title()}</title>
+	<title>Obot | {m.nav_rules()}</title>
 </svelte:head>
 
-<Layout title={m.supervision_policies_title()} rightNavActions={navActions}>
+<Layout title={m.nav_rules()} rightNavActions={navActions}>
+	<RulesTabs />
 	<div class="flex flex-col gap-4 pb-8">
 		<p class="text-muted-content text-sm">{m.supervision_policies_description()}</p>
 

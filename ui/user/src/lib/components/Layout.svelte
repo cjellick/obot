@@ -16,6 +16,8 @@
 		/** A count badge, such as pending approvals. Hidden when zero. */
 		count?: number;
 		countLabel?: string;
+		/** Other paths the link counts as active on, for a page split across routes. */
+		activePaths?: string[];
 	};
 
 	const NAV_COLLAPSED_KEY = '@obot/layout/nav-collapsed';
@@ -131,6 +133,12 @@
 		};
 	});
 	let animatingNavSectionId = $state<string | null>(null);
+
+	function isLinkActive(link: NavLink, path: string): boolean {
+		return [link.href, ...(link.activePaths ?? [])].some(
+			(href) => !!href && (path === href || path.startsWith(`${href}/`))
+		);
+	}
 
 	function isNavCollapsed(id: string): boolean {
 		return navCollapsed[id] ?? false;
@@ -250,6 +258,16 @@
 	let routes = $derived([
 		// Obot AI is the front door: it can answer for and act on everything below.
 		{ id: 'ai', icon: Sparkles, label: m.nav_ai(), href: '/ai' },
+		...(isAtLeastPoweruser || profile.current.hasAdminAccess?.()
+			? [
+					{
+						id: 'mcp-dashboard',
+						icon: LayoutDashboard,
+						label: m.nav_dashboard(),
+						href: '/dashboard'
+					}
+				]
+			: []),
 		// Supervision is the daily workflow, grouped so it adds one top-level item.
 		...(profile.current.hasAdminAccess?.()
 			? [
@@ -262,8 +280,8 @@
 						count: isNavCollapsed('supervision-group') ? pendingApprovals : 0,
 						countLabel: m.nav_approvals_pending({ count: pendingApprovals }),
 						items: [
-							{ id: 'supervision', label: m.nav_dashboard(), href: '/supervision' },
-							{ id: 'sessions', label: m.nav_sessions(), href: '/sessions' },
+							{ id: 'supervision', label: m.nav_supervision_overview(), href: '/supervision' },
+							{ id: 'sessions', label: m.nav_activity(), href: '/sessions' },
 							{
 								id: 'approvals',
 								label: m.nav_approvals(),
@@ -271,21 +289,16 @@
 								count: pendingApprovals,
 								countLabel: m.nav_approvals_pending({ count: pendingApprovals })
 							},
-							{ id: 'policies', label: m.nav_policies(), href: '/policies' },
-							{ id: 'labels', label: m.supervision_labels(), href: '/tool-labels' }
+							{
+								id: 'rules',
+								label: m.nav_rules(),
+								href: '/tool-labels',
+								activePaths: ['/policies']
+							}
 						]
 					}
 				]
-			: isAtLeastPoweruser
-				? [
-						{
-							id: 'mcp-dashboard',
-							icon: LayoutDashboard,
-							label: m.nav_dashboard(),
-							href: '/dashboard'
-						}
-					]
-				: []),
+			: []),
 		{
 			id: 'ai-resources',
 			icon: Bot,
@@ -340,9 +353,6 @@
 			label: m.nav_operations(),
 			collapsible: true,
 			items: [
-				...(profile.current.hasAdminAccess?.()
-					? [{ id: 'infrastructure', label: m.nav_infrastructure(), href: '/dashboard' }]
-					: []),
 				{
 					id: 'audit-logs',
 					label: m.nav_audit_logs(),
@@ -414,10 +424,7 @@
 		if (to && routes.length > 0) {
 			const currentPath = to.url.pathname;
 			const parentNavLink = routes.find((link) =>
-				link.items?.find(
-					(item) =>
-						item.href && (currentPath === item.href || currentPath.startsWith(`${item.href}/`))
-				)
+				link.items?.find((item) => isLinkActive(item, currentPath))
 			);
 			if (parentNavLink && isNavCollapsed(parentNavLink.id)) {
 				toggleNavCollapsed(parentNavLink.id);
@@ -952,8 +959,7 @@
 							{#if item.nodes}
 								{@render dotdotdot(item, true)}
 							{:else}
-								{@const isActive =
-									item.href && (item.href === pathname || pathname.startsWith(`${item.href}/`))}
+								{@const isActive = isLinkActive(item, pathname)}
 								<div class="relative flex items-center gap-2" id={item.id}>
 									<div
 										class={twMerge(
