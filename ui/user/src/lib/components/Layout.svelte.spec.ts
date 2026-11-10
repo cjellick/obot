@@ -245,16 +245,14 @@ describe('Layout.svelte', () => {
 			);
 		}
 
-		it('puts Obot AI first, then Connect to Obot, the Dashboard and the Supervisor group, with pending approvals visible', async () => {
+		it('puts Obot AI first, then the Dashboard and the Supervisor group, with pending approvals visible', async () => {
 			mockPending(3);
 			await renderLayout([Group.ADMIN]);
 			await expect.element(page.getByCSS('a.sidebar-link').first()).toHaveAttribute('href', '/ai');
 			await expect
 				.element(page.getByCSS('a.sidebar-link').nth(1))
-				.toHaveAttribute('href', '/mcp-server-requests');
-			await expect
-				.element(page.getByCSS('a.sidebar-link').nth(2))
 				.toHaveAttribute('href', '/dashboard');
+			await expectNoLink('/mcp-server-requests');
 			await expandSection('supervision-group', '/supervision');
 			await expect
 				.element(page.getByRole('link', { name: 'Overview', exact: true }))
@@ -270,14 +268,12 @@ describe('Layout.svelte', () => {
 				.toHaveAttribute('href', '/approvals');
 		});
 
-		it('gives basic users Obot AI and Connect to Obot at the top level', async () => {
+		it('gives basic users Obot AI at the top level', async () => {
 			await renderLayout([Group.USER]);
 			await expect
 				.element(page.getByRole('link', { name: 'AI', exact: true }))
 				.toHaveAttribute('href', '/ai');
-			await expect
-				.element(page.getByCSS('a.sidebar-link').nth(1))
-				.toHaveAttribute('href', '/mcp-server-requests');
+			await expectNoLink('/mcp-server-requests');
 			await expect
 				.element(page.getByRole('link', { name: 'Dashboard', exact: true }))
 				.not.toBeInTheDocument();

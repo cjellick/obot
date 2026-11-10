@@ -89,7 +89,7 @@
 	"nav_activity": "Activity",
 	"nav_approvals": "Requests & Approvals",
 	"nav_ai": "AI",
-	"nav_server_requests": "Connect to Obot",
+	"nav_server_requests": "Add Obot to your agent",
 	"nav_approvals_pending": "{count} waiting for you",
 	"nav_skills": "Skills",
 	"nav_usage": "Usage",

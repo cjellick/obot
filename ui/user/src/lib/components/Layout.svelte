@@ -103,7 +103,6 @@
 		Logs,
 		Settings2,
 		ChevronRight,
-		Plug,
 		ShieldCheck,
 		Sparkles
 	} from '@lucide/svelte';
@@ -264,13 +263,13 @@
 
 	let routes = $derived([
 		// Obot AI is the front door: it can answer for and act on everything below.
-		{ id: 'ai', icon: Sparkles, label: m.nav_ai(), href: '/ai' },
-		// Connecting agents to Obot is the first thing everyone does, so it sits right under AI.
+		// Adding Obot to your agent is reached from the AI page, so it counts as AI here.
 		{
-			id: 'mcp-server-requests',
-			icon: Plug,
-			label: m.nav_server_requests(),
-			href: '/mcp-server-requests'
+			id: 'ai',
+			icon: Sparkles,
+			label: m.nav_ai(),
+			href: '/ai',
+			activePaths: ['/mcp-server-requests']
 		},
 		...(isAtLeastPoweruser || profile.current.hasAdminAccess?.()
 			? [

@@ -1,6 +1,6 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"server_requests_title": "连接到 Obot",
+	"server_requests_title": "将 Obot 添加到您的代理",
 	"server_requests_description_admin": "将您的代理连接到 Obot 的内置 MCP 服务器，并审核用户请求的 MCP 服务器。批准请求会将服务器添加到目录和 vMCP。",
 	"server_requests_description_user": "将您的代理连接到 Obot 的内置 MCP 服务器，查找可用的 MCP 服务器并请求新的服务器。",
 	"server_requests_state_pending": "待处理",

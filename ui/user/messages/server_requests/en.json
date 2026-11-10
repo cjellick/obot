@@ -1,6 +1,6 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"server_requests_title": "Connect to Obot",
+	"server_requests_title": "Add Obot to Your Agent",
 	"server_requests_description_admin": "Connect your agents to Obot's built-in MCP servers, and review the MCP servers people ask for. Approving a request adds the server to the catalog and a vMCP.",
 	"server_requests_description_user": "Connect your agent to Obot's built-in MCP server to find the MCP servers you can use and ask for new ones.",
 	"server_requests_state_pending": "Pending",

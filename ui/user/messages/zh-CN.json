@@ -89,7 +89,7 @@
 	"nav_activity": "活动",
 	"nav_approvals": "请求与审批",
 	"nav_ai": "AI",
-	"nav_server_requests": "连接到 Obot",
+	"nav_server_requests": "将 Obot 添加到您的代理",
 	"nav_approvals_pending": "{count} 项待处理",
 	"nav_skills": "技能",
 	"nav_usage": "用量",

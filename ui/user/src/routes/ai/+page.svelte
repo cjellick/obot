@@ -19,6 +19,7 @@
 	} from '$lib/services/ai';
 	import { profile } from '$lib/stores';
 	import { formatTimeAgo } from '$lib/time';
+	import { resolve } from '$lib/url';
 	import {
 		ArrowUp,
 		Check,
@@ -26,6 +27,7 @@
 		History,
 		LoaderCircle,
 		PanelLeftClose,
+		Plug,
 		Plus,
 		ShieldAlert,
 		Sparkles,
@@ -577,6 +579,10 @@
 />
 
 {#snippet navActions()}
+	<a href={resolve('/mcp-server-requests')} class="btn btn-secondary rounded-4xl text-sm">
+		<Plug class="size-4" />
+		{m.nav_server_requests()}
+	</a>
 	{#if history.length > 0}
 		<button
 			type="button"

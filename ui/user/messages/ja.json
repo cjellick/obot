@@ -89,7 +89,7 @@
 	"nav_activity": "アクティビティ",
 	"nav_approvals": "リクエストと承認",
 	"nav_ai": "AI",
-	"nav_server_requests": "Obot に接続",
+	"nav_server_requests": "エージェントに Obot を追加",
 	"nav_approvals_pending": "{count} 件が対応待ち",
 	"nav_skills": "スキル",
 	"nav_usage": "使用状況",
