@@ -95,12 +95,13 @@
 	</div>
 
 	{#if canDecide}
-		<div class="flex flex-wrap items-center gap-2">
+		<!-- Same layout and buttons as a held agent action: choices on the left, Deny then Approve on the right. -->
+		<div class="flex flex-wrap items-center justify-end gap-2">
 			{#if vmcps.length}
-				<label class="flex items-center gap-2 text-xs">
+				<label class="mr-auto flex items-center gap-2 text-sm font-light">
 					{m.ai_widget_approve_into()}
 					<select
-						class="bg-base-100 dark:bg-base-200 rounded-md border px-2 py-1 text-xs"
+						class="bg-base-100 dark:bg-base-200 rounded-md border px-2 py-1 text-sm"
 						bind:value={vmcpID}
 						disabled={!!busy}
 					>
@@ -109,25 +110,25 @@
 						{/each}
 					</select>
 				</label>
-				<button
-					type="button"
-					class="btn btn-primary flex items-center gap-1 rounded-4xl px-3 py-1 text-xs"
-					disabled={!!busy || !vmcpID}
-					onclick={() => decide('approve')}
-				>
-					<Check class="size-3" />
-					{m.ai_widget_approve()}
-				</button>
 			{/if}
 			<button
 				type="button"
-				class="btn btn-secondary flex items-center gap-1 rounded-4xl px-3 py-1 text-xs"
+				class="btn btn-error btn-soft text-sm"
 				disabled={!!busy}
 				onclick={() => decide('deny')}
 			>
-				<X class="size-3" />
 				{m.ai_widget_deny()}
 			</button>
+			{#if vmcps.length}
+				<button
+					type="button"
+					class="btn btn-primary text-sm"
+					disabled={!!busy || !vmcpID}
+					onclick={() => decide('approve')}
+				>
+					{m.ai_widget_approve()}
+				</button>
+			{/if}
 		</div>
 	{/if}
 	{#if error}

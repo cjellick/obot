@@ -471,20 +471,34 @@
 				</HubCard>
 
 				<HubCard
-					id="skills"
-					title={m.nav_skills()}
-					description={m.dashboard_hub_skills_description()}
-					icon={PencilRuler}
-					href="/skills"
-					status={skills.status}
-					attention={skillsAttention}
-					links={[{ label: m.nav_skills(), href: '/skills' }]}
+					id="devices"
+					title={m.nav_inventory()}
+					description={m.dashboard_hub_devices_description()}
+					icon={Laptop}
+					href="/inventory?view=overview"
+					status={devices.status}
+					links={[
+						{ label: m.dashboard_unique_devices(), href: '/inventory?view=devices' },
+						{ label: m.dashboard_device_clients(), href: '/inventory?view=device-clients' },
+						{ label: m.dashboard_unique_mcps(), href: '/inventory?view=device-mcp-servers' },
+						{ label: m.dashboard_unique_skills(), href: '/inventory?view=device-skills' }
+					]}
 				>
-					{#if skills.data}
-						<div class="grid grid-cols-2 gap-3">
-							<HubStat label={m.dashboard_hub_skills()} value={skills.data.skills} />
-							<HubStat label={m.dashboard_hub_skill_sources()} value={skills.data.sources} />
+					{#if devices.data}
+						{@const d = devices.data}
+						<div class="grid grid-cols-3 gap-3">
+							<HubStat label={m.dashboard_hub_scanned_devices()} value={d.devices} />
+							<HubStat label={m.dashboard_unique_clients()} value={d.clients} />
+							<HubStat label={m.dashboard_unique_mcps()} value={d.mcpServers} />
 						</div>
+						{#if d.topClient}
+							<p class="truncate text-xs text-muted-content">
+								{m.dashboard_hub_top_client({
+									client: d.topClient.name,
+									count: d.topClient.devices
+								})}
+							</p>
+						{/if}
 					{/if}
 				</HubCard>
 
@@ -583,34 +597,20 @@
 				</HubCard>
 
 				<HubCard
-					id="devices"
-					title={m.nav_inventory()}
-					description={m.dashboard_hub_devices_description()}
-					icon={Laptop}
-					href="/inventory?view=devices"
-					status={devices.status}
-					links={[
-						{ label: m.dashboard_unique_devices(), href: '/inventory?view=devices' },
-						{ label: m.dashboard_device_clients(), href: '/inventory?view=device-clients' },
-						{ label: m.dashboard_unique_mcps(), href: '/inventory?view=device-mcp-servers' },
-						{ label: m.dashboard_unique_skills(), href: '/inventory?view=device-skills' }
-					]}
+					id="skills"
+					title={m.nav_skills()}
+					description={m.dashboard_hub_skills_description()}
+					icon={PencilRuler}
+					href="/skills"
+					status={skills.status}
+					attention={skillsAttention}
+					links={[{ label: m.nav_skills(), href: '/skills' }]}
 				>
-					{#if devices.data}
-						{@const d = devices.data}
-						<div class="grid grid-cols-3 gap-3">
-							<HubStat label={m.dashboard_hub_scanned_devices()} value={d.devices} />
-							<HubStat label={m.dashboard_unique_clients()} value={d.clients} />
-							<HubStat label={m.dashboard_unique_mcps()} value={d.mcpServers} />
+					{#if skills.data}
+						<div class="grid grid-cols-2 gap-3">
+							<HubStat label={m.dashboard_hub_skills()} value={skills.data.skills} />
+							<HubStat label={m.dashboard_hub_skill_sources()} value={skills.data.sources} />
 						</div>
-						{#if d.topClient}
-							<p class="truncate text-xs text-muted-content">
-								{m.dashboard_hub_top_client({
-									client: d.topClient.name,
-									count: d.topClient.devices
-								})}
-							</p>
-						{/if}
 					{/if}
 				</HubCard>
 
