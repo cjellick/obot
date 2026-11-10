@@ -356,8 +356,12 @@ var (
 			"POST /api/mcp-server-requests",
 			"GET /api/mcp-server-requests/{request_id}",
 
-			// Obot AI acts with the caller's own permissions.
+			// Obot AI acts with the caller's own permissions. Its conversations are limited to
+			// the caller's own in the handler.
 			"POST /api/ai/chat",
+			"GET /api/ai/conversations",
+			"GET /api/ai/conversations/{conversation_id}",
+			"DELETE /api/ai/conversations/{conversation_id}",
 
 			// Allow authenticated users to read servers and entries from MCP catalogs.
 			// Filtering is handled in the handler.

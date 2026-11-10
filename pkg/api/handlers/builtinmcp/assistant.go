@@ -42,6 +42,8 @@ type AssistantEvent struct {
 	Model     string          `json:"model,omitempty"`
 	Steps     []AssistantStep `json:"steps,omitempty"`
 	Message   string          `json:"message,omitempty"`
+	// ConversationID is the saved conversation the answer was added to, on done.
+	ConversationID string `json:"conversationID,omitempty"`
 }
 
 // StreamingChatModel is a ChatModel that can stream a turn's text as it is written.
@@ -64,6 +66,9 @@ type AssistantMessage struct {
 
 type AssistantRequest struct {
 	Messages []AssistantMessage `json:"messages"`
+	// ConversationID continues a saved conversation. Empty starts a new one, which is saved
+	// once it has an answer.
+	ConversationID string `json:"conversationID,omitempty"`
 }
 
 // AssistantStep is a tool the assistant called while answering.
@@ -75,9 +80,10 @@ type AssistantStep struct {
 }
 
 type AssistantResponse struct {
-	Reply string          `json:"reply"`
-	Model string          `json:"model,omitempty"`
-	Steps []AssistantStep `json:"steps"`
+	Reply          string          `json:"reply"`
+	Model          string          `json:"model,omitempty"`
+	Steps          []AssistantStep `json:"steps"`
+	ConversationID string          `json:"conversationID,omitempty"`
 }
 
 // Assistant is Obot AI: a chat that answers questions about Obot and acts on it with the
@@ -113,11 +119,18 @@ func (a *Assistant) Chat(req api.Context) error {
 	ctx, cancel := context.WithTimeout(req.Context(), assistantTimeout)
 	defer cancel()
 
+	if in.ConversationID != "" {
+		if _, _, err := req.GatewayClient.GetAIConversation(ctx, req.User.GetUID(), in.ConversationID); err != nil {
+			return conversationError(err)
+		}
+	}
+
 	if !strings.Contains(req.Request.Header.Get("Accept"), "text/event-stream") {
 		out, err := a.run(ctx, req, in.Messages, nil)
 		if err != nil {
 			return err
 		}
+		out.ConversationID = a.save(ctx, req, in, out)
 		return req.Write(out)
 	}
 
@@ -130,7 +143,8 @@ func (a *Assistant) Chat(req api.Context) error {
 		events.send(AssistantEvent{Type: "error", Message: errorMessage(err)})
 		return nil
 	}
-	events.send(AssistantEvent{Type: "done", Reply: out.Reply, Model: out.Model, Steps: out.Steps})
+	id := a.save(ctx, req, in, out)
+	events.send(AssistantEvent{Type: "done", Reply: out.Reply, Model: out.Model, Steps: out.Steps, ConversationID: id})
 	return nil
 }
 

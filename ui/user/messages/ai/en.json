@@ -53,5 +53,9 @@
 	"ai_widget_approvals_none": "Nothing is waiting for your approval.",
 	"ai_widget_approvals_actions": "Held agent actions",
 	"ai_widget_approvals_requests": "MCP server requests",
-	"ai_widget_approvals_all": "See all approvals"
+	"ai_widget_approvals_all": "See all approvals",
+	"ai_history": "Chats",
+	"ai_delete_chat": "Delete chat {title}",
+	"ai_delete_chat_confirm": "Delete the chat “{title}”? This can't be undone.",
+	"ai_delete": "Delete"
 }

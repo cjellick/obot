@@ -767,7 +767,11 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	}
 	mux.HandleFunc("/mcp-connect/{mcp_id}", mcpConnect)
 	// Obot AI chats with the tools of the built-in servers, as the signed-in user.
-	mux.HandleFunc("POST /api/ai/chat", builtinmcp.NewAssistant(builtinMCP, services.AssistantModel).Chat)
+	assistant := builtinmcp.NewAssistant(builtinMCP, services.AssistantModel)
+	mux.HandleFunc("POST /api/ai/chat", assistant.Chat)
+	mux.HandleFunc("GET /api/ai/conversations", assistant.ListConversations)
+	mux.HandleFunc("GET /api/ai/conversations/{conversation_id}", assistant.GetConversation)
+	mux.HandleFunc("DELETE /api/ai/conversations/{conversation_id}", assistant.DeleteConversation)
 	mux.HandleFunc("/mcp-connect/{mcp_id}/{rest...}", mcpGateway.Proxy)
 	// This is a special path for internal MCP composite requests.
 	mux.HandleFunc("/mcp-connect-composite/{mcp_id}", mcpGateway.Proxy)

@@ -1,10 +1,21 @@
 <script lang="ts">
+	import Confirm from '$lib/components/Confirm.svelte';
 	import Layout from '$lib/components/Layout.svelte';
 	import AIAnswer from '$lib/components/ai/AIAnswer.svelte';
 	import { parseErrorContent } from '$lib/errors';
 	import { m } from '$lib/i18n';
-	import { streamChatWithAI, type AIEvent, type AIMessage, type AIStep } from '$lib/services/ai';
+	import {
+		deleteAIConversation,
+		getAIConversation,
+		listAIConversations,
+		streamChatWithAI,
+		type AIConversationSummary,
+		type AIEvent,
+		type AIMessage,
+		type AIStep
+	} from '$lib/services/ai';
 	import { profile } from '$lib/stores';
+	import { formatTimeAgo } from '$lib/time';
 	import {
 		ArrowUp,
 		Check,
@@ -12,10 +23,11 @@
 		LoaderCircle,
 		Plus,
 		Sparkles,
+		Trash2,
 		TriangleAlert,
 		Wrench
 	} from '@lucide/svelte';
-	import { tick, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 
 	// Obot AI. The conversation lives in this tab's session storage so it survives navigating
 	// away and back; the server keeps nothing.
@@ -64,6 +76,7 @@
 	}
 
 	const STORAGE_KEY = 'obot-ai-conversation';
+	const CONVERSATION_KEY = 'obot-ai-conversation-id';
 
 	let isAdmin = $derived(!!profile.current.isAdmin?.());
 	let turns = $state<Turn[]>(untrack(load));
@@ -72,6 +85,76 @@
 	let scroller = $state<HTMLElement>();
 	let live = $state<Live>();
 	let thinkingIndex = $state(0);
+	// The saved conversation on screen, and the caller's other saved conversations.
+	let conversationID = $state<string | undefined>(untrack(loadConversationID));
+	let history = $state<AIConversationSummary[]>([]);
+	let deleting = $state<AIConversationSummary>();
+	let deletingBusy = $state(false);
+
+	function loadConversationID(): string | undefined {
+		try {
+			return sessionStorage.getItem(CONVERSATION_KEY) ?? undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	$effect(() => {
+		const id = conversationID;
+		try {
+			if (id) sessionStorage.setItem(CONVERSATION_KEY, id);
+			else sessionStorage.removeItem(CONVERSATION_KEY);
+		} catch {
+			// Storage is a convenience only.
+		}
+	});
+
+	async function loadHistory() {
+		try {
+			history = await listAIConversations({ dontLogErrors: true });
+		} catch {
+			// The chat works without its history.
+		}
+	}
+
+	onMount(loadHistory);
+
+	function newChat() {
+		turns = [];
+		conversationID = undefined;
+	}
+
+	async function openConversation(id: string) {
+		if (busy || id === conversationID) return;
+		try {
+			const conversation = await getAIConversation(id, { dontLogErrors: true });
+			turns = conversation.messages.map(({ role, content, steps }) => ({ role, content, steps }));
+			conversationID = conversation.id;
+			scrollToEnd();
+		} catch (e) {
+			turns = [
+				{
+					role: 'assistant',
+					content: m.ai_error({ error: parseErrorContent(e).message }),
+					error: true
+				}
+			];
+			conversationID = undefined;
+		}
+	}
+
+	async function removeConversation() {
+		if (!deleting) return;
+		deletingBusy = true;
+		try {
+			await deleteAIConversation(deleting.id, { dontLogErrors: true });
+			if (deleting.id === conversationID) newChat();
+			history = history.filter((c) => c.id !== deleting?.id);
+			deleting = undefined;
+		} finally {
+			deletingBusy = false;
+		}
+	}
 
 	// Rotate the stand-in words while the model works and nothing new is on screen.
 	$effect(() => {
@@ -188,11 +271,13 @@
 		live = { steps: [], text: '' };
 		scrollToEnd();
 		try {
-			const history: AIMessage[] = turns
+			const messages: AIMessage[] = turns
 				.filter((t) => !t.error)
 				.map(({ role, content }) => ({ role, content }));
-			const reply = await streamChatWithAI(history, onEvent);
+			const reply = await streamChatWithAI(messages, onEvent, { conversationID });
 			turns = [...turns, { role: 'assistant', content: reply.reply, steps: reply.steps }];
+			if (reply.conversationID) conversationID = reply.conversationID;
+			loadHistory();
 		} catch (e) {
 			turns = [
 				...turns,
@@ -226,134 +311,185 @@
 </svelte:head>
 
 <Layout title={m.ai_title()} rightNavActions={navActions}>
-	<div class="flex min-h-[calc(100svh-9rem)] flex-col gap-4">
-		<div bind:this={scroller} class="flex flex-1 flex-col gap-4 pb-2" aria-live="polite">
-			{#if turns.length === 0}
-				<div class="mt-8 flex flex-col items-center gap-4 text-center">
-					<Sparkles class="text-primary size-12" />
-					<p class="text-muted-content max-w-xl text-sm">
-						{isAdmin ? m.ai_intro_admin() : m.ai_intro_user()}
-					</p>
-					<div class="flex max-w-2xl flex-wrap justify-center gap-2">
-						{#each suggestions as suggestion (suggestion)}
+	<div class="flex min-h-[calc(100svh-9rem)] gap-6">
+		{#if history.length > 0}
+			<nav
+				class="sticky top-28 hidden max-h-[calc(100svh-8rem)] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto lg:flex"
+				aria-label={m.ai_history()}
+			>
+				<h2 class="text-muted-content px-2 pb-1 text-xs font-semibold uppercase">
+					{m.ai_history()}
+				</h2>
+				<ul class="flex flex-col gap-0.5">
+					{#each history as conversation (conversation.id)}
+						<li
+							class="group flex items-center gap-1 rounded-md {conversation.id === conversationID
+								? 'bg-base-100 dark:bg-base-200 shadow-sm'
+								: 'hover:bg-base-100/60 dark:hover:bg-base-200/60'}"
+						>
 							<button
 								type="button"
-								class="btn btn-secondary rounded-4xl text-left text-sm"
-								onclick={() => send(suggestion)}
+								class="flex min-w-0 flex-1 flex-col items-start px-2 py-1.5 text-left"
+								aria-current={conversation.id === conversationID ? 'true' : undefined}
+								disabled={busy}
+								onclick={() => openConversation(conversation.id)}
 							>
-								{suggestion}
+								<span class="w-full truncate text-sm">{conversation.title}</span>
+								<span class="text-muted-content text-xs">
+									{formatTimeAgo(conversation.updatedAt).relativeTime}
+								</span>
 							</button>
-						{/each}
+							<button
+								type="button"
+								class="text-muted-content hover:text-error p-1.5 opacity-0 group-hover:opacity-100 focus:opacity-100"
+								aria-label={m.ai_delete_chat({ title: conversation.title })}
+								onclick={() => (deleting = conversation)}
+							>
+								<Trash2 class="size-3.5" />
+							</button>
+						</li>
+					{/each}
+				</ul>
+			</nav>
+		{/if}
+		<div class="flex min-w-0 flex-1 flex-col gap-4">
+			<div bind:this={scroller} class="flex flex-1 flex-col gap-4 pb-2" aria-live="polite">
+				{#if turns.length === 0}
+					<div class="mt-8 flex flex-col items-center gap-4 text-center">
+						<Sparkles class="text-primary size-12" />
+						<p class="text-muted-content max-w-xl text-sm">
+							{isAdmin ? m.ai_intro_admin() : m.ai_intro_user()}
+						</p>
+						<div class="flex max-w-2xl flex-wrap justify-center gap-2">
+							{#each suggestions as suggestion (suggestion)}
+								<button
+									type="button"
+									class="btn btn-secondary rounded-4xl text-left text-sm"
+									onclick={() => send(suggestion)}
+								>
+									{suggestion}
+								</button>
+							{/each}
+						</div>
 					</div>
-				</div>
-			{/if}
+				{/if}
 
-			{#each turns as turn, i (i)}
-				{#if turn.role === 'user'}
-					<div class="bg-primary/10 self-end rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap">
-						{turn.content}
-					</div>
-				{:else}
+				{#each turns as turn, i (i)}
+					{#if turn.role === 'user'}
+						<div class="bg-primary/10 self-end rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap">
+							{turn.content}
+						</div>
+					{:else}
+						<article
+							class="dark:bg-base-200 bg-base-100 flex max-w-full flex-col gap-2 self-start rounded-2xl p-4 text-sm shadow-sm {turn.error
+								? 'notification-error'
+								: ''}"
+						>
+							{#if turn.steps?.length}
+								<details class="text-muted-content text-xs">
+									<summary class="flex cursor-pointer items-center gap-1">
+										<Wrench class="size-3" />
+										{m.ai_steps({ count: turn.steps.length })}
+										<ChevronRight class="size-3" />
+									</summary>
+									<ul class="mt-2 flex flex-col gap-1">
+										{#each turn.steps as step, j (j)}
+											<li class="font-mono break-all">
+												{step.tool}{formatArguments(step.arguments)}
+												{#if step.isError}<span class="text-red-500">
+														({m.ai_step_failed()})</span
+													>{/if}
+											</li>
+										{/each}
+									</ul>
+								</details>
+							{/if}
+							{#if turn.error}
+								<p>{turn.content}</p>
+							{:else}
+								<AIAnswer content={turn.content} />
+							{/if}
+						</article>
+					{/if}
+				{/each}
+
+				{#if busy && live}
 					<article
-						class="dark:bg-base-200 bg-base-100 flex max-w-full flex-col gap-2 self-start rounded-2xl p-4 text-sm shadow-sm {turn.error
-							? 'notification-error'
-							: ''}"
+						class="dark:bg-base-200 bg-base-100 flex max-w-full flex-col gap-2 self-start rounded-2xl p-4 text-sm shadow-sm"
+						aria-busy="true"
 					>
-						{#if turn.steps?.length}
-							<details class="text-muted-content text-xs">
-								<summary class="flex cursor-pointer items-center gap-1">
-									<Wrench class="size-3" />
-									{m.ai_steps({ count: turn.steps.length })}
-									<ChevronRight class="size-3" />
-								</summary>
-								<ul class="mt-2 flex flex-col gap-1">
-									{#each turn.steps as step, j (j)}
-										<li class="font-mono break-all">
-											{step.tool}{formatArguments(step.arguments)}
-											{#if step.isError}<span class="text-red-500">
-													({m.ai_step_failed()})</span
-												>{/if}
-										</li>
-									{/each}
-								</ul>
-							</details>
+						{#if live.steps.length}
+							<ul
+								class="text-muted-content flex flex-col gap-1 text-xs"
+								aria-label={m.ai_steps({ count: live.steps.length })}
+							>
+								{#each live.steps as step, j (j)}
+									<li class="flex items-center gap-2">
+										{#if step.state === 'running'}
+											<LoaderCircle class="text-primary size-3.5 animate-spin" />
+										{:else if step.state === 'error'}
+											<TriangleAlert class="size-3.5 text-red-500" />
+										{:else}
+											<Check class="size-3.5 text-success" />
+										{/if}
+										<span>{toolLabel(step.tool)}</span>
+										<span class="sr-only">
+											{step.state === 'running'
+												? m.ai_step_running()
+												: step.state === 'error'
+													? m.ai_step_failed()
+													: m.ai_step_done()}
+										</span>
+									</li>
+								{/each}
+							</ul>
 						{/if}
-						{#if turn.error}
-							<p>{turn.content}</p>
-						{:else}
-							<AIAnswer content={turn.content} />
+						{#if live.text}
+							<AIAnswer content={live.text} />
+						{:else if waiting}
+							<p class="text-muted-content animate-pulse" role="status">
+								{thinkingWords[thinkingIndex]()}
+							</p>
 						{/if}
 					</article>
 				{/if}
-			{/each}
+			</div>
 
-			{#if busy && live}
-				<article
-					class="dark:bg-base-200 bg-base-100 flex max-w-full flex-col gap-2 self-start rounded-2xl p-4 text-sm shadow-sm"
-					aria-busy="true"
-				>
-					{#if live.steps.length}
-						<ul
-							class="text-muted-content flex flex-col gap-1 text-xs"
-							aria-label={m.ai_steps({ count: live.steps.length })}
-						>
-							{#each live.steps as step, j (j)}
-								<li class="flex items-center gap-2">
-									{#if step.state === 'running'}
-										<LoaderCircle class="text-primary size-3.5 animate-spin" />
-									{:else if step.state === 'error'}
-										<TriangleAlert class="size-3.5 text-red-500" />
-									{:else}
-										<Check class="size-3.5 text-success" />
-									{/if}
-									<span>{toolLabel(step.tool)}</span>
-									<span class="sr-only">
-										{step.state === 'running'
-											? m.ai_step_running()
-											: step.state === 'error'
-												? m.ai_step_failed()
-												: m.ai_step_done()}
-									</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-					{#if live.text}
-						<AIAnswer content={live.text} />
-					{:else if waiting}
-						<p class="text-muted-content animate-pulse" role="status">
-							{thinkingWords[thinkingIndex]()}
-						</p>
-					{/if}
-				</article>
-			{/if}
-		</div>
-
-		<form
-			class="dark:bg-base-200 bg-base-100 sticky bottom-4 z-10 mb-4 flex items-end gap-2 rounded-2xl p-2 shadow-md"
-			onsubmit={(e) => {
-				e.preventDefault();
-				send();
-			}}
-		>
-			<textarea
-				class="max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
-				placeholder={m.ai_placeholder()}
-				aria-label={m.ai_placeholder()}
-				rows="1"
-				bind:value={input}
-				onkeydown={onKeydown}></textarea>
-			<button
-				type="submit"
-				class="btn btn-primary size-10 rounded-full p-0"
-				aria-label={m.ai_send()}
-				disabled={busy || !input.trim()}
+			<form
+				class="dark:bg-base-200 bg-base-100 sticky bottom-4 z-10 mb-4 flex items-end gap-2 rounded-2xl p-2 shadow-md"
+				onsubmit={(e) => {
+					e.preventDefault();
+					send();
+				}}
 			>
-				<ArrowUp class="size-4" />
-			</button>
-		</form>
+				<textarea
+					class="max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+					placeholder={m.ai_placeholder()}
+					aria-label={m.ai_placeholder()}
+					rows="1"
+					bind:value={input}
+					onkeydown={onKeydown}></textarea>
+				<button
+					type="submit"
+					class="btn btn-primary size-10 rounded-full p-0"
+					aria-label={m.ai_send()}
+					disabled={busy || !input.trim()}
+				>
+					<ArrowUp class="size-4" />
+				</button>
+			</form>
+		</div>
 	</div>
 </Layout>
+
+<Confirm
+	show={!!deleting}
+	msg={m.ai_delete_chat_confirm({ title: deleting?.title ?? '' })}
+	submitText={m.ai_delete()}
+	loading={deletingBusy}
+	onsuccess={removeConversation}
+	oncancel={() => (deleting = undefined)}
+/>
 
 {#snippet navActions()}
 	{#if turns.length > 0}
@@ -361,7 +497,7 @@
 			type="button"
 			class="btn btn-secondary rounded-4xl text-sm"
 			disabled={busy}
-			onclick={() => (turns = [])}
+			onclick={newChat}
 		>
 			<Plus class="size-4" />
 			{m.ai_new_chat()}

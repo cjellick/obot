@@ -104,6 +104,7 @@ export const handlers = [
 	http.get('/api/product-telemetry-consent', () => HttpResponse.json({})),
 	http.get('/api/users', () => HttpResponse.json({ items: data.listUsersResponse })),
 	http.get('/api/vmcps', () => HttpResponse.json({ items: [] })),
+	http.get('/api/ai/conversations', () => HttpResponse.json({ items: [] })),
 	http.get('/api/mcp-server-request-settings', () =>
 		HttpResponse.json({ slackWebhookConfigured: false, setViaDeployment: false })
 	),

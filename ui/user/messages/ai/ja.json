@@ -53,5 +53,9 @@
 	"ai_widget_approvals_none": "承認待ちの項目はありません。",
 	"ai_widget_approvals_actions": "保留中のエージェント操作",
 	"ai_widget_approvals_requests": "MCP サーバーリクエスト",
-	"ai_widget_approvals_all": "すべての承認を表示"
+	"ai_widget_approvals_all": "すべての承認を表示",
+	"ai_history": "チャット",
+	"ai_delete_chat": "チャット {title} を削除",
+	"ai_delete_chat_confirm": "チャット「{title}」を削除しますか？元に戻せません。",
+	"ai_delete": "削除"
 }

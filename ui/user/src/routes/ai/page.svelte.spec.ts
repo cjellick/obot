@@ -138,4 +138,78 @@ describe('Obot AI', () => {
 		await expect.element(page.getByText(/Obot AI couldn't answer/)).toBeInTheDocument();
 		await expect.element(page.getByText('hello', { exact: true })).toBeInTheDocument();
 	});
+
+	describe('saved chats', () => {
+		const saved = {
+			id: 'aic-1',
+			title: 'Where is our spend going?',
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString()
+		};
+
+		it('continues the saved conversation on follow-ups', async () => {
+			const asked = vi.fn();
+			worker.use(
+				http.post('/api/ai/chat', async ({ request }) => {
+					const body = (await request.json()) as { conversationID?: string };
+					asked(body.conversationID);
+					return HttpResponse.json({ reply: 'ok', steps: [], conversationID: 'aic-new' });
+				})
+			);
+			await renderPage();
+
+			const box = page.getByRole('textbox', { name: 'Ask Obot AI…' });
+			await box.fill('first');
+			await page.getByRole('button', { name: 'Send' }).click();
+			await vi.waitFor(() => expect(asked).toHaveBeenCalledTimes(1));
+			expect(asked).toHaveBeenNthCalledWith(1, undefined);
+
+			await box.fill('second');
+			await page.getByRole('button', { name: 'Send' }).click();
+			await vi.waitFor(() => expect(asked).toHaveBeenNthCalledWith(2, 'aic-new'));
+		});
+
+		it('lists past chats and opens one', async () => {
+			worker.use(
+				http.get('/api/ai/conversations', () => HttpResponse.json({ items: [saved] })),
+				http.get('/api/ai/conversations/aic-1', () =>
+					HttpResponse.json({
+						...saved,
+						messages: [
+							{ role: 'user', content: 'Where is our spend going?' },
+							{
+								role: 'assistant',
+								content: 'Mostly **gpt-5.4**.',
+								steps: [{ tool: 'llm_usage' }]
+							}
+						]
+					})
+				)
+			);
+			await renderPage();
+
+			const chats = page.getByRole('navigation', { name: 'Chats' });
+			await chats.getByRole('button', { name: /^Where is our spend going\?/ }).click();
+			await expect.element(page.getByText('gpt-5.4', { exact: true })).toBeInTheDocument();
+			await expect.element(page.getByText('Used 1 tools')).toBeInTheDocument();
+		});
+
+		it('deletes a chat after confirming', async () => {
+			const deleted = vi.fn();
+			worker.use(
+				http.get('/api/ai/conversations', () => HttpResponse.json({ items: [saved] })),
+				http.delete('/api/ai/conversations/aic-1', () => {
+					deleted();
+					return new HttpResponse(null, { status: 204 });
+				})
+			);
+			await renderPage();
+
+			await page.getByRole('button', { name: 'Delete chat Where is our spend going?' }).click();
+			expect(deleted).not.toHaveBeenCalled();
+			await page.getByRole('button', { name: 'Delete', exact: true }).click();
+			await vi.waitFor(() => expect(deleted).toHaveBeenCalled());
+			await expect.element(page.getByRole('navigation', { name: 'Chats' })).not.toBeInTheDocument();
+		});
+	});
 });

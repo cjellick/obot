@@ -53,5 +53,9 @@
 	"ai_widget_approvals_none": "승인을 기다리는 항목이 없습니다.",
 	"ai_widget_approvals_actions": "보류된 에이전트 작업",
 	"ai_widget_approvals_requests": "MCP 서버 요청",
-	"ai_widget_approvals_all": "모든 승인 보기"
+	"ai_widget_approvals_all": "모든 승인 보기",
+	"ai_history": "채팅",
+	"ai_delete_chat": "채팅 {title} 삭제",
+	"ai_delete_chat_confirm": "채팅 “{title}”을(를) 삭제할까요? 되돌릴 수 없습니다.",
+	"ai_delete": "삭제"
 }

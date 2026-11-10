@@ -1,4 +1,4 @@
-import { baseURL, doPost } from './http';
+import { baseURL, doDelete, doGet, doPost } from './http';
 
 // Obot AI: a chat that answers questions about Obot and acts with the signed-in user's
 // permissions, using the tools of Obot's built-in MCP servers.
@@ -19,6 +19,8 @@ export interface AIReply {
 	reply: string;
 	model?: string;
 	steps: AIStep[];
+	/** The saved conversation the answer was added to. */
+	conversationID?: string;
 }
 
 /** A server-sent event of a streamed answer. */
@@ -27,7 +29,7 @@ export type AIEvent =
 	| { type: 'tool_start'; tool: string; arguments?: Record<string, unknown> }
 	| { type: 'tool_end'; tool: string; isError?: boolean }
 	| { type: 'delta'; text: string }
-	| { type: 'done'; reply: string; model?: string; steps?: AIStep[] }
+	| { type: 'done'; reply: string; model?: string; steps?: AIStep[]; conversationID?: string }
 	| { type: 'error'; message: string };
 
 export async function chatWithAI(messages: AIMessage[]): Promise<AIReply> {
@@ -42,13 +44,14 @@ export async function chatWithAI(messages: AIMessage[]): Promise<AIReply> {
 export async function streamChatWithAI(
 	messages: AIMessage[],
 	onEvent: (event: AIEvent) => void,
-	signal?: AbortSignal
+	opts: { conversationID?: string; signal?: AbortSignal } = {}
 ): Promise<AIReply> {
+	const { conversationID, signal } = opts;
 	const response = await fetch(`${baseURL}/ai/chat`, {
 		method: 'POST',
 		credentials: 'same-origin',
 		headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-		body: JSON.stringify({ messages }),
+		body: JSON.stringify({ messages, conversationID }),
 		signal
 	});
 	if (!response.ok) {
@@ -64,7 +67,12 @@ export async function streamChatWithAI(
 	let failure: string | undefined;
 	const handle = (event: AIEvent) => {
 		if (event.type === 'done') {
-			result = { reply: event.reply ?? '', model: event.model, steps: event.steps ?? [] };
+			result = {
+				reply: event.reply ?? '',
+				model: event.model,
+				steps: event.steps ?? [],
+				conversationID: event.conversationID
+			};
 		} else if (event.type === 'error') {
 			failure = event.message;
 		}
@@ -101,6 +109,36 @@ export async function streamChatWithAI(
 	if (failure) throw new Error(failure);
 	if (!result) throw new Error('the answer ended early');
 	return result;
+}
+
+/** A saved conversation, without its messages. */
+export interface AIConversationSummary {
+	id: string;
+	title: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface AIConversation extends AIConversationSummary {
+	messages: (AIMessage & { steps?: AIStep[] })[];
+}
+
+type Opts = { dontLogErrors?: boolean };
+
+export async function listAIConversations(opts?: Opts): Promise<AIConversationSummary[]> {
+	const resp = (await doGet('/ai/conversations', opts)) as {
+		items?: AIConversationSummary[] | null;
+	};
+	return resp.items ?? [];
+}
+
+export async function getAIConversation(id: string, opts?: Opts): Promise<AIConversation> {
+	const resp = (await doGet(`/ai/conversations/${encodeURIComponent(id)}`, opts)) as AIConversation;
+	return { ...resp, messages: resp.messages ?? [] };
+}
+
+export async function deleteAIConversation(id: string, opts?: Opts): Promise<void> {
+	await doDelete(`/ai/conversations/${encodeURIComponent(id)}`, opts);
 }
 
 /**

@@ -62,3 +62,29 @@ func (f *fakeStreamingModel) ChatTurnStream(_ context.Context, _ string, _ []sch
 	onText("hi")
 	return &schemas.ChatMessage{}, "streaming", nil
 }
+
+func TestConversationTitle(t *testing.T) {
+	tests := []struct {
+		name     string
+		question string
+		want     string
+	}{
+		{
+			name:     "first line",
+			question: "  What needs my approval?\nAnd why?",
+			want:     "What needs my approval?",
+		},
+		{
+			name:     "shortened",
+			question: strings.Repeat("a", 100),
+			want:     strings.Repeat("a", 79) + "…",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := conversationTitle(tt.question); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
