@@ -249,6 +249,7 @@ export async function listTunnelConnections(opts?: {
 export async function listMCPs(opts?: {
 	fetch?: Fetcher;
 	minimal?: boolean;
+	dontLogErrors?: boolean;
 }): Promise<MCPCatalogEntry[]> {
 	const response = (await doGet(
 		`/all-mcps/entries${opts?.minimal ? '?minimal=true' : ''}`,
@@ -411,7 +412,7 @@ export async function listAuditLogFilterOptions(
 
 export async function listMcpAuditLogUsageStats(
 	filters?: Partial<McpAuditLogUsageFilters>,
-	opts?: { fetch?: Fetcher }
+	opts?: { fetch?: Fetcher; dontLogErrors?: boolean }
 ) {
 	const queryString = buildQueryString(filters ?? {});
 	const response = (await doGet(
@@ -833,6 +834,7 @@ export async function resolveGroups(
 export async function listUsers(opts?: {
 	fetch?: Fetcher;
 	signal?: AbortSignal;
+	dontLogErrors?: boolean;
 }): Promise<OrgUser[]> {
 	const response = (await doGet('/users', opts)) as ItemsResponse<OrgUser>;
 	return response.items ?? [];
@@ -1547,7 +1549,10 @@ export async function downloadSkill(
 
 // Claude
 
-export async function getClaudeConfig(opts?: { fetch?: Fetcher }): Promise<ClaudeConfig> {
+export async function getClaudeConfig(opts?: {
+	fetch?: Fetcher;
+	dontLogErrors?: boolean;
+}): Promise<ClaudeConfig> {
 	return (await doGet('/claude-environments', opts)) as ClaudeConfig;
 }
 

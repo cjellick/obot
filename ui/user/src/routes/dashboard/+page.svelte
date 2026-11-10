@@ -1,830 +1,713 @@
 <script lang="ts">
 	import Layout from '$lib/components/Layout.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
-	import TweenedMetric from '$lib/components/TweenedMetric.svelte';
-	import DeviceScanDonutCard from '$lib/components/admin/device-scan/DeviceScanDonutCard.svelte';
-	import DeviceScanTimelineCard from '$lib/components/admin/device-scan/DeviceScanTimelineCard.svelte';
-	import { buildDeviceScanTopBuckets } from '$lib/components/admin/device-scan/deviceScanTopBuckets';
-	import TokenUsageTimelineCard from '$lib/components/admin/token-usage/TokenUsageTimelineCard.svelte';
 	import { formatTokenUsageUSD } from '$lib/components/admin/token-usage/tokenUsageTimeline';
-	import DonutGraph from '$lib/components/graph/DonutGraph.svelte';
-	import GraphTitle from '$lib/components/graph/GraphTitle.svelte';
-	import HorizontalBarList from '$lib/components/graph/HorizontalBarList.svelte';
-	import { DEFAULT_MCP_CATALOG_ID } from '$lib/constants';
 	import { formatNumber } from '$lib/format';
 	import { m } from '$lib/i18n';
-	import Loading from '$lib/icons/Loading.svelte';
-	import { stripMarkdownToText } from '$lib/markdown';
-	import {
-		AdminService,
-		UserService,
-		type DeviceClientStat,
-		type DeviceMCPServerStat,
-		type DeviceScanStats,
-		type DeviceSkillStat,
-		type MCPCatalogEntry,
-		type MCPCatalogServer,
-		type OrgUser,
-		type TotalTokenUsage
-	} from '$lib/services';
-	import { entryTypeDonutLegend } from '$lib/services/dashboard/constants';
-	import type {
-		AvgToolCallResponseTimeRow,
-		TopServerUsageRow,
-		TopToolCallRow
-	} from '$lib/services/dashboard/types';
-	import {
-		avgToolCallResponseTimeFromStats,
-		compileServerAndEntries,
-		deploymentStatusGridColClass,
-		deploymentStatusGridShowBorderRight,
-		topServersFromStats,
-		topToolCallsFromStats
-	} from '$lib/services/dashboard/utils';
-	import { getMCPDisplayName } from '$lib/services/user/mcp';
-	import { errors, mcpServersAndEntries, profile, version } from '$lib/stores';
+	import { profile, version } from '$lib/stores';
 	import { resolve } from '$lib/url';
+	import DashboardTrends from './DashboardTrends.svelte';
+	import HubCard from './HubCard.svelte';
+	import HubStat from './HubStat.svelte';
+	import SegmentBar from './SegmentBar.svelte';
+	import Sparkline from './Sparkline.svelte';
+	import { HubLoad, combinedStatus, type LoadStatus } from './hub.svelte';
 	import {
-		Activity,
-		ChevronRight,
-		CircleDollarSign,
-		Coins,
+		HIGH_RISK,
+		loadBriefing,
+		loadClaude,
+		loadDevices,
+		loadInfrastructure,
+		loadLLM,
+		loadMCPInventory,
+		loadMCPUsage,
+		loadServerRequests,
+		loadSkills,
+		loadSupervisor,
+		loadUsers
+	} from './loaders';
+	import {
+		Boxes,
+		BrainCircuit,
 		Laptop,
-		MonitorCheck,
 		PencilRuler,
+		Plug,
 		Server,
-		Siren,
-		Users,
-		Wrench
+		Settings2,
+		ShieldCheck,
+		Sparkles,
+		SquareTerminal,
+		Users
 	} from '@lucide/svelte';
-	import { isWithinInterval, subMonths } from 'date-fns';
 	import { onMount } from 'svelte';
-	import { fade, fly } from 'svelte/transition';
-	import { twMerge } from 'tailwind-merge';
 
-	let { data } = $props();
-	let hasDeviceScans = $derived(data?.hasDeviceScans ?? false);
-	let loading = $state(true);
-	let loadingToolUsage = $state(true);
-	let loadingDeviceScanStats = $state(true);
+	// The Dashboard is the hub: a headline band for the last 7 days, one card per area of Obot
+	// with its live numbers and anything needing attention, then the 30-day charts. Every card
+	// loads on its own; cards for areas the viewer can't use stay hidden.
 
-	let usersData = $state<OrgUser[]>([]);
-	let totalTokensData = $state<TotalTokenUsage>();
+	const hasAdminAccess = !!profile.current.hasAdminAccess?.();
+	const isAdmin = !!profile.current.isAdmin?.();
+	const claudeAvailable =
+		version.current.engine === 'docker' ||
+		(version.current.engine === 'kubernetes' && !!version.current.claudeEnvironmentsEnabled);
 
-	const doesSupportK8sUpdates = $derived(version.current.engine === 'kubernetes');
+	const supervisor = new HubLoad(loadSupervisor, hasAdminAccess);
+	const briefing = new HubLoad(loadBriefing, hasAdminAccess);
+	const requests = new HubLoad(loadServerRequests);
+	const llm = new HubLoad(loadLLM, hasAdminAccess);
+	const mcpUsage = new HubLoad(loadMCPUsage);
+	const mcpInventory = new HubLoad(() => loadMCPInventory(hasAdminAccess));
+	const skills = new HubLoad(() => loadSkills(hasAdminAccess));
+	const claude = new HubLoad(() => loadClaude(hasAdminAccess), claudeAvailable);
+	const infra = new HubLoad(loadInfrastructure, isAdmin);
+	const devices = new HubLoad(loadDevices, hasAdminAccess);
+	const users = new HubLoad(loadUsers);
 
-	let topToolCalls = $state<TopToolCallRow[]>([]);
-	let topServerUsage = $state<TopServerUsageRow[]>([]);
-	let avgToolCallResponseTime = $state<AvgToolCallResponseTimeRow[]>([]);
-	let deviceScanStats = $state<DeviceScanStats | null>(null);
-	let maxToolsToShow = $derived(hasDeviceScans ? 3 : 5);
-	let maxServersToShow = $derived(hasDeviceScans ? 10 : 12);
-
-	const end = new Date();
-	const start = subMonths(end, 1);
-
-	let monthlyActiveUsers = $derived(
-		usersData.filter(
-			(user) => user.lastActiveDay && isWithinInterval(new Date(user.lastActiveDay), { start, end })
-		).length
-	);
-
-	let deployedCatalogEntryServers = $state<MCPCatalogServer[]>([]);
-	let deployedWorkspaceCatalogEntryServers = $state<MCPCatalogServer[]>([]);
-	let serversData = $derived.by(() => {
-		if (mcpServersAndEntries.current.loading || loading) return [];
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const seen = new Set<string>();
-		const result: MCPCatalogServer[] = [];
-		for (const list of [
-			deployedCatalogEntryServers,
-			deployedWorkspaceCatalogEntryServers,
-			mcpServersAndEntries.current.servers
+	onMount(() => {
+		for (const l of [
+			supervisor,
+			briefing,
+			requests,
+			llm,
+			mcpUsage,
+			mcpInventory,
+			skills,
+			claude,
+			infra,
+			devices,
+			users
 		]) {
-			for (const server of list) {
-				if (server.deleted || seen.has(server.id)) continue;
-				seen.add(server.id);
-				result.push(server);
+			void l.load();
+		}
+	});
+
+	const briefingHref = $derived(
+		`/ai?ask=${encodeURIComponent(m.dashboard_hub_briefing_question())}`
+	);
+
+	const percent = (n: number) => `${Math.round(n)}%`;
+
+	interface Headline {
+		id: string;
+		label: string;
+		status: LoadStatus;
+		value?: number;
+		format?: (n: number) => string;
+		hint?: string;
+		hintTone?: 'error';
+		href: string;
+	}
+
+	const headlines = $derived<Headline[]>(
+		[
+			{
+				id: 'spend',
+				label: m.dashboard_hub_llm_spend(),
+				status: llm.status,
+				value: llm.data?.spend,
+				format: formatTokenUsageUSD,
+				href: '/usage?view=llm'
+			},
+			{
+				id: 'requests',
+				label: m.dashboard_hub_llm_requests(),
+				status: llm.status,
+				value: llm.data?.requests,
+				format: (n: number) => formatNumber(Math.round(n)),
+				href: '/usage?view=llm'
+			},
+			{
+				id: 'active-users',
+				label: m.dashboard_hub_active_users(),
+				status: users.status,
+				value: users.data?.active,
+				hint: users.data ? m.dashboard_hub_of_total_users({ count: users.data.users }) : undefined,
+				href: '/identity-access?view=users'
+			},
+			{
+				id: 'tool-calls',
+				label: m.dashboard_hub_mcp_tool_calls(),
+				status: mcpUsage.status,
+				value: mcpUsage.data?.toolCalls,
+				format: (n: number) => formatNumber(Math.round(n)),
+				href: '/usage?view=mcp'
+			},
+			{
+				id: 'sessions',
+				label: m.dashboard_hub_agent_sessions(),
+				status: supervisor.status,
+				value: supervisor.data?.sessions,
+				hint:
+					supervisor.data?.highRisk !== undefined
+						? m.dashboard_hub_high_risk_count({ count: supervisor.data.highRisk })
+						: undefined,
+				hintTone: supervisor.data?.highRisk ? 'error' : undefined,
+				href: '/sessions?range=7d'
 			}
+		].filter((h) => h.status !== 'off' && h.status !== 'hidden') as Headline[]
+	);
+
+	// Attention lines, worst first.
+
+	const supervisorAttention = $derived.by(() => {
+		const d = supervisor.data;
+		if (!d) return undefined;
+		if (d.pendingApprovals) {
+			return {
+				text: m.dashboard_hub_approvals_waiting({ count: d.pendingApprovals }),
+				href: '/approvals',
+				tone: 'error' as const
+			};
 		}
-		return result;
+		if (d.highRisk) {
+			return {
+				text: m.dashboard_hub_high_risk_sessions_week({ count: d.highRisk }),
+				href: `/sessions?range=7d&min_risk=${HIGH_RISK}`,
+				tone: 'warning' as const
+			};
+		}
+		if (d.shadowed) {
+			return {
+				text: m.dashboard_hub_shadow_hits_review({ count: d.shadowed }),
+				href: '/policies',
+				tone: 'warning' as const
+			};
+		}
+		return undefined;
 	});
 
-	const serverAndEntries = $derived(mcpServersAndEntries.current);
-	const { graphData, popularServers, totalServers, deploymentStatusBreakdown } = $derived(
-		compileServerAndEntries(serversData, serverAndEntries.entries, doesSupportK8sUpdates)
+	const requestsAttention = $derived(
+		requests.data?.pending
+			? {
+					text: m.dashboard_hub_requests_waiting({ count: requests.data.pending }),
+					href: '/mcp-server-requests',
+					tone: 'warning' as const
+				}
+			: undefined
 	);
 
-	let isBootStrapUser = $derived(profile.current.isBootstrapUser?.() ?? false);
+	const llmAttention = $derived(
+		llm.data?.successRate !== undefined && llm.data.successRate < 0.95
+			? {
+					text: m.dashboard_hub_llm_failures({
+						percent: percent((1 - llm.data.successRate) * 100)
+					}),
+					href: '/audit-logs?view=llm',
+					tone: 'warning' as const
+				}
+			: undefined
+	);
 
-	onMount(async () => {
-		UserService.listMcpAuditLogUsageStats({
-			start_time: start.toISOString(),
-			end_time: end.toISOString()
-		})
-			.then((stats) => {
-				const statsToUse = (stats.items ?? []).filter(
-					(s) =>
-						!s.mcpID.startsWith('sms1') &&
-						!s.mcpServerDisplayName.startsWith('nba1') &&
-						!s.mcpServerDisplayName.startsWith('Obot ')
-				);
-				const adjustedStats = {
-					...stats,
-					items: statsToUse
-				};
-				topToolCalls = topToolCallsFromStats(adjustedStats);
-				topServerUsage = topServersFromStats(adjustedStats);
-				avgToolCallResponseTime = avgToolCallResponseTimeFromStats(adjustedStats);
-			})
-			.catch((error) => {
-				if (error?.name === 'AbortError') return;
-				errors.append(error);
-			})
-			.finally(() => {
-				loadingToolUsage = false;
-			});
+	const skillsAttention = $derived(
+		skills.data?.invalid
+			? {
+					text: m.dashboard_hub_skills_invalid({ count: skills.data.invalid }),
+					href: '/skills',
+					tone: 'warning' as const
+				}
+			: undefined
+	);
 
-		if (profile.current.hasAdminAccess?.()) {
-			AdminService.getDeviceScanStats({ start: start.toISOString(), end: end.toISOString() })
-				.then((stats) => {
-					deviceScanStats = stats;
-				})
-				.catch((error) => {
-					if (error?.name === 'AbortError') return;
-					errors.append(error);
-				})
-				.finally(() => {
-					loadingDeviceScanStats = false;
-				});
+	const claudeAttention = $derived(
+		claude.data?.blockedEgress
+			? {
+					text: m.dashboard_hub_egress_blocked({ count: claude.data.blockedEgress }),
+					href: '/audit-logs?view=egress&outcome=denied',
+					tone: 'warning' as const
+				}
+			: undefined
+	);
+
+	const infraAttention = $derived(
+		infra.data?.firstProblem
+			? {
+					text: `${infra.data.firstProblem.name}: ${infra.data.firstProblem.message}`,
+					href: '/infrastructure',
+					tone: (infra.data.errors > 0 ? 'error' : 'warning') as 'error' | 'warning'
+				}
+			: undefined
+	);
+
+	const platformAttention = $derived.by(() => {
+		const v = version.current;
+		if ((v.licenseEntitlementViolations?.length ?? 0) > 0) {
+			return {
+				text: m.dashboard_hub_license_issue(),
+				href: '/admin/platform?view=license',
+				tone: 'error' as const
+			};
 		}
-
-		if (profile.current.hasAdminAccess?.()) {
-			const [users, tokens, catalogServers, workspaceServers] = await Promise.all([
-				UserService.listUsersIncludeDeleted(),
-				AdminService.listTotalTokenUsage({ start, end }),
-				AdminService.listAllCatalogDeployedSingleRemoteServers(DEFAULT_MCP_CATALOG_ID),
-				AdminService.listAllWorkspaceDeployedSingleRemoteServers()
-			]);
-
-			usersData = users;
-			totalTokensData = tokens;
-			deployedCatalogEntryServers = catalogServers;
-			deployedWorkspaceCatalogEntryServers = workspaceServers;
+		if (v.upgradeAvailable && v.latestVersion) {
+			return {
+				text: m.dashboard_hub_upgrade_available({ version: v.latestVersion }),
+				href: '/admin/platform',
+				tone: 'warning' as const
+			};
 		}
-		loading = false;
+		return undefined;
 	});
 
-	const deploymentStatusLabels: Record<string, () => string> = {
-		Available: m.dashboard_status_available,
-		Progressing: m.dashboard_status_progressing,
-		Unavailable: m.dashboard_status_unavailable,
-		'Needs Attention': m.dashboard_status_needs_attention,
-		Shutdown: m.dashboard_status_shutdown,
-		Unknown: m.core_unknown,
-		Pending: m.core_status_pending
-	};
-
-	function deploymentStatusLabel(status: string) {
-		return deploymentStatusLabels[status]?.() ?? status;
-	}
-
-	function getServerUrl(server: MCPCatalogServer) {
-		return `/mcp-servers/s/${server.id}?view=server-instances`;
-	}
-
-	function getEntryUrl(entry: MCPCatalogEntry) {
-		return `/mcp-servers/c/${entry.id}?view=server-instances`;
-	}
-
-	const platformStatTiles = $derived([
-		{
-			id: 'total-users',
-			label: m.dashboard_total_users(),
-			loading,
-			value: usersData.length,
-			icon: Users,
-			seeMore: '/identity-access?view=users'
-		},
-		{
-			id: 'monthly-active-users',
-			label: m.dashboard_monthly_active_users(),
-			loading,
-			value: monthlyActiveUsers,
-			icon: Activity,
-			seeMore: '/identity-access?view=users'
-		},
-		{
-			id: 'total-tokens',
-			label: m.dashboard_total_tokens(),
-			loading,
-			value: totalTokensData?.totalTokens ?? 0,
-			icon: Coins,
-			seeMore: '/usage?view=llm'
-		},
-		{
-			id: 'total-spend',
-			label: m.dashboard_total_spend(),
-			loading,
-			value: totalTokensData?.totalSpend ?? 0,
-			icon: CircleDollarSign,
-			seeMore: '/usage?view=llm'
-		}
+	const suggestions = $derived([
+		m.dashboard_hub_ai_suggestion_risk(),
+		m.dashboard_hub_ai_suggestion_spend(),
+		m.dashboard_hub_ai_suggestion_new_servers()
 	]);
-
-	let deviceScanClientBuckets = $derived(
-		buildDeviceScanTopBuckets<DeviceClientStat>(
-			deviceScanStats?.clients,
-			(c) => c.name,
-			(c) => c.name,
-			(c) => c.deviceCount
-		)
-	);
-	let deviceScanMcpBuckets = $derived(
-		buildDeviceScanTopBuckets<DeviceMCPServerStat>(
-			deviceScanStats?.mcpServers,
-			(s) => s.configHash,
-			(s) => s.name?.trim() || m.dashboard_unnamed(),
-			(s) => s.deviceCount,
-			'mcp'
-		)
-	);
-	let deviceScanSkillBuckets = $derived(
-		buildDeviceScanTopBuckets<DeviceSkillStat>(
-			deviceScanStats?.skills,
-			(s) => s.name,
-			(s) => s.name,
-			(s) => s.deviceCount,
-			'skill'
-		)
-	);
-	let totalDeviceScanClientGroups = $derived(deviceScanStats?.clients?.length ?? 0);
-	let totalDeviceScanMcpGroups = $derived(deviceScanStats?.mcpServers?.length ?? 0);
-	let totalDeviceScanSkillGroups = $derived(deviceScanStats?.skills?.length ?? 0);
-
-	type DeviceScanTimelineRow = { scanned_at: string; category: 'scans' };
-	let deviceScanTimelineRows = $derived<DeviceScanTimelineRow[]>(
-		(deviceScanStats?.scanTimestamps ?? []).map((ts) => ({
-			scanned_at: ts,
-			category: 'scans' as const
-		}))
-	);
-	let totalDeviceScanSubmissions = $derived(deviceScanStats?.scanTimestamps?.length ?? 0);
-
-	let deviceScanTiles = $derived([
-		{
-			id: 'device-overview',
-			label: m.dashboard_unique_devices(),
-			loading: loadingDeviceScanStats,
-			value: deviceScanStats?.deviceCount ?? 0,
-			icon: Laptop,
-			seeMore: '/inventory?view=devices'
-		},
-		{
-			id: 'device-clients',
-			label: m.dashboard_unique_clients(),
-			loading: loadingDeviceScanStats,
-			value: deviceScanStats?.clients?.length ?? 0,
-			icon: MonitorCheck,
-			seeMore: '/inventory?view=device-clients'
-		},
-		{
-			id: 'device-mcps',
-			label: m.dashboard_unique_mcps(),
-			loading: loadingDeviceScanStats,
-			value: deviceScanStats?.mcpServers?.length ?? 0,
-			icon: Server,
-			seeMore: '/inventory?view=device-mcp-servers'
-		},
-		{
-			id: 'device-skills',
-			label: m.dashboard_unique_skills(),
-			loading: loadingDeviceScanStats,
-			value: deviceScanStats?.skills?.length ?? 0,
-			icon: PencilRuler,
-			seeMore: '/inventory?view=device-skills'
-		}
-	]);
-
-	const graphContainerClasses = 'px-6 py-4 flex flex-col gap-4 h-full';
 </script>
-
-<Layout title={m.nav_dashboard()} classes={{ childrenContainer: 'max-w-none', container: '' }}>
-	<div class="@container grid min-w-0 w-full max-w-full grid-cols-12 gap-4">
-		{#if profile.current.hasAdminAccess?.()}
-			<div class="col-span-12 grid grid-cols-12 gap-4">
-				<div
-					class={twMerge(
-						'paper flex min-w-0 flex-col gap-0 p-0 h-full',
-						hasDeviceScans ? ' col-span-12 @3xl:col-span-5' : 'col-span-12'
-					)}
-				>
-					{#if hasDeviceScans}
-						<div class="shrink-0 border-b border-base-300 px-4 py-2">
-							<h4 class="flex items-center font-medium text-xs uppercase">
-								{m.dashboard_on_platform()}
-							</h4>
-						</div>
-					{/if}
-					<div class="@container min-w-0 w-full max-w-full">
-						<div class="grid w-full grid-cols-2 gap-0 @md:grid-cols-12">
-							{#each platformStatTiles as platformStat (platformStat.id)}
-								{@render platformStatCell(platformStat)}
-							{/each}
-						</div>
-					</div>
-				</div>
-				{#if hasDeviceScans}
-					<div
-						class="gap-0 paper min-w-0 p-0 col-span-12 @3xl:col-span-7 h-full"
-						in:fly={{ x: 100, duration: 150 }}
-					>
-						<div class="col-span-12 border-b border-base-300 px-4 py-2">
-							<h4 class="flex items-center font-medium text-xs uppercase">
-								{m.dashboard_device_scans()}
-							</h4>
-						</div>
-						<div class="@container min-w-0 w-full max-w-full">
-							<div class="grid w-full grid-cols-2 gap-0 @md:grid-cols-12 @3xl:grid-cols-4">
-								{#each deviceScanTiles as deviceScanStat (deviceScanStat.id)}
-									{@render deviceScanStatCell(deviceScanStat)}
-								{/each}
-							</div>
-						</div>
-					</div>
-				{/if}
-			</div>
-		{/if}
-
-		{#if profile.current.hasAdminAccess?.()}
-			{#if hasDeviceScans}
-				<div class="col-span-12 grid grid-cols-1 items-stretch gap-4 @3xl:grid-cols-2">
-					{@render serverActivityGraph()}
-					{#if loadingDeviceScanStats}
-						<Skeleton type="card" class="min-h-72 h-full w-full" />
-					{:else}
-						<div class="min-h-0 h-full" in:fly={{ x: 100, duration: 150 }}>
-							<DeviceScanDonutCard
-								title={m.dashboard_top_device_skills()}
-								buckets={deviceScanSkillBuckets}
-								totalGroups={totalDeviceScanSkillGroups}
-								emptyMsg={m.dashboard_no_skills_observed()}
-								class="h-full"
-								classes={{ graphContainer: '@md:w-1/2', graph: 'h-56 w-full' }}
-							/>
-						</div>
-					{/if}
-				</div>
-
-				<div class="col-span-12 grid grid-cols-1 items-stretch gap-4 @3xl:grid-cols-3">
-					{@render topServerDeploymentList()}
-					{#if loadingDeviceScanStats}
-						<Skeleton type="card" class="min-h-72 h-full w-full" />
-						<Skeleton type="card" class="min-h-72 h-full w-full" />
-					{:else}
-						<div class="min-h-0 h-full" in:fly={{ x: 100, duration: 150 }}>
-							<DeviceScanDonutCard
-								legendOnBottom
-								title={m.dashboard_device_clients()}
-								buckets={deviceScanClientBuckets}
-								totalGroups={totalDeviceScanClientGroups}
-								emptyMsg={m.dashboard_no_clients_observed()}
-								class="h-full"
-							/>
-						</div>
-						<div class="min-h-0 h-full" in:fly={{ x: 100, duration: 150 }}>
-							<DeviceScanDonutCard
-								legendOnBottom
-								title={m.dashboard_top_device_mcp_servers()}
-								buckets={deviceScanMcpBuckets}
-								totalGroups={totalDeviceScanMcpGroups}
-								emptyMsg={m.dashboard_no_mcp_servers_observed()}
-								class="h-full"
-							/>
-						</div>
-					{/if}
-				</div>
-
-				<div class="col-span-12 grid grid-cols-1 items-stretch gap-4 @3xl:grid-cols-2">
-					{@render toolUsageGraph()}
-					{#if loadingDeviceScanStats}
-						<Skeleton type="card" class="min-h-80 h-full w-full" />
-					{:else}
-						<div class="min-h-0 h-full" in:fly={{ x: 100, duration: 150 }}>
-							<DeviceScanTimelineCard
-								rangeStart={start}
-								rangeEnd={end}
-								timelineRows={deviceScanTimelineRows}
-								totalSubmissions={totalDeviceScanSubmissions}
-							/>
-						</div>
-					{/if}
-				</div>
-
-				<div class="col-span-12">
-					<TokenUsageTimelineCard startDate={start} endDate={end} />
-				</div>
-
-				<div class="col-span-12 grid grid-cols-1 items-stretch gap-4 @3xl:grid-cols-2">
-					{@render popularTools()}
-					{@render toolAverageResponseTime()}
-				</div>
-			{:else}
-				<div class="col-span-12">
-					<TokenUsageTimelineCard startDate={start} endDate={end} />
-				</div>
-				<div class="col-span-12 grid grid-cols-1 items-stretch gap-4 @3xl:grid-cols-2">
-					{@render toolUsageGraph()}
-					{@render serverActivityGraph()}
-				</div>
-				<div class="col-span-12 grid grid-cols-1 items-stretch gap-4 @3xl:grid-cols-3">
-					{@render popularTools()}
-					{@render toolAverageResponseTime()}
-					{@render topServerDeploymentList()}
-				</div>
-			{/if}
-		{:else}
-			<div class="col-span-12 grid grid-cols-1 items-stretch gap-4">
-				{@render toolUsageGraph()}
-			</div>
-			<div class="col-span-12 grid grid-cols-1 items-stretch gap-4 @3xl:grid-cols-2">
-				{@render popularTools()}
-				{@render toolAverageResponseTime()}
-			</div>
-		{/if}
-	</div>
-</Layout>
-
-{#snippet toolUsageGraph()}
-	{#if loadingToolUsage}
-		<Skeleton type="card" class="min-h-72 h-full w-full" />
-	{:else}
-		<div in:fade={{ duration: 150 }} class="paper h-full min-h-72 gap-0 w-full p-0">
-			<GraphTitle
-				title={m.dashboard_top_servers_used()}
-				description={m.dashboard_last_30_days()}
-				element="h4"
-			/>
-			<div class="p-4">
-				<HorizontalBarList
-					data={topServerUsage.slice(0, maxServersToShow)}
-					labelKey="serverName"
-					valueKey="count"
-					formatValue={(value) => Math.round(value).toString()}
-				>
-					{#snippet tooltipContent(item)}
-						<div class="flex flex-col gap-0 text-xs">
-							<div class="text-muted-content text-xs">{item.label}</div>
-						</div>
-						<div class="text-base-content font-semibold">
-							{m.dashboard_calls_count({ count: item.value })}
-						</div>
-					{/snippet}
-				</HorizontalBarList>
-			</div>
-		</div>
-	{/if}
-{/snippet}
-
-{#snippet serverActivityGraph()}
-	{#if serverAndEntries.loading || loading}
-		<Skeleton type="card" class="min-h-96 h-full w-full" />
-	{:else}
-		<div
-			in:fade={{ duration: 150 }}
-			class={twMerge('paper h-full p-0 gap-0', hasDeviceScans ? 'min-h-64' : 'min-h-96')}
-		>
-			<GraphTitle title={m.dashboard_server_activity()} element="h4" />
-			<div class="px-6 py-4 flex flex-col gap-4">
-				{#if doesSupportK8sUpdates && deploymentStatusBreakdown.length > 0}
-					<div class="mb-2 grid grid-cols-12 gap-x-2 gap-y-5">
-						{#each deploymentStatusBreakdown as row, i (row.status)}
-							<div
-								class={twMerge(
-									'flex flex-col items-center justify-center px-1 text-center',
-									deploymentStatusGridColClass(i, deploymentStatusBreakdown.length),
-									deploymentStatusGridShowBorderRight(i, deploymentStatusBreakdown.length) &&
-										'border-r border-base-300'
-								)}
-							>
-								<div class="flex items-center gap-1">
-									<div class={twMerge('font-semibold', hasDeviceScans ? 'text-xl' : 'text-3xl')}>
-										<TweenedMetric target={row.count} />
-									</div>
-									{#if row.status === 'Available'}
-										<Server class="size-6 text-primary" />
-									{:else if row.status === 'Needs Attention'}
-										<Siren class="size-6 text-warning" />
-									{:else}
-										<Server class="size-6 text-muted-content/75" />
-									{/if}
-								</div>
-								<div class="text-xs">{deploymentStatusLabel(row.status)}</div>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="mb-2 flex flex-col justify-center items-center">
-						<div class="flex w-full gap-2 items-center justify-center">
-							<div class={twMerge('font-semibold', hasDeviceScans ? 'text-xl' : 'text-3xl')}>
-								<TweenedMetric target={totalServers} />
-							</div>
-							<Server class="size-6 text-primary" />
-						</div>
-						<div class="text-xs">{m.dashboard_total_currently_active()}</div>
-					</div>
-				{/if}
-
-				<div
-					class={twMerge(
-						'flex flex-col items-center justify-center grow',
-						hasDeviceScans ? 'h-64' : 'h-80'
-					)}
-				>
-					{#if graphData.some((g) => g.value > 0)}
-						<DonutGraph
-							class={twMerge('h-80', hasDeviceScans ? 'h-64' : '')}
-							donutRatio={0.65}
-							data={graphData}
-							legend={doesSupportK8sUpdates ? entryTypeDonutLegend : undefined}
-						/>
-					{:else}
-						<p class="font-light text-xs text-muted-content pt-2 text-center">
-							{m.dashboard_no_servers_deployed()}
-						</p>
-					{/if}
-				</div>
-
-				{#if !isBootStrapUser && totalServers > 0}
-					<div class="flex justify-end">
-						<a
-							href={resolve('/mcp-servers?view=deployments')}
-							class="text-[11px] transition-colors self-end translate-x-2 duration-200 bg-base-400/50 hover:bg-base-400 rounded-md py-0.5 w-fit px-2 flex items-center gap-1"
-						>
-							{m.dashboard_see_more()}
-							<ChevronRight class="size-3" />
-						</a>
-					</div>
-				{/if}
-			</div>
-		</div>
-	{/if}
-{/snippet}
-
-{#snippet topServerDeploymentList()}
-	<div in:fade={{ duration: 150 }} class="paper h-full gap-0 p-0">
-		<GraphTitle title={m.dashboard_most_deployed_servers()} element="h4" />
-		<div class={graphContainerClasses}>
-			{#if mcpServersAndEntries.current.loading || loading}
-				<Skeleton type="list" />
-			{:else if popularServers.length > 0}
-				<div class="flex flex-col gap-2 -ml-2 w-[calc(100%+1rem)]">
-					{#each popularServers as info (info.id)}
-						{@const icon =
-							'server' in info ? info.server?.manifest.icon : info.entry?.manifest.icon}
-						{@const displayName =
-							'server' in info ? getMCPDisplayName(info.server) : info.entry?.manifest.name}
-						{@const description =
-							'server' in info
-								? info.server?.manifest.description
-								: info.entry?.manifest.description}
-						{@const url = info.server
-							? getServerUrl(info.server)
-							: info.entry
-								? getEntryUrl(info.entry)
-								: undefined}
-						<a
-							class="flex gap-2 w-full items-center dark:hover:bg-base-300 hover:bg-base-200 transition-colors duration-150 px-2 py-1 rounded-md"
-							href={url ? resolve(url as `/${string}`) : undefined}
-						>
-							{#if icon}
-								<img
-									src={icon}
-									alt={info.id}
-									class="size-9 bg-base-200 dark:bg-base-300 rounded-md p-1"
-								/>
-							{:else}
-								<Server class="size-9 opacity-65 bg-base-200 rounded-md p-1" />
-							{/if}
-							<div class="flex flex-col gap-0.5 max-w-[calc(100%-4.5rem)] grow">
-								<p class="text-sm font-medium">{displayName}</p>
-								{#if description}
-									<p class="text-xs truncate line-clamp-1 break-all font-light">
-										{stripMarkdownToText(description ?? '')}
-									</p>
-								{/if}
-								<p class="text-xs text-muted-content italic">
-									{m.dashboard_deployed_times({ count: info.count })}
-								</p>
-							</div>
-							<ChevronRight class="size-5 shrink-0" />
-						</a>
-					{/each}
-				</div>
-			{:else}
-				<p
-					class="text-xs text-muted-content pt-2 font-light text-center h-full flex items-center justify-center grow"
-				>
-					{m.dashboard_no_servers_deployed()}
-				</p>
-			{/if}
-			<div class="flex grow"></div>
-			{#if popularServers.length > 0 && !isBootStrapUser}
-				<a
-					href={resolve('/mcp-servers')}
-					class="justify-end self-end text-[11px] translate-x-2 transition-colors duration-200 bg-base-400/50 hover:bg-base-400 rounded-md py-0.5 w-fit px-2 flex items-center gap-1"
-				>
-					{m.dashboard_see_more()}
-					<ChevronRight class="size-3" />
-				</a>
-			{/if}
-		</div>
-	</div>
-{/snippet}
-
-{#snippet platformStatCell(platformStat: (typeof platformStatTiles)[number])}
-	{@const defaultClasses = 'col-span-4 p-2 flex gap-2 items-center justify-between w-full'}
-	<div
-		class="col-span-2 @sm:col-span-1 min-w-0 @sm:border-r px-2 my-2 flex @md:col-span-4 @md:not-last:border-r @md:not-last:border-base-300 @md:nth-3:border-r-0 @sm:not-odd:border-r-0 @xl:col-span-3"
-	>
-		{#if platformStat.seeMore && !isBootStrapUser}
-			<a
-				class={twMerge(
-					defaultClasses,
-					'truncate group w-full hover:bg-base-300/50 transition-colors duration-200 rounded-md'
-				)}
-				href={resolve(platformStat.seeMore as `/${string}`)}
-			>
-				{@render statContent(platformStat)}
-			</a>
-		{:else}
-			<div class={defaultClasses}>
-				{@render statContent(platformStat)}
-			</div>
-		{/if}
-	</div>
-{/snippet}
-
-{#snippet deviceScanStatCell(deviceScanStat: (typeof deviceScanTiles)[number])}
-	{@const defaultClasses = 'p-2 flex gap-2 items-center justify-between w-full'}
-	<div
-		class="col-span-2 @sm:col-span-1 min-w-0 flex @sm:border-r @sm:not-odd:border-r-0 px-2 my-2 @md:col-span-6 @md:last:border-r-0 @md:not-last:border-base-300 @3xl:col-span-1 @3xl:not-odd:not-last:border-r"
-	>
-		{#if deviceScanStat.seeMore}
-			<a
-				href={resolve(deviceScanStat.seeMore as `/${string}`)}
-				class={twMerge(
-					defaultClasses,
-					'group w-full hover:bg-base-300/50 transition-colors duration-200 rounded-md'
-				)}
-			>
-				{@render statContent(deviceScanStat)}
-			</a>
-		{:else}
-			<div class={defaultClasses}>
-				{@render statContent(deviceScanStat)}
-			</div>
-		{/if}
-	</div>
-{/snippet}
-
-{#snippet statContent(platformStat: (typeof platformStatTiles | typeof deviceScanTiles)[number])}
-	<div class="w-full min-w-0 leading-none">
-		<div
-			class="text-[11px] @md:text-xs text-muted-content flex items-center gap-1 shrink-0 mb-1 tracking-wide"
-		>
-			{platformStat.label}
-		</div>
-
-		<div class="flex items-baseline gap-2 justify-between">
-			{#if platformStat.loading}
-				<Loading class="size-5" />
-			{:else}
-				<div class="text-lg @md:text-xl font-semibold tabular-nums tracking-tight">
-					<TweenedMetric
-						holdAtZero={platformStat.loading}
-						target={platformStat.value}
-						format={platformStat.id === 'total-spend' ? formatTokenUsageUSD : undefined}
-					/>
-				</div>
-			{/if}
-			<div class="relative size-3.5 @md:size-4 shrink-0 self-center">
-				<platformStat.icon
-					class="size-3.5 @md:size-4 text-primary transition-opacity duration-200 group-hover:opacity-0"
-				/>
-				<ChevronRight
-					class="pointer-events-none text-muted-content absolute inset-0 size-3.5 @md:size-4 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-				/>
-			</div>
-		</div>
-	</div>
-{/snippet}
-
-{#snippet popularTools()}
-	<div class="paper h-full min-h-72 flex flex-col p-0 gap-0">
-		<GraphTitle
-			title={m.dashboard_recently_popular_tools()}
-			description={m.dashboard_last_30_days()}
-			element="h4"
-		/>
-		<div class={graphContainerClasses}>
-			{#if loadingToolUsage}
-				<Skeleton type="list" class="w-full" count={maxToolsToShow} />
-			{:else if topToolCalls.length === 0}
-				<p
-					class="text-xs text-muted-content pt-2 font-light grow flex items-center justify-center h-full text-center"
-				>
-					{m.dashboard_no_recent_tool_calls()}
-				</p>
-			{:else}
-				<ul class="flex flex-col gap-2">
-					{#each topToolCalls.slice(0, maxToolsToShow) as row (row.compositeKey)}
-						<li class="flex gap-2 items-center">
-							<div
-								class="size-8 items-center justify-center shrink-0 bg-base-200 dark:bg-base-300 rounded-md p-1"
-							>
-								<Wrench class="size-6 opacity-65 shrink-0" />
-							</div>
-							<div class="flex flex-col gap-1 min-w-0">
-								<p class="text-sm font-medium truncate">
-									{row.toolLabel.split('.').slice(1).join('.') || row.compositeKey}
-								</p>
-								<p class="text-xs text-muted-content">
-									{m.dashboard_calls_with_server({
-										count: formatNumber(row.count),
-										server: row.serverDisplayName
-									})}
-								</p>
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-			<div class="flex grow min-h-0"></div>
-			{#if topToolCalls.length > 0 && !isBootStrapUser}
-				<a
-					href={resolve('/usage')}
-					class="text-[11px] translate-x-2 self-end bg-base-400/50 transition-colors duration-200 hover:bg-base-400 rounded-md py-0.5 w-fit px-2 flex items-center gap-1 mt-2"
-				>
-					{m.dashboard_see_more()}
-					<ChevronRight class="size-3" />
-				</a>
-			{/if}
-		</div>
-	</div>
-{/snippet}
-
-{#snippet toolAverageResponseTime()}
-	<div class="paper h-full min-h-72 gap-0 flex flex-col p-0">
-		<GraphTitle
-			title={m.dashboard_tool_call_avg_response_time()}
-			description={m.dashboard_last_30_days()}
-			element="h4"
-		/>
-		<div class={graphContainerClasses}>
-			{#if loadingToolUsage}
-				<Skeleton type="list" class="w-full" count={maxToolsToShow} />
-			{:else if avgToolCallResponseTime.length === 0}
-				<p
-					class="text-xs text-muted-content pt-2 font-light grow flex items-center justify-center h-full text-center"
-				>
-					{m.dashboard_no_recent_tool_calls()}
-				</p>
-			{:else}
-				<div class="flex flex-col gap-4 w-full">
-					<ul class="flex flex-col gap-2">
-						{#each avgToolCallResponseTime.slice(0, maxToolsToShow) as row (row.toolName)}
-							<li class="flex gap-2 items-center">
-								<div class="flex flex-col gap-1 min-w-0 grow pr-4">
-									<p class="text-sm font-medium truncate">
-										{row.toolName.split('.').slice(1).join('.')}
-									</p>
-									<p class="text-xs text-muted-content">
-										{row.serverDisplayName}
-									</p>
-								</div>
-								<div class="text-sm">
-									{row.averageResponseTimeMs.toFixed(2)}ms
-								</div>
-							</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
-			<div class="flex grow min-h-0"></div>
-			{#if avgToolCallResponseTime.length > 0 && !isBootStrapUser}
-				<a
-					href={resolve('/usage')}
-					class="text-[11px] translate-x-2 self-end bg-base-400/50 transition-colors duration-200 hover:bg-base-400 rounded-md py-0.5 w-fit px-2 flex items-center gap-1 mt-2"
-				>
-					{m.dashboard_see_more()}
-					<ChevronRight class="size-3" />
-				</a>
-			{/if}
-		</div>
-	</div>
-{/snippet}
 
 <svelte:head>
 	<title>{m.dashboard_page_title()}</title>
 </svelte:head>
+
+<Layout title={m.nav_dashboard()} classes={{ childrenContainer: 'max-w-none', container: '' }}>
+	<div class="@container flex min-w-0 w-full flex-col gap-6 pb-8">
+		<!-- Headline band: the last 7 days at a glance -->
+		<section class="paper gap-0 p-0" aria-labelledby="hub-headline-title">
+			<div
+				class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-5 py-3"
+			>
+				<div>
+					<h2 id="hub-headline-title" class="text-sm font-semibold">
+						{m.dashboard_hub_headline_title()}
+					</h2>
+					<p class="text-xs text-muted-content">{m.dashboard_hub_headline_description()}</p>
+				</div>
+				<a href={resolve(briefingHref)} class="btn btn-primary flex items-center gap-2 text-sm">
+					<Sparkles class="size-4" />
+					{m.dashboard_hub_ask_briefing()}
+				</a>
+			</div>
+			<div class="grid grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-5">
+				{#each headlines as h (h.id)}
+					<a
+						href={resolve(h.href)}
+						class="group flex flex-col gap-1 border-base-300 px-5 py-4 transition-colors hover:bg-base-200 dark:hover:bg-base-300/60"
+						aria-label={h.label}
+					>
+						<span class="text-xs text-muted-content">{h.label}</span>
+						{#if h.status === 'loading'}
+							<span
+								class="skeleton h-7 w-20 rounded"
+								role="status"
+								aria-label={m.dashboard_hub_loading()}
+							></span>
+						{:else if h.status === 'error' || h.value === undefined}
+							<span class="text-2xl font-semibold text-muted-content">—</span>
+						{:else}
+							<span class="text-2xl font-semibold tabular-nums tracking-tight">
+								{#if h.format}
+									{h.format(h.value)}
+								{:else}
+									{h.value.toLocaleString()}
+								{/if}
+							</span>
+						{/if}
+						{#if h.hint}
+							<span
+								class={[
+									'text-[11px]',
+									h.hintTone === 'error' ? 'text-error' : 'text-muted-content'
+								]}
+							>
+								{h.hint}
+							</span>
+						{/if}
+					</a>
+				{/each}
+			</div>
+		</section>
+
+		<!-- One card per area -->
+		<section aria-labelledby="hub-areas-title" class="flex flex-col gap-3">
+			<h2 id="hub-areas-title" class="text-sm font-semibold">{m.dashboard_hub_areas_title()}</h2>
+			<div class="grid grid-cols-1 gap-4 @2xl:grid-cols-2 @5xl:grid-cols-3">
+				<HubCard
+					id="supervisor"
+					title={m.nav_supervision()}
+					description={m.dashboard_hub_supervisor_description()}
+					icon={ShieldCheck}
+					href="/supervision"
+					status={supervisor.status}
+					attention={supervisorAttention}
+					class="@5xl:col-span-2"
+					links={[
+						{ label: m.nav_supervision_overview(), href: '/supervision' },
+						{ label: m.nav_activity(), href: '/sessions' },
+						{ label: m.nav_approvals(), href: '/approvals' },
+						{ label: m.nav_rules(), href: '/tool-labels' }
+					]}
+				>
+					{#if supervisor.data}
+						{@const d = supervisor.data}
+						<div class="grid grid-cols-2 gap-3 @xl:grid-cols-4">
+							<HubStat
+								label={m.dashboard_hub_pending_approvals()}
+								value={d.pendingApprovals}
+								tone="error"
+							/>
+							<HubStat
+								label={m.dashboard_hub_high_risk_sessions()}
+								value={d.highRisk}
+								tone="warning"
+							/>
+							<HubStat label={m.dashboard_hub_shadow_hits()} value={d.shadowed} />
+							<HubStat label={m.dashboard_hub_denied()} value={d.denied} />
+						</div>
+						<SegmentBar
+							segments={[
+								{ label: m.dashboard_hub_allowed(), value: d.allowed, color: 'bg-success' },
+								{ label: m.dashboard_hub_denied(), value: d.denied, color: 'bg-error' },
+								{ label: m.dashboard_hub_shadowed(), value: d.shadowed, color: 'bg-warning' }
+							]}
+						/>
+						{#if briefing.data}
+							<p class="line-clamp-2 text-xs italic text-muted-content">
+								<Sparkles class="mr-1 inline size-3.5 text-primary" />{briefing.data}
+							</p>
+						{/if}
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="connect"
+					title={m.nav_server_requests()}
+					description={m.dashboard_hub_connect_description()}
+					icon={Plug}
+					href="/mcp-server-requests"
+					status={requests.status}
+					attention={requestsAttention}
+					links={[{ label: m.dashboard_hub_link_connect(), href: '/mcp-server-requests' }]}
+				>
+					{#if requests.data}
+						<div class="grid grid-cols-3 gap-3">
+							<HubStat
+								label={m.dashboard_hub_pending_requests()}
+								value={requests.data.pending}
+								tone="warning"
+							/>
+							<HubStat label={m.dashboard_hub_approved_requests()} value={requests.data.approved} />
+							<HubStat label={m.dashboard_hub_total_requests()} value={requests.data.total} />
+						</div>
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="llm"
+					title={m.nav_llm_gateway()}
+					description={m.dashboard_hub_llm_description()}
+					icon={BrainCircuit}
+					href="/models"
+					status={llm.status}
+					attention={llmAttention}
+					links={[
+						{ label: m.nav_llm_gateway(), href: '/models' },
+						{ label: m.nav_usage(), href: '/usage?view=llm' },
+						{ label: m.nav_audit_logs(), href: '/audit-logs?view=llm' }
+					]}
+				>
+					{#if llm.data}
+						{@const d = llm.data}
+						<div class="grid grid-cols-3 gap-3">
+							<HubStat
+								label={m.dashboard_hub_spend()}
+								value={d.spend}
+								format={formatTokenUsageUSD}
+							/>
+							<HubStat
+								label={m.dashboard_hub_requests()}
+								value={d.requests}
+								format={(n) => formatNumber(Math.round(n))}
+							/>
+							<HubStat
+								label={m.dashboard_hub_success_rate()}
+								value={d.successRate === undefined ? undefined : d.successRate * 100}
+								format={percent}
+							/>
+						</div>
+						<Sparkline values={d.buckets} label={m.dashboard_hub_requests_over_time()} />
+						{#if d.topModel}
+							<p class="truncate text-xs text-muted-content">
+								{m.dashboard_hub_top_model({
+									model: d.topModel.model,
+									spend: formatTokenUsageUSD(d.topModel.spend)
+								})}
+							</p>
+						{/if}
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="mcp"
+					title={m.dashboard_hub_mcp_title()}
+					description={m.dashboard_hub_mcp_description()}
+					icon={Server}
+					href="/mcp-servers"
+					status={combinedStatus(mcpInventory, mcpUsage)}
+					links={[
+						{ label: m.nav_vmcps(), href: '/vmcps' },
+						{ label: m.nav_mcp_servers(), href: '/mcp-servers' },
+						{ label: m.nav_usage(), href: '/usage?view=mcp' },
+						{ label: m.nav_audit_logs(), href: '/audit-logs' }
+					]}
+				>
+					<div class="grid grid-cols-3 gap-3">
+						<HubStat label={m.nav_vmcps()} value={mcpInventory.data?.vmcps} />
+						<HubStat
+							label={m.dashboard_hub_catalog_entries()}
+							value={mcpInventory.data?.catalogEntries}
+						/>
+						<HubStat
+							label={m.dashboard_hub_tool_calls()}
+							value={mcpUsage.data?.toolCalls}
+							format={(n) => formatNumber(Math.round(n))}
+						/>
+					</div>
+					{#if mcpUsage.data?.topServer}
+						<p class="truncate text-xs text-muted-content">
+							{m.dashboard_hub_top_server({
+								server: mcpUsage.data.topServer.name,
+								count: formatNumber(mcpUsage.data.topServer.count)
+							})}
+						</p>
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="skills"
+					title={m.nav_skills()}
+					description={m.dashboard_hub_skills_description()}
+					icon={PencilRuler}
+					href="/skills"
+					status={skills.status}
+					attention={skillsAttention}
+					links={[{ label: m.nav_skills(), href: '/skills' }]}
+				>
+					{#if skills.data}
+						<div class="grid grid-cols-2 gap-3">
+							<HubStat label={m.dashboard_hub_skills()} value={skills.data.skills} />
+							<HubStat label={m.dashboard_hub_skill_sources()} value={skills.data.sources} />
+						</div>
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="claude"
+					title={m.nav_claude_environments()}
+					description={m.dashboard_hub_claude_description()}
+					icon={SquareTerminal}
+					href="/claude-environments"
+					status={claude.status}
+					attention={claudeAttention}
+					links={[
+						{ label: m.nav_claude_environments(), href: '/claude-environments' },
+						{ label: m.dashboard_hub_sessions(), href: '/claude-environments?view=sessions' },
+						...(hasAdminAccess
+							? [{ label: m.dashboard_hub_egress_logs(), href: '/audit-logs?view=egress' }]
+							: [])
+					]}
+				>
+					{#if claude.data}
+						<div class="grid grid-cols-3 gap-3">
+							<HubStat label={m.dashboard_hub_environments()} value={claude.data.environments} />
+							<HubStat label={m.dashboard_hub_running_sessions()} value={claude.data.running} />
+							{#if hasAdminAccess}
+								<HubStat
+									label={m.dashboard_hub_blocked_egress()}
+									value={claude.data.blockedEgress}
+									tone="warning"
+								/>
+							{:else}
+								<HubStat label={m.dashboard_hub_sessions()} value={claude.data.sessions} />
+							{/if}
+						</div>
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="infrastructure"
+					title={m.nav_infrastructure()}
+					description={m.dashboard_hub_infra_description()}
+					icon={Boxes}
+					href="/infrastructure"
+					status={infra.status}
+					attention={infraAttention}
+					links={[
+						{ label: m.nav_infrastructure(), href: '/infrastructure' },
+						{ label: m.dashboard_hub_logs(), href: '/infrastructure?view=logs' }
+					]}
+				>
+					{#if infra.data}
+						{@const d = infra.data}
+						{#if !d.kubernetes}
+							<p class="text-xs text-muted-content">
+								{d.message || m.dashboard_hub_infra_not_kubernetes()}
+							</p>
+						{:else}
+							<div class="grid grid-cols-2 gap-3">
+								<HubStat
+									label={m.dashboard_hub_problems()}
+									value={d.errors + d.warnings}
+									tone={d.errors > 0 ? 'error' : 'warning'}
+								/>
+								<div class="flex min-w-0 flex-col gap-1">
+									<div class="truncate text-[11px] tracking-wide text-muted-content">
+										{m.dashboard_hub_workloads_healthy()}
+									</div>
+									<div class="text-xl font-semibold tabular-nums leading-none">
+										{d.healthy}<span class="text-sm font-normal text-muted-content">
+											/ {d.total}</span
+										>
+									</div>
+								</div>
+							</div>
+							<SegmentBar
+								segments={[
+									{
+										label: m.dashboard_hub_health_healthy(),
+										value: d.healthy,
+										color: 'bg-success'
+									},
+									{
+										label: m.dashboard_hub_health_starting(),
+										value: d.starting,
+										color: 'bg-primary'
+									},
+									{ label: m.dashboard_hub_health_failing(), value: d.failing, color: 'bg-error' },
+									{
+										label: m.dashboard_hub_health_stopped(),
+										value: d.stopped,
+										color: 'bg-base-400'
+									}
+								]}
+							/>
+						{/if}
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="devices"
+					title={m.nav_inventory()}
+					description={m.dashboard_hub_devices_description()}
+					icon={Laptop}
+					href="/inventory?view=devices"
+					status={devices.status}
+					links={[
+						{ label: m.dashboard_unique_devices(), href: '/inventory?view=devices' },
+						{ label: m.dashboard_device_clients(), href: '/inventory?view=device-clients' },
+						{ label: m.dashboard_unique_mcps(), href: '/inventory?view=device-mcp-servers' },
+						{ label: m.dashboard_unique_skills(), href: '/inventory?view=device-skills' }
+					]}
+				>
+					{#if devices.data}
+						{@const d = devices.data}
+						<div class="grid grid-cols-3 gap-3">
+							<HubStat label={m.dashboard_hub_scanned_devices()} value={d.devices} />
+							<HubStat label={m.dashboard_unique_clients()} value={d.clients} />
+							<HubStat label={m.dashboard_unique_mcps()} value={d.mcpServers} />
+						</div>
+						{#if d.topClient}
+							<p class="truncate text-xs text-muted-content">
+								{m.dashboard_hub_top_client({
+									client: d.topClient.name,
+									count: d.topClient.devices
+								})}
+							</p>
+						{/if}
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="identity"
+					title={m.nav_identity_access()}
+					description={m.dashboard_hub_identity_description()}
+					icon={Users}
+					href="/identity-access"
+					status={users.status}
+					links={[
+						{ label: m.dashboard_hub_users(), href: '/identity-access?view=users' },
+						{ label: m.dashboard_hub_agents(), href: '/identity-access?view=agents' }
+					]}
+				>
+					{#if users.data}
+						<div class="grid grid-cols-3 gap-3">
+							<HubStat label={m.dashboard_hub_users()} value={users.data.users} />
+							<HubStat label={m.dashboard_hub_active_users()} value={users.data.active} />
+							<HubStat label={m.dashboard_hub_new_users()} value={users.data.newUsers} />
+						</div>
+					{/if}
+				</HubCard>
+
+				<HubCard
+					id="platform"
+					title={m.nav_platform()}
+					description={m.dashboard_hub_platform_description()}
+					icon={Settings2}
+					href="/admin/platform"
+					status={hasAdminAccess ? 'ready' : 'off'}
+					attention={platformAttention}
+					links={[
+						{ label: m.dashboard_hub_license(), href: '/admin/platform?view=license' },
+						{ label: m.dashboard_hub_settings(), href: '/admin/platform?view=settings' }
+					]}
+				>
+					<dl class="grid grid-cols-2 gap-3 text-sm">
+						<div class="flex min-w-0 flex-col gap-1">
+							<dt class="text-[11px] tracking-wide text-muted-content">
+								{m.dashboard_hub_version()}
+							</dt>
+							<dd class="truncate font-semibold">{version.current.obot || '—'}</dd>
+						</div>
+						<div class="flex min-w-0 flex-col gap-1">
+							<dt class="text-[11px] tracking-wide text-muted-content">
+								{m.dashboard_hub_engine()}
+							</dt>
+							<dd class="truncate font-semibold capitalize">{version.current.engine || '—'}</dd>
+						</div>
+						{#if version.current.userLimit}
+							<div class="col-span-2 flex min-w-0 flex-col gap-1">
+								<dt class="text-[11px] tracking-wide text-muted-content">
+									{m.dashboard_hub_licensed_users()}
+								</dt>
+								<dd class="font-semibold tabular-nums">
+									{version.current.userCount ?? 0}<span class="font-normal text-muted-content">
+										/ {version.current.userLimit}</span
+									>
+								</dd>
+							</div>
+						{/if}
+					</dl>
+				</HubCard>
+
+				<HubCard
+					id="ai"
+					title={m.nav_ai()}
+					description={m.dashboard_hub_ai_description()}
+					icon={Sparkles}
+					href="/ai"
+					status="ready"
+					links={[{ label: m.dashboard_hub_open_ai(), href: '/ai' }]}
+				>
+					<ul class="flex flex-col gap-1.5">
+						{#each suggestions as question (question)}
+							<li>
+								<a
+									href={resolve(`/ai?ask=${encodeURIComponent(question)}`)}
+									class="flex items-center gap-2 rounded-md bg-base-200 px-3 py-2 text-xs transition-colors hover:bg-primary/10 hover:text-primary dark:bg-base-300"
+								>
+									<Sparkles class="size-3.5 shrink-0 text-primary" />
+									<span class="truncate">{question}</span>
+								</a>
+							</li>
+						{/each}
+					</ul>
+				</HubCard>
+			</div>
+		</section>
+
+		<!-- The original Dashboard's charts -->
+		<section aria-labelledby="hub-trends-title" class="flex flex-col gap-3">
+			<h2 id="hub-trends-title" class="text-sm font-semibold">
+				{m.dashboard_hub_trends_title()}
+			</h2>
+			<DashboardTrends />
+		</section>
+	</div>
+</Layout>

@@ -129,7 +129,7 @@ function queryString(values: Record<string, string | undefined>) {
 	return s ? `?${s}` : '';
 }
 
-export async function getInfrastructure(opts?: { fetch?: Fetcher }) {
+export async function getInfrastructure(opts?: { fetch?: Fetcher; dontLogErrors?: boolean }) {
 	return (await doGet('/infrastructure', opts)) as Infrastructure;
 }
 

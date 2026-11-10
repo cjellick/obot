@@ -331,7 +331,7 @@ export async function listLLMAuditLogFilterOptions(
 
 export async function listEgressAuditLogs(
 	filters?: EgressAuditLogURLFilters,
-	opts?: { fetch?: Fetcher }
+	opts?: { fetch?: Fetcher; dontLogErrors?: boolean }
 ) {
 	const queryString = buildQueryString(filters ?? {});
 	return (await doGet(`/egress-audit-logs${queryString ? `?${queryString}` : ''}`, opts)) as {
@@ -658,7 +658,7 @@ export async function deleteDeviceScan(id: number | string): Promise<void> {
 
 export async function getDeviceScanStats(
 	range?: { start?: string; end?: string },
-	opts?: { fetch?: Fetcher }
+	opts?: { fetch?: Fetcher; dontLogErrors?: boolean }
 ): Promise<DeviceScanStats> {
 	const queryString = buildQueryString(range ?? {});
 	return (await doGet(
@@ -2164,7 +2164,7 @@ export async function listTokenUsage(
 export async function getTokenUsageStats(
 	timeRange: TokenUsageTimeRange,
 	filters: TokenUsageStatsFilters = {},
-	opts?: { fetch?: Fetcher; signal?: AbortSignal }
+	opts?: { fetch?: Fetcher; signal?: AbortSignal; dontLogErrors?: boolean }
 ): Promise<TokenUsageStats> {
 	const params = new URLSearchParams(tokenUsageQueryString(timeRange));
 	for (const id of filters.userIDs ?? []) params.append('user_id', id);
