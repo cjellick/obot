@@ -834,10 +834,32 @@ func workloadProblems(area string, w InfraWorkload) []InfraProblem {
 		}
 		add("warning", fmt.Sprintf("Restarted %d times%s", w.Restarts, last))
 	}
-	if w.Health == "healthy" && w.WarningEvents > 0 && len(w.Events) > 0 && w.Events[0].Type == corev1.EventTypeWarning && time.Since(w.Events[0].LastSeen) < 30*time.Minute {
-		add("warning", fmt.Sprintf("Recent warning: %s: %s", w.Events[0].Reason, w.Events[0].Message))
+	if w.Health == "healthy" {
+		if ev, ok := ongoingWarning(w); ok {
+			add("warning", fmt.Sprintf("Recent warning: %s: %s", ev.Reason, ev.Message))
+		}
 	}
 	return out
+}
+
+// ongoingWarning is the newest warning on a healthy workload that is still worth a look: it
+// came after the workload's pods finished starting, about a pod that still exists. Warnings
+// from a pod's startup, such as a volume not mounted yet, resolve themselves once it's ready.
+func ongoingWarning(w InfraWorkload) (InfraEvent, bool) {
+	pods := map[string]time.Time{}
+	for _, p := range w.Pods {
+		pods["pod/"+p.Name] = p.Created
+	}
+	for _, ev := range w.Events {
+		if ev.Type != corev1.EventTypeWarning || time.Since(ev.LastSeen) > 30*time.Minute {
+			continue
+		}
+		if created, ok := pods[ev.Object]; strings.HasPrefix(ev.Object, "pod/") && (!ok || ev.LastSeen.Before(created.Add(2*time.Minute))) {
+			continue
+		}
+		return ev, true
+	}
+	return InfraEvent{}, false
 }
 
 // userNames looks up and remembers users' names for one request.
