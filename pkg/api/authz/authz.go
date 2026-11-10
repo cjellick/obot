@@ -37,6 +37,9 @@ var (
 	tunnelPeerResources = newPathMatcher("GET /tunnel/peer")
 
 	adminAndOwnerRules = []string{
+		// Obot AI's views for administrators, such as blocked Claude environment egress.
+		"/api/ai/blocked-egress",
+		"/api/ai/blocked-egress/",
 		"/api/registry-settings",
 		"/api/claude-organizations/",
 		"/api/claude-environments",
