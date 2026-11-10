@@ -180,6 +180,7 @@
 				]}
 				sortable={['name', 'effectLabel', 'modeLabel', 'priority']}
 				noAutoHideFields={['name', 'modeLabel', 'enabled']}
+				columnMaxWidths={{ name: 420 }}
 				setRowClasses={(row) => (row.enabled ? '' : 'opacity-60')}
 				onClickRow={(row, isCtrl) => openUrl(`/policies/${row.id}`, isCtrl)}
 			>
@@ -191,7 +192,7 @@
 									{row.name}
 								</a>
 								{#if row.builtIn}
-									<span class="badge badge-xs badge-soft badge-primary"
+									<span class="badge badge-xs badge-soft badge-primary whitespace-nowrap"
 										>{m.supervision_policies_built_in()}</span
 									>
 								{/if}
@@ -201,7 +202,12 @@
 							{/if}
 						</span>
 					{:else if property === 'effectLabel'}
-						<span class={twMerge('badge badge-sm badge-soft', effectBadgeClass(row.effect))}>
+						<span
+							class={twMerge(
+								'badge badge-sm badge-soft whitespace-nowrap',
+								effectBadgeClass(row.effect)
+							)}
+						>
 							{row.effectLabel}
 						</span>
 					{:else if property === 'modeLabel'}

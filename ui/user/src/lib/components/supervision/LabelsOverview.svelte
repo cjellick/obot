@@ -229,9 +229,9 @@
 				{:else if !resources.length}<p class="paper text-muted-content text-sm">
 						{m.supervision_labels_no_matches()}
 					</p>
-				{:else}<div class="overflow-x-auto rounded-md border border-base-300">
+				{:else}<div class="dark:bg-base-300 bg-base-100 overflow-x-auto rounded-md shadow-sm">
 						<table class="table table-sm" aria-label={m.supervision_labels_resources()}>
-							<thead>
+							<thead class="dark:bg-base-200 bg-base-300 text-muted-content">
 								<tr>
 									<th>{m.supervision_labels_resource()}</th>
 									<th>{m.supervision_labels_effective()}</th>
@@ -370,9 +370,9 @@
 					</p>{:else if !observed.length}<p class="paper text-muted-content text-sm">
 						{m.supervision_labels_no_matches()}
 					</p>{:else}
-					<div class="overflow-x-auto rounded-md border border-base-300">
+					<div class="dark:bg-base-300 bg-base-100 overflow-x-auto rounded-md shadow-sm">
 						<table class="table table-sm" aria-label={m.supervision_labels_observed()}>
-							<thead
+							<thead class="dark:bg-base-200 bg-base-300 text-muted-content"
 								><tr
 									><th>{m.supervision_labels_tool()}</th><th>{m.supervision_labels_recorded()}</th
 									><th>{m.supervision_labels_source()}</th><th>{m.supervision_labels_updated()}</th
