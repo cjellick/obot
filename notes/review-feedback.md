@@ -31,8 +31,12 @@ Craig's review of the branch, and the decisions from it. Everything here lands o
 - [x] Save chats on the server; users can go back to old ones.
 - [x] Unify the chats: the Dashboard and session "Ask the Supervisor" boxes open Obot AI, with the
       session as context.
-- [ ] Much broader tools: let Obot AI do all or most of what the UI can, through the API directly or
-      an MCP server that wraps the API sensibly. Design needed.
+- [ ] Much broader tools (2026-11-10: purpose-built tools on the admin server, not raw API access).
+  - First pass: CRUD vMCPs and MCP servers (catalog entries).
+  - Claude environments: set up and manage environments and profiles.
+  - When egress denies a request, Obot AI tells the admin and offers to allow the domain.
+  - Search every audit log (MCP, LLM gateway, Claude environments egress, and more).
+  - Then: read access to everything else; writes (policies, labels, approvals, kill) only when asked in words.
 
 ## Obot's own AI calls
 
