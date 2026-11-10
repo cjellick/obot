@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/obot-platform/obot/pkg/aiusage"
 	"github.com/obot-platform/obot/pkg/gateway/client"
 	"github.com/obot-platform/obot/pkg/gateway/types"
@@ -115,5 +116,23 @@ func internalTokenUsage(call aiusage.Call) types.TokenUsage {
 		return types.TokenUsage{}
 	}
 	tracker.addTokenUsage(line)
-	return tracker.getTokenUsage()
+	return withCatalogCost(tracker.getTokenUsage(), u.Cost)
+}
+
+// withCatalogCost prices usage with the gateway's model catalog when the Model's own costs
+// priced it at nothing: decision calls to a model that has no Model in Obot, such as
+// openai/gpt-6-luna, are priced by the gateway, which reports the price on the usage.
+func withCatalogCost(usage types.TokenUsage, cost *schemas.BifrostCost) types.TokenUsage {
+	if cost == nil || usage.TotalSpend > 0 {
+		return usage
+	}
+	usage.InputSpend, usage.OutputSpend = cost.InputCost, cost.OutputCost
+	if d := cost.InputCostDetails; d != nil {
+		usage.CacheReadSpend, usage.CacheWriteSpend = d.CachedReadCost, d.CachedWriteCost
+	}
+	usage.TotalSpend = cost.TotalCost
+	if usage.TotalSpend == 0 {
+		usage.TotalSpend = usage.InputSpend + usage.OutputSpend
+	}
+	return usage
 }

@@ -53,6 +53,15 @@ var (
 // the model returns are dropped.
 func (s *Supervisor) ClassifyContent(ctx context.Context, in provenance.ContentToClassify) (provenance.ContentClassification, error) {
 	ctx = aiusage.WithFeature(ctx, aiusage.FeatureContentTagger)
+	if s.decisions != nil {
+		out, err := s.classifyContentByDecision(ctx, in)
+		if err == nil {
+			return out, nil
+		}
+		if !fallBack(ctx, "content tagger", err) {
+			return provenance.ContentClassification{}, err
+		}
+	}
 	var out struct {
 		Labels    []string `json:"labels"`
 		Rationale string   `json:"rationale"`

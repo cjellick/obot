@@ -969,6 +969,9 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	// The Supervisor is the model that resolves judge effects, triages approvals, drafts
 	// policies and narrates sessions. It calls the default model aliases through the LLM
 	// gateway, like the guardrails judge.
+	// Bounded decisions go through the gateway's decision API first (judge implements
+	// supervisor.DecisionClient), falling back to the chat path.
+	var _ supervisor.DecisionClient = judge
 	sup := supervisor.New(judge, provenanceEngine.Settings)
 	provenanceEngine.SetSupervisor(sup)
 	// The Supervisor also serves as the optional AI content tagger (off until enabled in settings).
