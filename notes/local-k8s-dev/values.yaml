@@ -27,3 +27,9 @@ substrate:
       AWS_REGION: us-east-1
       AWS_ENDPOINT_URL: http://minio.minio:9000
       AWS_S3_USE_PATH_STYLE: "true"
+
+# The sandbox mounts its proxy CA into pods from a hostPath, which the restricted Pod Security
+# level forbids. Local only.
+mcpNamespace:
+  podSecurity:
+    enforce: privileged

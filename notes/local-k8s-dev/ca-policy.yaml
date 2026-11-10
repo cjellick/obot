@@ -20,7 +20,7 @@ spec:
         Object{
           spec: Object.spec{
             volumes: [Object.spec.volumes{name: "discobox-ca", hostPath: Object.spec.volumes.hostPath{path: "/etc/discobox-ca-bundle.crt", type: "File"}}],
-            containers: object.spec.containers.map(c, Object.spec.containers{name: c.name, volumeMounts: [Object.spec.containers.volumeMounts{name: "discobox-ca", mountPath: "/etc/ssl/certs/ca-certificates.crt", readOnly: true}]})
+            containers: object.spec.containers.map(c, Object.spec.containers{name: c.name, volumeMounts: [Object.spec.containers.volumeMounts{name: "discobox-ca", mountPath: "/etc/ssl/certs/ca-certificates.crt", readOnly: true}], env: [Object.spec.containers.env{name: "SSL_CERT_FILE", value: "/etc/ssl/certs/ca-certificates.crt"}, Object.spec.containers.env{name: "NODE_EXTRA_CA_CERTS", value: "/etc/ssl/certs/ca-certificates.crt"}, Object.spec.containers.env{name: "UV_NATIVE_TLS", value: "true"}, Object.spec.containers.env{name: "REQUESTS_CA_BUNDLE", value: "/etc/ssl/certs/ca-certificates.crt"}]})
           }
         }
   - patchType: ApplyConfiguration
