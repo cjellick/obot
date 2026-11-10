@@ -57,5 +57,14 @@
 	"ai_history": "채팅",
 	"ai_delete_chat": "채팅 {title} 삭제",
 	"ai_delete_chat_confirm": "채팅 “{title}”을(를) 삭제할까요? 되돌릴 수 없습니다.",
-	"ai_delete": "삭제"
+	"ai_delete": "삭제",
+	"ai_widget_egress_title": "차단된 송신(최근 7일)",
+	"ai_widget_egress_empty": "차단된 항목이 없습니다.",
+	"ai_widget_egress_detail": "{environment} · {count}회 · 마지막 {when}",
+	"ai_widget_egress_allowed_now": "현재 허용됨: {where}",
+	"ai_widget_egress_allow": "허용",
+	"ai_widget_egress_allow_label": "{host} 허용",
+	"ai_widget_egress_note": "허용하면 환경의 모든 세션에서 호스트가 허용됩니다. 새 세션에 적용됩니다.",
+	"ai_attention_blocked_egress": "이번 주 Claude 환경이 {count}개 호스트에 대한 접근을 차단당했습니다. Obot AI에 물어보세요.",
+	"ai_suggestion_blocked_egress": "이번 주 Claude 환경이 차단당한 접근 대상은? 허용할 만한 것이 있나요?"
 }

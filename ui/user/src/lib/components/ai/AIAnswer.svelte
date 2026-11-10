@@ -3,6 +3,7 @@
 	import { toHTMLFromMarkdownWithNewTabLinks } from '$lib/markdown';
 	import { splitAnswer } from '$lib/services/ai';
 	import ApprovalsWidget from './ApprovalsWidget.svelte';
+	import BlockedEgressWidget from './BlockedEgressWidget.svelte';
 	import ServerRequestWidget from './ServerRequestWidget.svelte';
 	import SessionWidget from './SessionWidget.svelte';
 	import SessionsWidget from './SessionsWidget.svelte';
@@ -41,6 +42,8 @@
 			{/key}
 		{:else if segment.widget.type === 'approvals'}
 			<ApprovalsWidget />
+		{:else if segment.widget.type === 'egress_blocked'}
+			<BlockedEgressWidget />
 		{/if}
 	{/each}
 </div>

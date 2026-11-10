@@ -10,6 +10,7 @@
 		deleteAIConversation,
 		getAIConversation,
 		listAIConversations,
+		listBlockedEgress,
 		streamChatWithAI,
 		type AIConversationSummary,
 		type AIEvent,
@@ -24,6 +25,7 @@
 		ChevronRight,
 		LoaderCircle,
 		Plus,
+		ShieldAlert,
 		Sparkles,
 		Trash2,
 		TriangleAlert,
@@ -198,6 +200,15 @@
 	let waiting = $derived(
 		!!live && !live.text && live.steps.every((step) => step.state !== 'running')
 	);
+
+	// Hosts Claude environments were blocked from and that are still blocked: Obot AI brings them up.
+	let blockedHosts = $state(0);
+	$effect(() => {
+		if (!isAdmin) return;
+		listBlockedEgress(7, { dontLogErrors: true })
+			.then((items) => (blockedHosts = items.filter((b) => !b.allowedNow?.length).length))
+			.catch(() => (blockedHosts = 0));
+	});
 
 	let suggestions = $derived(
 		isAdmin
@@ -392,6 +403,16 @@
 						<p class="text-muted-content max-w-xl text-sm">
 							{isAdmin ? m.ai_intro_admin() : m.ai_intro_user()}
 						</p>
+						{#if blockedHosts > 0}
+							<button
+								type="button"
+								class="notification-alert flex items-center gap-2 rounded-xl px-4 py-2 text-left text-sm"
+								onclick={() => send(m.ai_suggestion_blocked_egress())}
+							>
+								<ShieldAlert class="size-4 shrink-0" />
+								{m.ai_attention_blocked_egress({ count: blockedHosts })}
+							</button>
+						{/if}
 						<div class="flex max-w-2xl flex-wrap justify-center gap-2">
 							{#each suggestions as suggestion (suggestion)}
 								<button

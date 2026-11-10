@@ -146,7 +146,31 @@ export async function deleteAIConversation(id: string, opts?: Opts): Promise<voi
  * holding JSON; the page renders the matching component, which loads its data with the viewer's
  * own permissions.
  */
+/** A host Claude environment sessions were denied, grouped by environment. */
+export interface BlockedEgress {
+	environmentID: string;
+	environment: string;
+	host: string;
+	count: number;
+	users: string[];
+	lastSeen: string;
+	example: string;
+	/** Where the host has been allowed since, if anywhere. */
+	allowedNow?: string[];
+}
+
+export async function listBlockedEgress(days = 7, opts?: Opts): Promise<BlockedEgress[]> {
+	const out = (await doGet(`/ai/blocked-egress?days=${days}`, opts)) as { items?: BlockedEgress[] };
+	return out.items ?? [];
+}
+
+/** Allows host for every session in the environment. */
+export async function allowEgressHost(environmentID: string, host: string): Promise<void> {
+	await doPost('/ai/blocked-egress/allow', { environmentID, host });
+}
+
 export type AIWidget =
+	| { type: 'egress_blocked' }
 	| { type: 'session'; sessionId: string }
 	| { type: 'sessions'; sessionIds: string[] }
 	| { type: 'mcp_server_request'; requestId: string }
@@ -206,6 +230,8 @@ function parseWidget(source: string): AISegment {
 			}
 			case 'approvals':
 				return { kind: 'widget', widget: { type: 'approvals' } };
+			case 'egress_blocked':
+				return { kind: 'widget', widget: { type: 'egress_blocked' } };
 			case 'mcp_server_request': {
 				const requestId = str(w.requestId);
 				if (requestId) return { kind: 'widget', widget: { type: 'mcp_server_request', requestId } };

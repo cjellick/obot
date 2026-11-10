@@ -367,6 +367,7 @@ func widgetPrompt(admin bool) string {
 		widgets = append([]string{
 			`{"type":"session","sessionId":"<id>"}: one agent session with its risk, labels and live event stream, as on its session page. Use it when the user asks what a session did or to see its events.`,
 			`{"type":"sessions","sessionIds":["<id>", ...]}: a list of sessions, at most 10, in the order given, each with its risk, user, surfaces, labels and latest activity. Use it whenever your answer covers more than one session.`,
+			`{"type":"egress_blocked"}: hosts Claude environment sessions were blocked from reaching in the last 7 days, with an Allow button for each. Show it when the user asks what was blocked or wants to allow a host; it needs no tool call first.`,
 			`{"type":"approvals"}: everything waiting on the user's decision (agent actions the Supervisor is holding and pending MCP server requests), with Approve and Deny buttons the user clicks. Show it when the user asks what needs approval or wants to approve or deny things; it needs no tool call first.`,
 		}, widgets...)
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
 	gtypes "github.com/obot-platform/obot/pkg/gateway/types"
 )
@@ -363,4 +364,60 @@ func hostAllowed(allowed []string, host string) bool {
 		}
 	}
 	return false
+}
+
+// BlockedEgress lists hosts Claude environment sessions were denied, for Obot AI's widget.
+func (h *Handler) BlockedEgress(req api.Context) error {
+	if !req.UserIsAdmin() {
+		return types.NewErrHTTP(403, "Administrator access required")
+	}
+	days, _ := strconv.Atoi(req.URL.Query().Get("days"))
+	blocked, err := h.blockedEgress(req.Context(), req, blockedEgressInput{Days: days, EnvironmentID: req.URL.Query().Get("environment_id")})
+	if err != nil {
+		return err
+	}
+	return req.Write(map[string]any{"items": blocked})
+}
+
+// AllowEgress allows a host for a Claude environment, or one of its profiles, from Obot AI's
+// widget.
+func (h *Handler) AllowEgress(req api.Context) error {
+	if !req.UserIsAdmin() {
+		return types.NewErrHTTP(403, "Administrator access required")
+	}
+	var in struct {
+		EnvironmentID string `json:"environmentID"`
+		Profile       string `json:"profile,omitempty"`
+		Host          string `json:"host"`
+	}
+	if err := req.Read(&in); err != nil {
+		return types.NewErrBadRequest("invalid request: %v", err)
+	}
+	if strings.TrimSpace(in.Host) == "" || in.EnvironmentID == "" {
+		return types.NewErrBadRequest("environmentID and host are required")
+	}
+	result, _, _ := h.updateClaudeEnvironment(req.Context(), req, in.EnvironmentID, func(env *gtypes.ClaudeEnvironment) error {
+		hosts := &env.Runtime.EgressHosts
+		if in.Profile != "" {
+			i := slices.IndexFunc(env.Profiles, func(p gtypes.ClaudeEnvironmentProfile) bool { return strings.EqualFold(p.Name, in.Profile) })
+			if i < 0 {
+				return fmt.Errorf("the environment has no profile %q", in.Profile)
+			}
+			hosts = &env.Profiles[i].EgressHosts
+		}
+		if host := strings.ToLower(strings.TrimSpace(in.Host)); !slices.Contains(*hosts, host) {
+			*hosts = append(*hosts, host)
+		}
+		return nil
+	})
+	if result != nil && result.IsError {
+		msg := ""
+		for _, c := range result.Content {
+			if t, ok := c.(*mcp.TextContent); ok {
+				msg += t.Text
+			}
+		}
+		return types.NewErrBadRequest("%s", msg)
+	}
+	return req.Write(map[string]any{"allowed": true})
 }

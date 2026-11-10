@@ -57,5 +57,14 @@
 	"ai_history": "聊天",
 	"ai_delete_chat": "删除聊天 {title}",
 	"ai_delete_chat_confirm": "删除聊天“{title}”？此操作无法撤消。",
-	"ai_delete": "删除"
+	"ai_delete": "删除",
+	"ai_widget_egress_title": "被阻止的出站请求（最近 7 天）",
+	"ai_widget_egress_empty": "没有被阻止的请求。",
+	"ai_widget_egress_detail": "{environment} · {count} 次 · 最近 {when}",
+	"ai_widget_egress_allowed_now": "现已允许：{where}",
+	"ai_widget_egress_allow": "允许",
+	"ai_widget_egress_allow_label": "允许 {host}",
+	"ai_widget_egress_note": "允许后，该环境中的所有会话都可访问此主机。新会话生效。",
+	"ai_attention_blocked_egress": "本周 Claude 环境有 {count} 个主机的访问被阻止。询问 Obot AI。",
+	"ai_suggestion_blocked_egress": "本周 Claude 环境被阻止访问了哪些主机？我应该允许其中哪些？"
 }

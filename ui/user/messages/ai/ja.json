@@ -57,5 +57,14 @@
 	"ai_history": "チャット",
 	"ai_delete_chat": "チャット {title} を削除",
 	"ai_delete_chat_confirm": "チャット「{title}」を削除しますか？元に戻せません。",
-	"ai_delete": "削除"
+	"ai_delete": "削除",
+	"ai_widget_egress_title": "ブロックされた送信（過去 7 日間）",
+	"ai_widget_egress_empty": "ブロックされたものはありません。",
+	"ai_widget_egress_detail": "{environment} · {count} 回 · 最終 {when}",
+	"ai_widget_egress_allowed_now": "許可済み: {where}",
+	"ai_widget_egress_allow": "許可",
+	"ai_widget_egress_allow_label": "{host} を許可",
+	"ai_widget_egress_note": "許可すると、環境内のすべてのセッションでホストが許可されます。新しいセッションに適用されます。",
+	"ai_attention_blocked_egress": "今週、Claude 環境が {count} 個のホストへのアクセスをブロックされました。Obot AI に確認してください。",
+	"ai_suggestion_blocked_egress": "今週 Claude 環境がブロックされたアクセス先は？許可すべきものはありますか？"
 }

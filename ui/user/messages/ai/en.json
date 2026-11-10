@@ -57,5 +57,14 @@
 	"ai_history": "Chats",
 	"ai_delete_chat": "Delete chat {title}",
 	"ai_delete_chat_confirm": "Delete the chat “{title}”? This can't be undone.",
-	"ai_delete": "Delete"
+	"ai_delete": "Delete",
+	"ai_widget_egress_title": "Blocked egress, last 7 days",
+	"ai_widget_egress_empty": "Nothing was blocked.",
+	"ai_widget_egress_detail": "{environment} · {count} times · last {when}",
+	"ai_widget_egress_allowed_now": "Allowed now: {where}",
+	"ai_widget_egress_allow": "Allow",
+	"ai_widget_egress_allow_label": "Allow {host}",
+	"ai_widget_egress_note": "Allow adds the host for every session in the environment. New sessions use it.",
+	"ai_attention_blocked_egress": "Claude environments were blocked from reaching {count} hosts this week. Ask Obot AI about it.",
+	"ai_suggestion_blocked_egress": "What did Claude environments get blocked from reaching this week? Should I allow any of it?"
 }

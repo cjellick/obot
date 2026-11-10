@@ -770,6 +770,8 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	// Obot AI chats with the tools of the built-in servers, as the signed-in user.
 	assistant := builtinmcp.NewAssistant(builtinMCP, services.AssistantModel)
 	mux.HandleFunc("POST /api/ai/chat", assistant.Chat)
+	mux.HandleFunc("GET /api/ai/blocked-egress", builtinMCP.BlockedEgress)
+	mux.HandleFunc("POST /api/ai/blocked-egress/allow", builtinMCP.AllowEgress)
 	mux.HandleFunc("GET /api/ai/conversations", assistant.ListConversations)
 	mux.HandleFunc("GET /api/ai/conversations/{conversation_id}", assistant.GetConversation)
 	mux.HandleFunc("DELETE /api/ai/conversations/{conversation_id}", assistant.DeleteConversation)
