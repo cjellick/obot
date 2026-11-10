@@ -149,6 +149,27 @@ type ContentTagging struct {
 	// BatchMaxItems bounds the batch queue; the oldest content is dropped beyond
 	// it. Default 200.
 	BatchMaxItems int `json:"batchMaxItems,omitempty"`
+	// Threshold is the probability, 0..1, a label's predicate must reach for the
+	// tagger to add the label. 0 means the default, 0.7.
+	Threshold float64 `json:"threshold,omitempty"`
+	// LabelThresholds overrides Threshold for individual labels.
+	LabelThresholds map[string]float64 `json:"labelThresholds,omitempty"`
+}
+
+// DefaultContentTaggingThreshold is the tagger's per-label probability threshold
+// when the settings name none.
+const DefaultContentTaggingThreshold = 0.7
+
+// LabelThreshold returns the probability a label's predicate must reach for the
+// tagger to add it.
+func (c ContentTagging) LabelThreshold(label Label) float64 {
+	if t, ok := c.LabelThresholds[string(label)]; ok && t > 0 && t <= 1 {
+		return t
+	}
+	if c.Threshold > 0 && c.Threshold <= 1 {
+		return c.Threshold
+	}
+	return DefaultContentTaggingThreshold
 }
 
 // PolicyInput is everything a condition can see.

@@ -321,3 +321,21 @@ func (e *Engine) ChatCompletionWithParams(ctx context.Context, model string, mes
 	}
 	return e.core.Load().ChatCompletionWithParams(ctx, model, messages, params)
 }
+
+// Decision asks a model typed questions through Bifrost's decision API: natively where the
+// provider serves decisions, emulated through Responses elsewhere.
+func (e *Engine) Decision(ctx context.Context, model string, input schemas.DecisionInput, questions []schemas.DecisionQuestion) (*schemas.BifrostDecisionResponse, error) {
+	if !e.Ready() {
+		return nil, errors.New("LLM gateway unavailable")
+	}
+	return e.core.Load().Decision(ctx, model, input, questions)
+}
+
+// ProviderConfigured reports whether the gateway has the provider configured with a key.
+func (e *Engine) ProviderConfigured(provider string) bool {
+	if !e.Ready() {
+		return false
+	}
+	core := e.core.Load()
+	return core != nil && core.ProviderConfigured(schemas.ModelProvider(provider))
+}

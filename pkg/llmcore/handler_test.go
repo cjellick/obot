@@ -26,6 +26,7 @@ func TestEndpointRegistration(t *testing.T) {
 		"/v1/messages",
 		"/anthropic/v1/messages",
 		"/v1/chat/completions",
+		"/v1/decisions",
 		"/v1/responses/input_tokens",
 		"/v1/messages/count_tokens",
 		"/anthropic/v1/messages/count_tokens",

@@ -166,6 +166,7 @@ func TestMeteredLLMEndpoint(t *testing.T) {
 		"v1/responses":              true,
 		"v1/responses/input_tokens": false,
 		"v1/chat/completions":       true,
+		"v1/decisions":              true,
 		"/v1/embeddings/":           true,
 		"v1/models":                 false,
 	} {

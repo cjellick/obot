@@ -243,6 +243,8 @@ func responseUsage(resp *schemas.BifrostResponse) *schemas.BifrostLLMUsage {
 		return resp.TextCompletionResponse.Usage
 	case resp.EmbeddingResponse != nil && resp.EmbeddingResponse.Usage != nil:
 		return resp.EmbeddingResponse.Usage
+	case resp.DecisionResponse != nil && resp.DecisionResponse.Usage != nil:
+		return resp.DecisionResponse.Usage
 	}
 	return nil
 }

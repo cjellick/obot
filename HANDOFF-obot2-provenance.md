@@ -47,7 +47,7 @@ effects `allow / log / redact / downshift / quarantine / judge / require_approva
 
 - **Core (pure, I/O-free):** `pkg/provenance/{doc,event,labels,fingerprint,session,policy,engine,store,simulate,memstore,content_classifier}.go`
   - Data tagging: `fingerprint.go` `Classify` (deterministic regex + Luhn) and `labels.go` `ToolCapabilityHeuristics` (keyword tool labels). The engine inherits content trust/sensitivity from the producing tool's capability labels in `Ingest`.
-- **Supervisor (AI):** `pkg/provenance/supervisor/{supervisor,assistant,gateway_decider,openai_decisions,draft,content}.go` — bounded-decision primitive (`Decider`) over the LLM gateway or an OpenAI Decisions-shaped endpoint. Implements `Judge`, `TriageApproval`, `DraftPolicy`, `Narrate`, `ClassifyTool`, `ClassifyContent`, plus `Brief` and `Ask` (for the home-page briefing and the "Ask the Supervisor" box).
+- **Supervisor (AI):** `pkg/provenance/supervisor/{supervisor,assistant,decisions,gateway_decider,draft,content}.go` — bounded decisions through the LLM gateway's decision API (Bifrost `DecisionRequest`: native `openai/gpt-6-luna`, emulated elsewhere), falling back to the chat-path `Decider`. Implements `Judge`, `TriageApproval`, `DraftPolicy`, `Narrate`, `ClassifyTool`, `ClassifyContent`, plus `Brief` and `Ask` (for the home-page briefing and the "Ask the Supervisor" box).
 - **Red team:** `pkg/provenance/redteam/` — runs the 10 assurance scenarios against the engine.
 - **Surface helpers:** `pkg/provenance/{llm,device,copilot}/` (pure, tested).
 - **Store:** `pkg/gateway/types/provenance.go` (9 GORM tables), `pkg/gateway/client/provenance.go` (implements `provenance.Store`, plus `RunProvenanceRetention`). Registered in `pkg/gateway/db/db.go` AutoMigrate.

@@ -265,7 +265,8 @@ func New(ctx context.Context, store *llmcoreclient.Client, opts Options) (*Engin
 	// Classify subscription attempts before access/budget hooks; enforce their
 	// destination again at the last gate after any trusted plugin rewrites.
 	plugins := append([]schemas.LLMPlugin{&subscriptionPlugin{account: e.account}}, orderedPlugins(routing, opts.Plugins)...)
-	plugins = append(plugins, &providerTransitionPlugin{account: e.account})
+	// Decision attempts are marked native or emulated after routing chose their model.
+	plugins = append(plugins, &decisionEmulationPlugin{}, &providerTransitionPlugin{account: e.account})
 	e.client, err = bifrost.Init(ctx, schemas.BifrostConfig{
 		Account:      e.account,
 		LLMPlugins:   plugins,

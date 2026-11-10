@@ -4,9 +4,10 @@
 // so it can only ever choose something Obot offered. Narration, policy
 // drafting and tool labelling use a text model with JSON output.
 //
-// Two deciders ship: GatewayDecider, which runs any model through Obot's own
-// LLM gateway with structured output, and OpenAIDecisionsDecider, which calls
-// an OpenAI Decisions-API-shaped endpoint.
+// Bounded decisions (judge, approval triage, tool labels and the content tagger)
+// go first through the LLM gateway's decision API (decisions.go): natively on
+// OpenAI's gpt-6-luna, emulated by the gateway on other models. When that fails
+// they fall back to GatewayDecider or a JSON chat call through the same gateway.
 package supervisor
 
 import (
@@ -114,6 +115,17 @@ type Supervisor struct {
 	// lastText and lastDecision are the models that most recently answered.
 	lastText     atomic.Pointer[string]
 	lastDecision atomic.Pointer[string]
+
+	// decisions makes typed decision calls; nil leaves only the chat path.
+	decisions DecisionClient
+	// decisionOverride is the administrator's model for decision calls; ""
+	// means the gateway's decision default.
+	decisionOverride func(context.Context) string
+	// settings are read per call, for the tagger's thresholds.
+	settings           func(context.Context) provenance.Settings
+	triageThreshold    float64
+	toolLabelThreshold float64
+	contentLabels      func(context.Context) []LabelDescription
 }
 
 // Option configures a Supervisor.
@@ -151,8 +163,7 @@ func (m *GatewayTextModel) CompleteJSON(ctx context.Context, system, user string
 	return text, firstNonEmpty(answered, model), err
 }
 
-// WithDecider replaces the decider, for an OpenAI Decisions endpoint or a
-// test double.
+// WithDecider replaces the chat-path decider, for a test double.
 func WithDecider(d provenance.Decider) Option {
 	return func(s *Supervisor) { s.decider = d }
 }
@@ -195,6 +206,27 @@ func New(completer Completer, settings func(context.Context) provenance.Settings
 		now:           func() time.Time { return time.Now().UTC() },
 		textModel:     modelOr(DefaultTextModel),
 		decisionModel: modelOr(DefaultDecisionModel),
+		settings:      settings,
+		decisionOverride: func(ctx context.Context) string {
+			if settings != nil {
+				return settings(ctx).SupervisorModel
+			}
+			return ""
+		},
+	}
+	if dc, ok := completer.(DecisionClient); ok {
+		s.decisions = dc
+		// Report the decision default (gpt-6-luna or llm-mini's model) until a call answers.
+		if dm, ok := completer.(interface{ DecisionModel(context.Context) string }); ok {
+			s.decisionModel = func(ctx context.Context) string {
+				if settings != nil {
+					if m := settings(ctx).SupervisorModel; m != "" {
+						return m
+					}
+				}
+				return firstNonEmpty(dm.DecisionModel(ctx), DefaultDecisionModel)
+			}
+		}
 	}
 	for _, o := range opts {
 		o(s)
@@ -223,6 +255,16 @@ func (s *Supervisor) Judge(ctx context.Context, in provenance.JudgeInput) (prove
 		ctx, cancel = context.WithTimeout(ctx, in.Budget)
 		defer cancel()
 	}
+	if s.decisions != nil {
+		out, err := s.judgeByDecision(ctx, in)
+		if err == nil {
+			s.remember(&s.lastDecision, out.Model)
+			return out, nil
+		}
+		if !fallBack(ctx, "judge", err) {
+			return provenance.JudgeOutput{}, err
+		}
+	}
 	ans, err := s.decider.Decide(ctx, provenance.Question{
 		Question: judgeQuestion,
 		Context:  JudgeContext(in),
@@ -247,6 +289,16 @@ func (s *Supervisor) Judge(ctx context.Context, in provenance.JudgeInput) (prove
 // escalate.
 func (s *Supervisor) TriageApproval(ctx context.Context, a provenance.Approval, sess *provenance.Session, recent []provenance.Event) (provenance.Triage, error) {
 	ctx = aiusage.WithFeature(ctx, aiusage.FeatureSupervisorTriage)
+	if s.decisions != nil {
+		t, err := s.triageByDecision(ctx, a, sess, recent)
+		if err == nil {
+			s.remember(&s.lastDecision, t.Model)
+			return t, nil
+		}
+		if !fallBack(ctx, "triage", err) {
+			return provenance.Triage{}, err
+		}
+	}
 	if s.decider == nil {
 		return provenance.Triage{}, errors.New("the Supervisor has no decider")
 	}
@@ -296,6 +348,15 @@ func (s *Supervisor) Narrate(ctx context.Context, sess *provenance.Session, even
 // provenance.CapabilityLabels.
 func (s *Supervisor) ClassifyTool(ctx context.Context, t provenance.ToolDescriptor) (provenance.Labels, string, error) {
 	ctx = aiusage.WithFeature(ctx, aiusage.FeatureToolLabels)
+	if s.decisions != nil {
+		labels, rationale, err := s.classifyToolByDecision(ctx, t)
+		if err == nil {
+			return labels, rationale, nil
+		}
+		if !fallBack(ctx, "tool labels", err) {
+			return nil, "", err
+		}
+	}
 	var out struct {
 		Labels    []string `json:"labels"`
 		Rationale string   `json:"rationale"`

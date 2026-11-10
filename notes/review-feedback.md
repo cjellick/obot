@@ -44,14 +44,15 @@ Craig's review of the branch, and the decisions from it. Everything here lands o
       commentary, policy drafting, tool labels) against the user who triggered it, or a system
       "Obot" identity for background work. Show them in audit logs. No budgets or guardrails on
       them for now.
-- [ ] Bounded decisions go through Bifrost's `DecisionRequest`. Use `openai/gpt-6-luna` when
+- [x] Bounded decisions go through Bifrost's `DecisionRequest`. Use `openai/gpt-6-luna` when
       OpenAI is configured; otherwise Bifrost emulates on `llm-mini`.
   - Tagger: one predicate per label, with per-label thresholds.
   - Tool label suggestions: one predicate per capability.
   - Approval triage: a choice, escalating below a probability threshold.
   - Judge: a choice, with a templated rationale.
   - Delete the unused hand-rolled OpenAI Decisions client.
-- [ ] Expose a decisions endpoint on the LLM gateway for outside clients.
+- [x] Expose a decisions endpoint on the LLM gateway for outside clients (`POST /api/llm-proxy/v1/decisions`,
+      OpenAI's Decisions format, any configured model; emulated where the provider has no decisions).
 
 ## Sessions and supervision
 

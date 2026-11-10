@@ -173,7 +173,7 @@ func (p *directFixture) PreLLMHook(ctx *schemas.BifrostContext, req *schemas.Bif
 	return req, &schemas.LLMPluginShortCircuit{Stream: chunks}, nil
 }
 
-func directProxy(t *testing.T, plugin *directFixture) (*llmProviderProxy, api.Context) {
+func directProxy(t *testing.T, plugin schemas.LLMPlugin) (*llmProviderProxy, api.Context) {
 	t.Helper()
 	storage := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
 	store, err := llmcoreclient.New(storage, directCodec{})

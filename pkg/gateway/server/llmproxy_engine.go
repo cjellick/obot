@@ -203,6 +203,10 @@ func resolveBifrostRoute(req *http.Request) (bifrostRoute, error) {
 		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIResponses}, nil
 	case "chat/completions":
 		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIChatCompletions}, nil
+	case "decisions":
+		// OpenAI's Decisions API, served for any model: decision responses report usage in
+		// the Responses shape (input_tokens, output_tokens).
+		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIResponses}, nil
 	case "embeddings":
 		// Embedding responses report usage in the Chat Completions shape.
 		return bifrostRoute{base: "/", dialect: llmtypes.DialectOpenAIChatCompletions}, nil
