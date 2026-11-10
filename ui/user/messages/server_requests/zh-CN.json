@@ -1,6 +1,6 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"server_requests_title": "服务器请求",
+	"server_requests_title": "连接到 Obot",
 	"server_requests_description_admin": "用户通过 Obot 内置的 MCP 服务器，从其代理中请求新的 MCP 服务器。批准请求后，服务器会被添加到目录和 vMCP 中。",
 	"server_requests_description_user": "你请求管理员添加的 MCP 服务器。可通过 Obot 内置的 MCP 服务器从你的代理中发起请求。",
 	"server_requests_state_pending": "待处理",
@@ -61,5 +61,6 @@
 	"server_requests_slack_removed": "已关闭 Slack 通知。",
 	"server_requests_slack_cancel": "取消",
 	"server_requests_setup_commands": "添加到你的代理",
-	"server_requests_setup_codex_hint": "Codex：将 config.toml 粘贴到 ChatGPT 管理控制台的 Agent security → Defaults → Edit as TOML，或部署为 /etc/codex/managed_config.toml。每位用户运行一次 codex mcp login obot 登录。"
+	"server_requests_setup_codex_hint": "Codex：将 config.toml 粘贴到 ChatGPT 管理控制台的 Agent security → Defaults → Edit as TOML，或部署为 /etc/codex/managed_config.toml。每位用户运行一次 codex mcp login obot 登录。",
+	"server_requests_list_title": "MCP 服务器请求"
 }

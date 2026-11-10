@@ -1,6 +1,6 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"server_requests_title": "サーバーリクエスト",
+	"server_requests_title": "Obot に接続",
 	"server_requests_description_admin": "ユーザーは Obot の組み込み MCP サーバーを通じて、エージェントから新しい MCP サーバーをリクエストします。リクエストを承認すると、サーバーがカタログと vMCP に追加されます。",
 	"server_requests_description_user": "管理者に追加を依頼した MCP サーバーです。Obot の組み込み MCP サーバーを通じて、エージェントからリクエストできます。",
 	"server_requests_state_pending": "保留中",
@@ -61,5 +61,6 @@
 	"server_requests_slack_removed": "Slack 通知をオフにしました。",
 	"server_requests_slack_cancel": "キャンセル",
 	"server_requests_setup_commands": "エージェントに追加",
-	"server_requests_setup_codex_hint": "Codex: config.toml を ChatGPT 管理コンソールの Agent security → Defaults → Edit as TOML に貼り付けるか、/etc/codex/managed_config.toml として配布します。各ユーザーは codex mcp login obot で一度サインインします。"
+	"server_requests_setup_codex_hint": "Codex: config.toml を ChatGPT 管理コンソールの Agent security → Defaults → Edit as TOML に貼り付けるか、/etc/codex/managed_config.toml として配布します。各ユーザーは codex mcp login obot で一度サインインします。",
+	"server_requests_list_title": "MCP サーバーリクエスト"
 }

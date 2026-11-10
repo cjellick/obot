@@ -1,6 +1,6 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
-	"server_requests_title": "Server Requests",
+	"server_requests_title": "Connect to Obot",
 	"server_requests_description_admin": "Users ask for new MCP servers from their agent through Obot's built-in MCP server. Approve a request to add the server to the catalog and a vMCP.",
 	"server_requests_description_user": "MCP servers you asked an administrator to add. Ask for one from your agent through Obot's built-in MCP server.",
 	"server_requests_state_pending": "Pending",
@@ -61,5 +61,6 @@
 	"server_requests_slack_removed": "Slack alerts turned off.",
 	"server_requests_slack_cancel": "Cancel",
 	"server_requests_setup_commands": "Add it to your agent",
-	"server_requests_setup_codex_hint": "Codex: paste the config.toml into Agent security → Defaults → Edit as TOML in the ChatGPT admin console, or deploy it as /etc/codex/managed_config.toml. Each user signs in once with codex mcp login obot."
+	"server_requests_setup_codex_hint": "Codex: paste the config.toml into Agent security → Defaults → Edit as TOML in the ChatGPT admin console, or deploy it as /etc/codex/managed_config.toml. Each user signs in once with codex mcp login obot.",
+	"server_requests_list_title": "MCP server requests"
 }

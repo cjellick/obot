@@ -102,6 +102,7 @@
 		Logs,
 		Settings2,
 		ChevronRight,
+		Plug,
 		ShieldCheck,
 		Sparkles
 	} from '@lucide/svelte';
@@ -321,6 +322,7 @@
 					: []),
 				{
 					id: 'mcp-server-requests',
+					icon: Plug,
 					label: m.nav_server_requests(),
 					href: '/mcp-server-requests'
 				},

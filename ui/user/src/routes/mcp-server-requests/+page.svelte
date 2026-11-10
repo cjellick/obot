@@ -71,7 +71,8 @@
 			<SlackAlertsSettings />
 		{/if}
 
-		<div class="flex flex-wrap gap-2" role="group" aria-label={m.server_requests_title()}>
+		<h2 class="text-lg font-semibold">{m.server_requests_list_title()}</h2>
+		<div class="flex flex-wrap gap-2" role="group" aria-label={m.server_requests_list_title()}>
 			{#each filters as f (f.value)}
 				<button
 					type="button"

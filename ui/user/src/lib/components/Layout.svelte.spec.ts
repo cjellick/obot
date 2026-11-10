@@ -32,7 +32,6 @@ const adminOnlyLinks = [
 	'/inventory',
 	'/supervision',
 	'/sessions',
-	'/policies',
 	'/tool-labels',
 	'/approvals',
 	'/admin/platform'
@@ -114,7 +113,7 @@ async function expectSharedNavigation() {
 
 async function expectAdminOnlyNavigation() {
 	await expandSection('operations', '/inventory');
-	await expandSection('supervision', '/supervision');
+	await expandSection('supervision-group', '/supervision');
 
 	for (const href of adminOnlyLinks) {
 		await expectLink(href);
@@ -242,23 +241,23 @@ describe('Layout.svelte', () => {
 			);
 		}
 
-		it('puts the Supervisor dashboard and workflows first, with pending approvals visible', async () => {
+		it('puts Obot AI first, then the Dashboard and the Supervisor group, with pending approvals visible', async () => {
 			mockPending(3);
 			await renderLayout([Group.ADMIN]);
-			// Obot AI leads, then the Supervisor's workflows.
 			await expect.element(page.getByCSS('a.sidebar-link').first()).toHaveAttribute('href', '/ai');
 			await expect
 				.element(page.getByCSS('a.sidebar-link').nth(1))
+				.toHaveAttribute('href', '/dashboard');
+			await expandSection('supervision-group', '/supervision');
+			await expect
+				.element(page.getByRole('link', { name: 'Overview', exact: true }))
 				.toHaveAttribute('href', '/supervision');
 			await expect
-				.element(page.getByRole('link', { name: 'Dashboard', exact: true }))
-				.toHaveAttribute('href', '/supervision');
-			await expectLink('/sessions');
-			await expectLink('/policies');
+				.element(page.getByRole('link', { name: 'Activity', exact: true }))
+				.toHaveAttribute('href', '/sessions');
 			await expect
-				.element(page.getByRole('link', { name: 'Labels', exact: true }))
+				.element(page.getByRole('link', { name: 'Rules', exact: true }))
 				.toHaveAttribute('href', '/tool-labels');
-			await expect.element(page.getByCSS('#sidebar-collapse-supervision')).not.toBeInTheDocument();
 			await expect
 				.element(page.getByRole('link', { name: /Approvals.*3 pending approvals/ }))
 				.toHaveAttribute('href', '/approvals');
@@ -283,7 +282,7 @@ describe('Layout.svelte', () => {
 				http.get('/api/provenance/approvals', () => HttpResponse.json({ items: [], total: 5 }))
 			);
 			await renderLayout([Group.ADMIN]);
-			await expandSection('supervision', '/supervision');
+			await expandSection('supervision-group', '/supervision');
 
 			await expect
 				.element(page.getByRole('link', { name: /Approvals.*5 pending approvals/ }))
@@ -293,7 +292,7 @@ describe('Layout.svelte', () => {
 		it('shows no badge when nothing is pending', async () => {
 			mockPending(0);
 			await renderLayout([Group.ADMIN]);
-			await expandSection('supervision', '/supervision');
+			await expandSection('supervision-group', '/supervision');
 
 			await expectLink('/approvals');
 			await expect.element(page.getByText(/pending approvals/)).not.toBeInTheDocument();
