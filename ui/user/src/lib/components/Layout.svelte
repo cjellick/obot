@@ -101,11 +101,7 @@
 		Settings2,
 		ChevronRight,
 		ShieldCheck,
-		Activity,
-		Inbox,
-		Shield,
-		Sparkles,
-		Tags
+		Sparkles
 	} from '@lucide/svelte';
 	import { tick, untrack } from 'svelte';
 	import { fade, slide, type TransitionConfig } from 'svelte/transition';
@@ -254,21 +250,31 @@
 	let routes = $derived([
 		// Obot AI is the front door: it can answer for and act on everything below.
 		{ id: 'ai', icon: Sparkles, label: m.nav_ai(), href: '/ai' },
-		// Supervision is the daily workflow. Infrastructure supports it below.
+		// Supervision is the daily workflow, grouped so it adds one top-level item.
 		...(profile.current.hasAdminAccess?.()
 			? [
-					{ id: 'supervision', icon: ShieldCheck, label: m.nav_dashboard(), href: '/supervision' },
-					{ id: 'sessions', icon: Activity, label: m.nav_sessions(), href: '/sessions' },
 					{
-						id: 'approvals',
-						icon: Inbox,
-						label: m.nav_approvals(),
-						href: '/approvals',
-						count: pendingApprovals,
-						countLabel: m.nav_approvals_pending({ count: pendingApprovals })
-					},
-					{ id: 'policies', icon: Shield, label: m.nav_policies(), href: '/policies' },
-					{ id: 'labels', icon: Tags, label: m.supervision_labels(), href: '/tool-labels' }
+						id: 'supervision-group',
+						icon: ShieldCheck,
+						label: m.nav_supervision(),
+						collapsible: true,
+						// Shown on the group only while it's collapsed; the Approvals item carries it otherwise.
+						count: isNavCollapsed('supervision-group') ? pendingApprovals : 0,
+						countLabel: m.nav_approvals_pending({ count: pendingApprovals }),
+						items: [
+							{ id: 'supervision', label: m.nav_dashboard(), href: '/supervision' },
+							{ id: 'sessions', label: m.nav_sessions(), href: '/sessions' },
+							{
+								id: 'approvals',
+								label: m.nav_approvals(),
+								href: '/approvals',
+								count: pendingApprovals,
+								countLabel: m.nav_approvals_pending({ count: pendingApprovals })
+							},
+							{ id: 'policies', label: m.nav_policies(), href: '/policies' },
+							{ id: 'labels', label: m.supervision_labels(), href: '/tool-labels' }
+						]
+					}
 				]
 			: isAtLeastPoweruser
 				? [
