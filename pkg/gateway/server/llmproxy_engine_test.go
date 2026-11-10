@@ -57,6 +57,12 @@ func TestResolveBifrostRoute(t *testing.T) {
 			wantDialect: llmtypes.DialectOpenAIChatCompletions,
 		},
 		{
+			name:        "openai decisions",
+			path:        "v1/decisions",
+			wantBase:    "/",
+			wantDialect: llmtypes.DialectOpenAIResponses,
+		},
+		{
 			name:        "embeddings",
 			path:        "v1/embeddings",
 			wantBase:    "/",

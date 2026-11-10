@@ -47,7 +47,7 @@ type llmUsageRecorder struct {
 // whose requests are recorded in token usage: those that generate tokens.
 func meteredLLMEndpoint(clientPath string) bool {
 	switch strings.TrimPrefix(strings.Trim(clientPath, "/"), "v1/") {
-	case "messages", "responses", "chat/completions", "embeddings":
+	case "messages", "responses", "chat/completions", "embeddings", "decisions":
 		return true
 	default:
 		return false

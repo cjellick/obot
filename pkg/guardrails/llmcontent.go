@@ -158,6 +158,17 @@ func requestText(req *schemas.BifrostRequest) textRefs {
 	case req.CountTokensRequest != nil:
 		// Token counting sends the whole prompt to the provider, so it is checked too.
 		refs.addResponsesRequest(req.CountTokensRequest)
+	case req.DecisionRequest != nil:
+		// A decision's evidence is checked like a prompt: its text, or its messages' text.
+		in := &req.DecisionRequest.Input
+		refs.add(RoleUser, "", in.Text)
+		for i := range in.Messages {
+			content := &in.Messages[i].Content
+			refs.add(RoleUser, "", content.Text)
+			for j := range content.Parts {
+				refs.add(RoleUser, "", content.Parts[j].Text)
+			}
+		}
 	case req.EmbeddingRequest != nil:
 		// Embedding inputs can mix text with images, audio, video and files; only text is
 		// checked.
