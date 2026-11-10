@@ -145,6 +145,8 @@ var (
 		"/api/user-default-role-settings",
 		"/api/setup/",
 		"/api/k8s-settings",
+		"GET /api/infrastructure",
+		"GET /api/infrastructure/",
 		"/api/image-pull-secrets",
 		"/api/image-pull-secrets/",
 		"/api/git-credentials",

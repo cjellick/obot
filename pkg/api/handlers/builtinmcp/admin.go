@@ -162,6 +162,7 @@ func (h *Handler) adminServer(req api.Context) *mcp.Server {
 
 	h.addInsightTools(s, req)
 	h.addManagementTools(s, req)
+	h.addInfrastructureTools(s, req)
 
 	// Administrators can search too.
 	mcp.AddTool(s, &mcp.Tool{

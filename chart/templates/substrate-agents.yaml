@@ -19,6 +19,13 @@ rules:
   - apiGroups: [ate.dev]
     resources: [workerpools]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Read-only: the Infrastructure page shows the worker pods Substrate runs for each pool.
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

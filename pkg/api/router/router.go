@@ -12,6 +12,7 @@ import (
 	"github.com/obot-platform/obot/pkg/api/handlers/registry"
 	"github.com/obot-platform/obot/pkg/api/handlers/setup"
 	"github.com/obot-platform/obot/pkg/api/handlers/wellknown"
+	"github.com/obot-platform/obot/pkg/obotlogs"
 	"github.com/obot-platform/obot/pkg/scim"
 	scimsetup "github.com/obot-platform/obot/pkg/scim/setup"
 	"github.com/obot-platform/obot/pkg/services"
@@ -125,6 +126,7 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	tunnelHandler := handlers.NewTunnelHandler(services.TunnelManager)
 	mcpTunnelHandler := handlers.NewMCPTunnelHandler(services.TunnelManager)
 	k8sSettingsHandler := handlers.NewK8sSettingsHandler(services.MCPSessionManager)
+	infrastructure := handlers.NewInfrastructureHandler(services.MCPRuntimeBackend, services.LocalK8sClient, services.LocalK8sConfig, services.MCPServerNamespace, services.ServiceNamespace, services.Substrate, obotlogs.Default())
 
 	enforcement, err := handlers.NewEnforcementHandler(services.ServerURL, services.ProvenanceEngine)
 	if err != nil {
@@ -517,6 +519,12 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("GET /api/default-k8s-settings", k8sSettingsHandler.Defaults)
 	mux.HandleFunc("GET /api/k8s-settings", k8sSettingsHandler.Get)
 	mux.HandleFunc("PUT /api/k8s-settings", k8sSettingsHandler.Update)
+
+	// Infrastructure: the workloads Obot runs and Obot's own logs (admins only)
+	mux.HandleFunc("GET /api/infrastructure", infrastructure.Get)
+	mux.HandleFunc("GET /api/infrastructure/logs", infrastructure.Logs)
+	mux.HandleFunc("GET /api/infrastructure/mcp-servers/{name}", infrastructure.GetMCPServer)
+	mux.HandleFunc("GET /api/infrastructure/mcp-servers/{name}/logs", infrastructure.MCPServerLogs)
 
 	// Image Pull Secrets
 	mux.HandleFunc("GET /api/image-pull-secrets/capability", imagePullSecretsHandler.Capability)

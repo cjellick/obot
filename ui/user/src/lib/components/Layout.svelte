@@ -371,6 +371,15 @@
 								href: '/inventory'
 							}
 						]
+					: []),
+				...(profile.current.isAdmin?.()
+					? [
+							{
+								id: 'infrastructure',
+								label: m.nav_infrastructure(),
+								href: '/infrastructure'
+							}
+						]
 					: [])
 			]
 		},
