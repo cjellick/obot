@@ -236,7 +236,10 @@ type Services struct {
 	// LocalK8sClient is a kclient for the local Kubernetes cluster — the
 	// cluster the obot pod runs in, where source Secrets for
 	// secretBindings live. Nil on the docker backend.
-	LocalK8sClient            kclient.Client
+	LocalK8sClient kclient.Client
+	// LocalK8sConfig is the REST config behind LocalK8sClient, for APIs the controller-runtime
+	// client doesn't cover, such as pod logs. Nil on the docker backend.
+	LocalK8sConfig            *rest.Config
 	LocalRouter               *router.Router
 	K8SEveryReplicaRouter     *router.Router
 	EveryReplicaRouter        *router.Router
@@ -1267,6 +1270,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 
 		SkillAccessRuleHelper:                skillAccessRuleHelper,
 		LocalK8sClient:                       apiLocalK8sClient,
+		LocalK8sConfig:                       localK8sConfig,
 		LocalRouter:                          localRouter,
 		K8SEveryReplicaRouter:                tunnelPeerRouter,
 		EveryReplicaRouter:                   everyReplicaRouter,
