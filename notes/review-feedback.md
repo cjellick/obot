@@ -53,7 +53,7 @@ Craig's review of the branch, and the decisions from it. Everything here lands o
 
 - [x] Save session commentary and regenerate it only when the session has changed. Make "What
       concerns me" shorter and less padded.
-- [ ] Claude environment egress (done except the demo of real outbound traffic):
+- [x] Claude environment egress:
   - Don't audit-log Obot's own runner traffic, or at least hide it.
   - Fold Anthropic control-plane traffic into one counter.
   - Turn tunneled paths into real actions (git clone, GitHub MCP, model call).
