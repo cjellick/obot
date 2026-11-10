@@ -29,7 +29,18 @@ const (
 	// provenanceDeniedDetails is the Envoy response code detail for a denial.
 	provenanceDeniedDetails = "obot_provenance_denied"
 	anthropicAPIHost        = "api.anthropic.com"
+	// emailCacheTTL bounds how long a user's email is reused for their sessions.
+	emailCacheTTL = 10 * time.Minute
 )
+
+var (
+	userEmails sync.Map // user ID -> cachedEmail
+)
+
+type cachedEmail struct {
+	email   string
+	fetched time.Time
+}
 
 // egressProvenance follows one intercepted request through Obot Policy: it
 // decides the request once it has seen enough of it, and ingests what the
@@ -204,6 +215,7 @@ func (e *egressProvenance) decide(ctx context.Context) *ext.ProcessingResponse {
 		Action:  action,
 		Ref:     provenance.SurfaceRef{EgressAuditLogUUID: e.entry.ID},
 		Summary: summary,
+		Title:   e.sessionTitle(),
 		Budget:  provenanceBudget,
 	})
 	if err != nil {
@@ -227,6 +239,15 @@ func (e *egressProvenance) decide(ctx context.Context) *ext.ProcessingResponse {
 			Details: provenanceDeniedDetails,
 		}},
 	}
+}
+
+// sessionTitle names the session after the repository it works in. Model calls
+// would otherwise leave every Claude session listed as "model call to Anthropic".
+func (e *egressProvenance) sessionTitle() string {
+	if e.class.category == egressGit && e.class.host != "" && e.class.path != "" {
+		return e.class.host + e.class.path
+	}
+	return ""
 }
 
 // responseHeaders records whether the response body will be scannable.
@@ -344,16 +365,6 @@ func mcpToolCall(body string) (string, bool) {
 	}
 	return msg.Params.Name, true
 }
-
-// emailCacheTTL bounds how long a user's email is reused for their sessions.
-const emailCacheTTL = 10 * time.Minute
-
-type cachedEmail struct {
-	email   string
-	fetched time.Time
-}
-
-var userEmails sync.Map // user ID -> cachedEmail
 
 // userEmail is the user's email, so sessions show who they belong to. Failures leave it
 // empty; the session still has the user's ID.

@@ -1,6 +1,8 @@
 package claudecredentials
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestClassifyEgress(t *testing.T) {
 	const obot = "https://obot.example.com"

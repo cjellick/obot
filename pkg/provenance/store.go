@@ -82,15 +82,6 @@ type Approval struct {
 	Labels Labels `json:"labels,omitempty"`
 }
 
-// EffectiveStatus reports an approval's current state without requiring a
-// background job to persist expiration. Resolved decisions keep their status.
-func (a Approval) EffectiveStatus(now time.Time) string {
-	if a.Status == ApprovalPending && !now.Before(a.ExpiresAt) {
-		return ApprovalExpired
-	}
-	return a.Status
-}
-
 // ApprovalQuery filters approvals.
 type ApprovalQuery struct {
 	Status    string
@@ -207,4 +198,13 @@ func (k Kill) Matches(s *Session, now time.Time) bool {
 		return s != nil && s.ID == k.Target
 	}
 	return false
+}
+
+// EffectiveStatus reports an approval's current state without requiring a
+// background job to persist expiration. Resolved decisions keep their status.
+func (a Approval) EffectiveStatus(now time.Time) string {
+	if a.Status == ApprovalPending && !now.Before(a.ExpiresAt) {
+		return ApprovalExpired
+	}
+	return a.Status
 }

@@ -97,15 +97,6 @@ func newToolUpstream(t *testing.T) *toolUpstream {
 	return u
 }
 
-func (u *toolUpstream) lastPrompt() string {
-	u.lock.Lock()
-	defer u.lock.Unlock()
-	if len(u.prompts) == 0 {
-		return ""
-	}
-	return u.prompts[len(u.prompts)-1]
-}
-
 // trifectaChat is a Chat Completions conversation whose last turn fed back an untrusted
 // issue and a CRM result, asking the model for ask.
 func trifectaChat(t *testing.T, ask string, stream, tools bool) string {

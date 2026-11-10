@@ -1,6 +1,8 @@
 package provenance
 
-import "context"
+import (
+	"context"
+)
 
 // ToolLabelScope uses resource identity rather than a mutable display name.
 func ToolLabelScope(resourceType, resourceID string) string {

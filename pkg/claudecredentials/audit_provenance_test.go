@@ -252,6 +252,7 @@ func TestEgressProvenanceSeparatesPlumbingFromWork(t *testing.T) {
 	session, err := engine.Resolve(ctx, provenanceTestSubject, provenanceTestSession, provenance.SurfaceEgress)
 	require.NoError(t, err)
 	require.Equal(t, 3, session.State.ControlPlane, "two heartbeats and the tools/list")
+	require.Equal(t, "github.com/acme/web", session.Title, "named after the repository it works in")
 
 	require.NoError(t, processor.Provider.Gateway.FlushEgressAuditLogs())
 	entries, _, err := processor.Provider.Gateway.ListEgressAuditLogs(ctx, gclient.EgressAuditLogOptions{Limit: 10})

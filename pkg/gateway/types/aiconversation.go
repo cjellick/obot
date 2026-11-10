@@ -1,6 +1,8 @@
 package types
 
-import "time"
+import (
+	"time"
+)
 
 // AIConversation is one Obot AI chat, owned by the user who had it. Its title and messages
 // are content, so they are kept in Payload, encrypted with the credential store's

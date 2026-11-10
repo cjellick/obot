@@ -107,6 +107,9 @@ type DecideRequest struct {
 	ParentID string
 	Ref      SurfaceRef
 	Summary  string
+	// Title names the session when it has no title yet, such as the repository
+	// an agent works in.
+	Title string
 	// Budget bounds the decision. A Supervisor call that cannot fit is skipped
 	// and the judge effect degrades to require_approval.
 	Budget time.Duration
@@ -717,6 +720,9 @@ func (e *Engine) Decide(ctx context.Context, in DecideRequest) (*Event, Decision
 	switch decision.Effect {
 	case EffectDownshift:
 		s.State.Downshifted = true
+	}
+	if s.Title == "" && in.Title != "" {
+		s.Title = in.Title
 	}
 	s.State.LastSummary = summary
 	s.State.Recompute()

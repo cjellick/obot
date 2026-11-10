@@ -41,15 +41,6 @@ type egressClass struct {
 	push bool
 }
 
-// background reports whether the request is plumbing rather than something the agent did.
-func (c egressClass) background() bool {
-	switch c.category {
-	case egressRunner, egressObot, egressControlPlane:
-		return true
-	}
-	return false
-}
-
 // classifyEgress classifies a request by its host and path. path may carry a query.
 func classifyEgress(obotURL, host, path string) egressClass {
 	pathOnly, query, _ := strings.Cut(path, "?")

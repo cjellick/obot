@@ -80,7 +80,7 @@ func (h *ProvenanceHandler) SuggestToolLabels(req api.Context) error {
 	if len(inventory.Items) > 100 {
 		return types.NewErrBadRequest("this resource has more than 100 tools; review smaller component inventories first")
 	}
-	ctx, cancel := context.WithTimeout(aiusage.WithUser(req.Context(), req.User.GetUID()), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(aiusage.WithUser(req.Context(), requestUserID(req)), 2*time.Minute)
 	defer cancel()
 	for i := range inventory.Items {
 		item := &inventory.Items[i]
@@ -93,7 +93,7 @@ func (h *ProvenanceHandler) SuggestToolLabels(req api.Context) error {
 		}
 		for _, label := range labels {
 			if !provenance.CapabilityLabels.Has(label) {
-				return fmt.Errorf("Supervisor returned an unknown capability label %q", label)
+				return fmt.Errorf("the Supervisor returned an unknown capability label %q", label)
 			}
 		}
 		item.Proposal = &provenance.ToolLabelProposal{Labels: labels.Normalize(), Rationale: rationale, SchemaHash: item.schemaHash, GeneratedAt: time.Now().UTC()}
@@ -299,4 +299,12 @@ func (h *ProvenanceHandler) toolLabelInventoryFromLabels(req api.Context, resour
 		item.Stale = item.Proposal != nil && item.Proposal.SchemaHash != item.schemaHash
 	}
 	return out, nil
+}
+
+// requestUserID is the signed-in user's ID, or empty when the request has no user.
+func requestUserID(req api.Context) string {
+	if req.User == nil {
+		return ""
+	}
+	return req.User.GetUID()
 }

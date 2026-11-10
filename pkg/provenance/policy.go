@@ -54,6 +54,10 @@ var (
 
 	policyProgramsLock sync.Mutex
 	policyPrograms     = map[string]cel.Program{}
+
+	// retiredBuiltInPolicies are built-in policies Obot once seeded and no longer
+	// ships. Seed deletes them, since their conditions may no longer compile.
+	retiredBuiltInPolicies = []string{"builtin-honeytoken", "builtin-warrant-drift"}
 )
 
 // Policy is one Obot Policy rule.
@@ -457,10 +461,6 @@ func EvalPolicy(p *Policy, in PolicyInput) (bool, error) {
 	}
 	return b, nil
 }
-
-// retiredBuiltInPolicies are built-in policies Obot once seeded and no longer
-// ships. Seed deletes them, since their conditions may no longer compile.
-var retiredBuiltInPolicies = []string{"builtin-honeytoken", "builtin-warrant-drift"}
 
 // BuiltInPolicies are seeded when the policy store is empty. They start in
 // shadow mode, except the killed-session rule.
