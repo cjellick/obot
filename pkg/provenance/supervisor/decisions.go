@@ -103,9 +103,13 @@ func WithContentLabels(labels func(context.Context) []LabelDescription) Option {
 
 // DefaultContentLabels are the built-in content labels and their meanings.
 func DefaultContentLabels(context.Context) []LabelDescription {
-	out := make([]LabelDescription, 0, len(provenance.ContentLabels))
-	for _, l := range provenance.ContentLabels {
-		out = append(out, LabelDescription{Label: l, Description: contentLabelMeaning(l)})
+	return labelDescriptions(provenance.TaggerLabelSet(nil))
+}
+
+func labelDescriptions(defs []provenance.LabelDefinition) []LabelDescription {
+	out := make([]LabelDescription, 0, len(defs))
+	for _, d := range defs {
+		out = append(out, LabelDescription{Label: d.Name, Description: d.Description})
 	}
 	return out
 }
@@ -338,7 +342,7 @@ func (s *Supervisor) classifyToolByDecision(ctx context.Context, t provenance.To
 
 // classifyContentByDecision tags content with one predicate per label.
 func (s *Supervisor) classifyContentByDecision(ctx context.Context, in provenance.ContentToClassify) (provenance.ContentClassification, error) {
-	specs := s.contentLabelSpecs(ctx)
+	specs := s.contentLabelSpecs(ctx, in)
 	if len(specs) == 0 {
 		return provenance.ContentClassification{}, nil
 	}
@@ -360,11 +364,13 @@ func (s *Supervisor) classifyContentByDecision(ctx context.Context, in provenanc
 	return provenance.ContentClassification{Labels: out, Rationale: rationale, Model: firstNonEmpty(model, s.model)}, nil
 }
 
-func (s *Supervisor) contentLabelSpecs(ctx context.Context) []LabelDescription {
+// contentLabelSpecs is the tagger's vocabulary: the labels the engine sent with the content,
+// built-in and custom with their descriptions, unless a test set its own.
+func (s *Supervisor) contentLabelSpecs(ctx context.Context, in provenance.ContentToClassify) []LabelDescription {
 	if s.contentLabels != nil {
 		return s.contentLabels(ctx)
 	}
-	return DefaultContentLabels(ctx)
+	return labelDescriptions(contentTaggerLabels(in))
 }
 
 func percent(p float64) string {
