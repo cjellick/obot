@@ -62,13 +62,22 @@ describe('Server requests', () => {
 		mockRequests();
 		await renderPage();
 
-		const setup = page.getByRole('region', { name: 'Obot MCP server for your agents' });
+		const setup = page.getByRole('region', { name: 'Your Obot MCP servers' });
 		await expect.element(setup.getByText(/\/mcp-connect\/obot$/).first()).toBeInTheDocument();
 		await expect.element(setup.getByText(/\/mcp-connect\/obot-admin$/)).toBeInTheDocument();
-		await expect.element(setup.getByText('managed-mcp.json')).toBeInTheDocument();
-		await expect.element(setup.getByText('Claude managed settings')).toBeInTheDocument();
-		await expect.element(setup.getByText('Codex managed config.toml')).toBeInTheDocument();
-		await expect.element(setup.getByText(/^\[mcp_servers\.obot\]/)).toBeInTheDocument();
+		await expect.element(setup.getByText('Administrators only.', { exact: false })).toBeVisible();
+
+		// Deployment snippets sit collapsed in the Claude Code and Codex cards.
+		const claude = setup.getByRole('article', { name: 'Claude Code' });
+		await expect.element(claude.getByText('managed-mcp.json', { exact: true })).not.toBeVisible();
+		await claude.getByText('Deploy to everyone').click();
+		await expect.element(claude.getByText('managed-mcp.json', { exact: true })).toBeVisible();
+		await expect.element(claude.getByText('Claude managed settings')).toBeVisible();
+
+		const codex = setup.getByRole('article', { name: 'Codex' });
+		await codex.getByText('Deploy to everyone').click();
+		await expect.element(codex.getByText('Codex managed config.toml')).toBeVisible();
+		await expect.element(codex.getByText(/^\[mcp_servers\.obot\]/)).toBeVisible();
 		await expect.element(page.getByRole('region', { name: 'Slack alerts' })).toBeInTheDocument();
 	});
 
@@ -76,9 +85,10 @@ describe('Server requests', () => {
 		mockRequests();
 		await renderPage([Group.USER]);
 
-		const setup = page.getByRole('region', { name: 'Obot MCP server for your agents' });
+		const setup = page.getByRole('region', { name: 'Your Obot MCP servers' });
 		await expect.element(setup.getByText(/\/mcp-connect\/obot$/).first()).toBeInTheDocument();
 		await expect.element(setup.getByText(/\/mcp-connect\/obot-admin$/)).not.toBeInTheDocument();
+		await expect.element(setup.getByText('Deploy to everyone')).not.toBeInTheDocument();
 		await expect.element(setup.getByText('managed-mcp.json')).not.toBeInTheDocument();
 		await expect
 			.element(setup.getByText(/^claude mcp add --transport http obot /))
@@ -90,5 +100,29 @@ describe('Server requests', () => {
 		const link = page.getByRole('link', { name: /Sentry/ });
 		await expect.element(link).toBeInTheDocument();
 		await expect.element(link.getByText(/Requested by/)).not.toBeInTheDocument();
+	});
+
+	it('gives every client a card with its own way to add the user server', async () => {
+		mockRequests();
+		await renderPage([Group.USER]);
+
+		const setup = page.getByRole('region', { name: 'Your Obot MCP servers' });
+		const vscode = setup.getByRole('article', { name: 'VS Code / GitHub Copilot' });
+		await expect
+			.element(
+				vscode.getByText(
+					/^code --add-mcp '\{"name":"obot","type":"http","url":"http.*\/mcp-connect\/obot"\}'$/
+				)
+			)
+			.toBeInTheDocument();
+		await expect.element(vscode.getByText(/"servers"/)).toBeInTheDocument();
+
+		const cursor = setup.getByRole('article', { name: 'Cursor' });
+		await expect.element(cursor.getByText(/"mcpServers"/)).toBeInTheDocument();
+		const install = cursor.getByRole('link', { name: 'Add to Cursor' });
+		const href = install.element().getAttribute('href') ?? '';
+		expect(href).toMatch(/^cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install\?name=obot&config=/);
+		const config = decodeURIComponent(new URL(href).searchParams.get('config') ?? '');
+		expect(JSON.parse(atob(config)).url).toMatch(/\/mcp-connect\/obot$/);
 	});
 });

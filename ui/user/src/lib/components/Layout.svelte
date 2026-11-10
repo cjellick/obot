@@ -259,6 +259,13 @@
 	let routes = $derived([
 		// Obot AI is the front door: it can answer for and act on everything below.
 		{ id: 'ai', icon: Sparkles, label: m.nav_ai(), href: '/ai' },
+		// Connecting agents to Obot is the first thing everyone does, so it sits right under AI.
+		{
+			id: 'mcp-server-requests',
+			icon: Plug,
+			label: m.nav_server_requests(),
+			href: '/mcp-server-requests'
+		},
 		...(isAtLeastPoweruser || profile.current.hasAdminAccess?.()
 			? [
 					{
@@ -320,12 +327,6 @@
 							}
 						]
 					: []),
-				{
-					id: 'mcp-server-requests',
-					icon: Plug,
-					label: m.nav_server_requests(),
-					href: '/mcp-server-requests'
-				},
 				{
 					id: 'skills',
 					label: m.nav_skills(),

@@ -174,18 +174,52 @@ export function managedSettingsSnippets(
 	];
 }
 
-/** Commands a user runs to add an Obot MCP server to their own agent. */
-export function clientCommands(url: string): { id: string; label: string; value: string }[] {
-	return [
-		{
-			id: 'claude-code',
-			label: 'Claude Code',
-			value: `claude mcp add --transport http obot ${url}`
-		},
-		{
-			id: 'codex',
-			label: 'Codex',
-			value: `codex mcp add obot --url ${url}\ncodex mcp login obot`
-		}
-	];
+/** A command (no label) or a config file (labelled with its path) that adds the server. */
+export type ClientSnippet = { id: string; label?: string; value: string };
+
+/** Ways to add an Obot MCP server to each agent client a user might run. */
+export function clientSnippets(url: string): {
+	claude: ClientSnippet[];
+	codex: ClientSnippet[];
+	vscode: ClientSnippet[];
+	cursor: ClientSnippet[];
+} {
+	return {
+		claude: [
+			{
+				id: 'claude-code',
+				value: `claude mcp add --transport http obot ${url}`
+			}
+		],
+		codex: [
+			{
+				id: 'codex',
+				value: `codex mcp add obot --url ${url}\ncodex mcp login obot`
+			}
+		],
+		vscode: [
+			{
+				id: 'vscode-command',
+				value: `code --add-mcp '${JSON.stringify({ name: 'obot', type: 'http', url })}'`
+			},
+			{
+				id: 'vscode-json',
+				label: '.vscode/mcp.json',
+				value: JSON.stringify({ servers: { obot: { type: 'http', url } } }, null, 2)
+			}
+		],
+		cursor: [
+			{
+				id: 'cursor-json',
+				label: '~/.cursor/mcp.json',
+				value: JSON.stringify({ mcpServers: { obot: { url } } }, null, 2)
+			}
+		]
+	};
+}
+
+/** Cursor's one-click install link for an MCP server. */
+export function cursorInstallLink(url: string): string {
+	const config = btoa(JSON.stringify({ url }));
+	return `cursor://anysphere.cursor-deeplink/mcp/install?name=obot&config=${encodeURIComponent(config)}`;
 }
