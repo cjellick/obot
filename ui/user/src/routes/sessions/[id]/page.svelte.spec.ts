@@ -1,12 +1,12 @@
 import { page as appPage } from '$app/state';
+import { goto } from '$lib/url';
 import { preparePageData } from '../../../tests/helpers/pageData';
 import {
 	judgedEvent,
 	narrative,
 	quietSession,
 	riskyEvents,
-	riskySession,
-	supervisorAnswer
+	riskySession
 } from '../../../tests/mocks/provenance';
 import { worker } from '../../../tests/mocks/worker';
 import SessionPage from './+page.svelte';
@@ -174,30 +174,15 @@ describe('Session replay', () => {
 		await expect.element(panel.getByText('Following this session live')).not.toBeInTheDocument();
 	});
 
-	it('answers questions scoped to the session', async () => {
+	it('opens questions about the session in Obot AI', async () => {
 		mockSession();
-		const asked = vi.fn();
-		worker.use(
-			http.post('/api/provenance/supervisor/ask', async ({ request }) => {
-				asked(await request.json());
-				return HttpResponse.json(supervisorAnswer);
-			})
-		);
 		await renderPage();
 
 		const panel = page.getByRole('region', { name: 'Supervisor commentary' });
 		await panel.getByRole('button', { name: 'Is it safe to let this session continue?' }).click();
-		await vi.waitFor(() =>
-			expect(asked).toHaveBeenCalledWith({
-				question: 'Is it safe to let this session continue?',
-				sessionID: 'ses-risky'
-			})
+		expect(goto).toHaveBeenCalledWith(
+			'/ai?ask=Is%20it%20safe%20to%20let%20this%20session%20continue%3F&session=ses-risky'
 		);
-		await expect
-			.element(
-				panel.getByText("The riskiest thing right now is alice's session.", { exact: false })
-			)
-			.toBeInTheDocument();
 	});
 
 	it('speaks for held and judged decisions in the timeline', async () => {

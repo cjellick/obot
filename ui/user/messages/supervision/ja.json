@@ -307,17 +307,11 @@
 	"supervision_ask_label": "質問",
 	"supervision_ask_placeholder": "セッション、判断、ポリシーについて質問...",
 	"supervision_ask_submit": "質問する",
-	"supervision_ask_conversation": "スーパーバイザーとの会話",
 	"supervision_ask_suggest_riskiest": "今いちばんリスクが高いことは何ですか?",
 	"supervision_ask_suggest_last_hold": "直前の操作を保留したのはなぜですか?",
 	"supervision_ask_suggest_next_policy": "次に適用すべきポリシーはどれですか?",
 	"supervision_ask_suggest_session_safe": "このセッションを続けさせても安全ですか?",
 	"supervision_ask_suggest_session_data": "このセッションはどの機密データに触れましたか?",
-	"supervision_ask_you": "あなた",
-	"supervision_ask_answered_by": "{model} が回答",
-	"supervision_ask_context": "{sessions} 件のセッションと {events} 件のイベントに基づく",
-	"supervision_ask_unavailable": "モデルが設定されるまで質問には答えられません。",
-	"supervision_ask_thinking": "考えています...",
 	"supervision_ask_intro": "私が下した判断、監視したセッション、次にすべきことを説明できます。",
 	"supervision_ask_session_intro": "このセッションについて何でも質問してください。",
 	"supervision_commentary_title": "スーパーバイザーの所見",
@@ -447,5 +441,6 @@
 	"supervision_tagging_running": "キューにタグを付けています…",
 	"supervision_decision_approval_approved": "承認済み",
 	"supervision_decision_approval_denied": "承認が拒否されました",
-	"supervision_decision_approval_expired": "承認の期限切れ"
+	"supervision_decision_approval_expired": "承認の期限切れ",
+	"supervision_ask_opens_ai": "回答は Obot AI で開き、続けて質問できます。"
 }

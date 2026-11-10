@@ -9,7 +9,6 @@ import type {
 	ProvenanceEvent,
 	Session,
 	SimulationResult,
-	SupervisorAnswer,
 	SupervisorInsights,
 	SupervisorStatus
 } from '$lib/services/provenance';
@@ -483,11 +482,4 @@ export const supervisorInsights: SupervisorInsights = {
 			detail: 'I cannot follow data between surfaces I do not observe.'
 		}
 	]
-};
-
-export const supervisorAnswer: SupervisorAnswer = {
-	answer:
-		"The riskiest thing right now is alice's session. I held its POST to paste.example because it carries PII from salesforce.query.",
-	model: 'claude-sonnet-4',
-	context: { sessions: 12, events: 40 }
 };

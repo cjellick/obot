@@ -69,6 +69,9 @@ type AssistantRequest struct {
 	// ConversationID continues a saved conversation. Empty starts a new one, which is saved
 	// once it has an answer.
 	ConversationID string `json:"conversationID,omitempty"`
+	// SessionID is the agent session the chat was opened from, which questions are about
+	// unless they name something else.
+	SessionID string `json:"sessionID,omitempty"`
 }
 
 // AssistantStep is a tool the assistant called while answering.
@@ -126,7 +129,7 @@ func (a *Assistant) Chat(req api.Context) error {
 	}
 
 	if !strings.Contains(req.Request.Header.Get("Accept"), "text/event-stream") {
-		out, err := a.run(ctx, req, in.Messages, nil)
+		out, err := a.run(ctx, req, in.Messages, in.SessionID, nil)
 		if err != nil {
 			return err
 		}
@@ -138,7 +141,7 @@ func (a *Assistant) Chat(req api.Context) error {
 	if err != nil {
 		return err
 	}
-	out, err := a.run(ctx, req, in.Messages, events.send)
+	out, err := a.run(ctx, req, in.Messages, in.SessionID, events.send)
 	if err != nil {
 		events.send(AssistantEvent{Type: "error", Message: errorMessage(err)})
 		return nil
@@ -149,7 +152,7 @@ func (a *Assistant) Chat(req api.Context) error {
 }
 
 // run answers the conversation, reporting progress to emit when it is set.
-func (a *Assistant) run(ctx context.Context, req api.Context, conversation []AssistantMessage, emit func(AssistantEvent)) (AssistantResponse, error) {
+func (a *Assistant) run(ctx context.Context, req api.Context, conversation []AssistantMessage, sessionID string, emit func(AssistantEvent)) (AssistantResponse, error) {
 	if emit == nil {
 		emit = func(AssistantEvent) {}
 	}
@@ -185,7 +188,7 @@ func (a *Assistant) run(ctx context.Context, req api.Context, conversation []Ass
 		tools = append(tools, tool)
 	}
 
-	messages := []schemas.ChatMessage{textMessage(schemas.ChatMessageRoleSystem, a.systemPrompt(req, admin))}
+	messages := []schemas.ChatMessage{textMessage(schemas.ChatMessageRoleSystem, a.systemPrompt(req, admin, sessionID))}
 	for _, m := range conversation {
 		switch m.Role {
 		case "user":
@@ -316,7 +319,7 @@ func (a *Assistant) call(ctx context.Context, session *mcp.ClientSession, call s
 	return step, full
 }
 
-func (a *Assistant) systemPrompt(req api.Context, admin bool) string {
+func (a *Assistant) systemPrompt(req api.Context, admin bool, sessionID string) string {
 	role := "a user"
 	if admin {
 		role = "an administrator"
@@ -337,8 +340,19 @@ Rules:
 - Before anything that changes Obot, such as approving or denying a request, say what you will do and do it only when the user has clearly asked for it in this conversation.
 - Be concise. Use short paragraphs or lists, and include IDs and links the user can act on unless a widget already shows them.
 
-%s`,
-		role, userName(req), time.Now().UTC().Format("Monday, January 2, 2006"), widgetPrompt(admin))
+%s%s`,
+		role, userName(req), time.Now().UTC().Format("Monday, January 2, 2006"), widgetPrompt(admin), sessionPrompt(admin, sessionID))
+}
+
+// sessionPrompt tells the model which agent session the chat was opened from. Sessions are
+// administrators' to see, so it says nothing to anyone else.
+func sessionPrompt(admin bool, sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if !admin || sessionID == "" || len(sessionID) > 128 || strings.ContainsAny(sessionID, " \n\"`") {
+		return ""
+	}
+	return fmt.Sprintf("\n\nThis chat was opened from agent session %s. Questions that don't name something else are about it: "+
+		"ask the Supervisor about it with ask_supervisor and sessionID %s, and show it with a session widget the first time it helps.", sessionID, sessionID)
 }
 
 // widgetPrompt teaches the model the live views the AI page renders. The page loads each

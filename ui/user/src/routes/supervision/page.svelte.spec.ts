@@ -6,7 +6,6 @@ import {
 	overview,
 	pendingApproval,
 	policies,
-	supervisorAnswer,
 	supervisorInsights,
 	supervisorStatus
 } from '../../tests/mocks/provenance';
@@ -544,49 +543,27 @@ describe('Supervision overview', () => {
 			await expect.element(judged.getByText('My call')).toBeInTheDocument();
 		});
 
-		it('answers a suggested question', async () => {
+		it('opens a suggested question in Obot AI', async () => {
 			mockSupervisor();
-			const asked = vi.fn();
-			worker.use(
-				http.post('/api/provenance/supervisor/ask', async ({ request }) => {
-					asked(await request.json());
-					return HttpResponse.json(supervisorAnswer);
-				})
-			);
 			await renderPage();
 
 			const ask = page.getByRole('region', { name: 'Ask the Supervisor' });
 			await ask
 				.getByRole('button', { name: "What's the riskiest thing happening right now?" })
 				.click();
-			await vi.waitFor(() =>
-				expect(asked).toHaveBeenCalledWith({
-					question: "What's the riskiest thing happening right now?"
-				})
+			expect(goto).toHaveBeenCalledWith(
+				`/ai?ask=${encodeURIComponent("What's the riskiest thing happening right now?")}`
 			);
-			await expect
-				.element(
-					ask.getByText("The riskiest thing right now is alice's session.", { exact: false })
-				)
-				.toBeInTheDocument();
-			await expect
-				.element(ask.getByText('Answered by claude-sonnet-4', { exact: false }))
-				.toBeInTheDocument();
-			await expect
-				.element(ask.getByText('Based on 12 sessions and 40 events', { exact: false }))
-				.toBeInTheDocument();
 		});
 
-		it('says when it cannot answer questions', async () => {
+		it('opens a typed question in Obot AI', async () => {
 			mockSupervisor();
 			await renderPage();
 
 			const ask = page.getByRole('region', { name: 'Ask the Supervisor' });
 			await ask.getByLabelText('Your question').fill('Anything risky?');
 			await ask.getByRole('button', { name: 'Ask', exact: true }).click();
-			await expect
-				.element(ask.getByText("I can't answer questions until I'm configured with a model."))
-				.toBeInTheDocument();
+			expect(goto).toHaveBeenCalledWith('/ai?ask=Anything%20risky%3F');
 		});
 	});
 });

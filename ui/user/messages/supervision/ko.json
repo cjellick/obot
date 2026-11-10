@@ -307,17 +307,11 @@
 	"supervision_ask_label": "질문",
 	"supervision_ask_placeholder": "세션, 결정 또는 정책에 대해 질문하세요...",
 	"supervision_ask_submit": "질문하기",
-	"supervision_ask_conversation": "슈퍼바이저와의 대화",
 	"supervision_ask_suggest_riskiest": "지금 가장 위험한 일은 무엇인가요?",
 	"supervision_ask_suggest_last_hold": "마지막 작업을 왜 보류했나요?",
 	"supervision_ask_suggest_next_policy": "다음에 어떤 정책을 적용해야 하나요?",
 	"supervision_ask_suggest_session_safe": "이 세션을 계속 진행해도 안전한가요?",
 	"supervision_ask_suggest_session_data": "이 세션이 어떤 민감한 데이터를 다뤘나요?",
-	"supervision_ask_you": "나",
-	"supervision_ask_answered_by": "{model} 답변",
-	"supervision_ask_context": "{sessions}개 세션과 {events}개 이벤트 기반",
-	"supervision_ask_unavailable": "모델이 구성될 때까지 질문에 답할 수 없습니다.",
-	"supervision_ask_thinking": "생각 중...",
 	"supervision_ask_intro": "제가 내린 결정, 지켜본 세션, 다음에 할 일을 설명할 수 있습니다.",
 	"supervision_ask_session_intro": "이 세션에 대해 무엇이든 물어보세요.",
 	"supervision_commentary_title": "슈퍼바이저 논평",
@@ -447,5 +441,6 @@
 	"supervision_tagging_running": "대기열에 태그를 지정하는 중…",
 	"supervision_decision_approval_approved": "승인됨",
 	"supervision_decision_approval_denied": "승인 거부됨",
-	"supervision_decision_approval_expired": "승인 만료됨"
+	"supervision_decision_approval_expired": "승인 만료됨",
+	"supervision_ask_opens_ai": "답변은 Obot AI에서 열리며 이어서 질문할 수 있습니다."
 }

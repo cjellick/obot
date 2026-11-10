@@ -44,14 +44,14 @@ export async function chatWithAI(messages: AIMessage[]): Promise<AIReply> {
 export async function streamChatWithAI(
 	messages: AIMessage[],
 	onEvent: (event: AIEvent) => void,
-	opts: { conversationID?: string; signal?: AbortSignal } = {}
+	opts: { conversationID?: string; sessionID?: string; signal?: AbortSignal } = {}
 ): Promise<AIReply> {
-	const { conversationID, signal } = opts;
+	const { conversationID, sessionID, signal } = opts;
 	const response = await fetch(`${baseURL}/ai/chat`, {
 		method: 'POST',
 		credentials: 'same-origin',
 		headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-		body: JSON.stringify({ messages, conversationID }),
+		body: JSON.stringify({ messages, conversationID, sessionID }),
 		signal
 	});
 	if (!response.ok) {

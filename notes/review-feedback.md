@@ -29,7 +29,7 @@ Craig's review of the branch, and the decisions from it. Everything here lands o
 ## Obot AI
 
 - [x] Save chats on the server; users can go back to old ones.
-- [ ] Unify the chats: the Dashboard and session "Ask the Supervisor" boxes open Obot AI, with the
+- [x] Unify the chats: the Dashboard and session "Ask the Supervisor" boxes open Obot AI, with the
       session as context.
 - [ ] Much broader tools: let Obot AI do all or most of what the UI can, through the API directly or
       an MCP server that wraps the API sensibly. Design needed.

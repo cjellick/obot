@@ -174,9 +174,6 @@ export const handlers = [
 	http.get('/api/provenance/supervisor/insights', () =>
 		HttpResponse.json({ generatedAt: new Date().toISOString(), briefing: '', items: [] })
 	),
-	http.post('/api/provenance/supervisor/ask', () =>
-		HttpResponse.json({ error: 'supervisor unavailable' }, { status: 503 })
-	),
 	http.get('/api/version', () => HttpResponse.json(data.getVersionResponse)),
 	http.get('/api/workspaces/all-entries', () =>
 		HttpResponse.json({ items: data.listAllUserWorkspaceCatalogEntriesResponse })

@@ -307,17 +307,11 @@
 	"supervision_ask_label": "你的问题",
 	"supervision_ask_placeholder": "询问任何会话、决策或策略...",
 	"supervision_ask_submit": "提问",
-	"supervision_ask_conversation": "与监督者的对话",
 	"supervision_ask_suggest_riskiest": "现在最危险的事情是什么?",
 	"supervision_ask_suggest_last_hold": "你为什么保留了上一个操作?",
 	"supervision_ask_suggest_next_policy": "接下来我应该强制执行哪项策略?",
 	"supervision_ask_suggest_session_safe": "让这个会话继续是否安全?",
 	"supervision_ask_suggest_session_data": "这个会话接触了哪些敏感数据?",
-	"supervision_ask_you": "你",
-	"supervision_ask_answered_by": "由 {model} 回答",
-	"supervision_ask_context": "基于 {sessions} 个会话和 {events} 个事件",
-	"supervision_ask_unavailable": "在配置模型之前,我无法回答问题。",
-	"supervision_ask_thinking": "思考中...",
 	"supervision_ask_intro": "我可以解释我做出的任何决策、我监视的任何会话,或接下来该做什么。",
 	"supervision_ask_session_intro": "关于这个会话,尽管问我。",
 	"supervision_commentary_title": "监督者评述",
@@ -447,5 +441,6 @@
 	"supervision_tagging_running": "正在标注队列…",
 	"supervision_decision_approval_approved": "已批准",
 	"supervision_decision_approval_denied": "审批被拒绝",
-	"supervision_decision_approval_expired": "审批已过期"
+	"supervision_decision_approval_expired": "审批已过期",
+	"supervision_ask_opens_ai": "回答将在 Obot AI 中打开，你可以继续追问。"
 }

@@ -669,12 +669,6 @@ export interface SupervisorInsights {
 	items: Insight[];
 }
 
-export interface SupervisorAnswer {
-	answer: string;
-	model?: string;
-	context?: { sessions: number; events: number };
-}
-
 export async function getSupervisorStatus(opts?: Opts): Promise<SupervisorStatus> {
 	const s = (await doGet(`${B}/supervisor/status`, opts)) as Partial<SupervisorStatus>;
 	return {
@@ -726,18 +720,6 @@ export async function getSupervisorInsights(
 		briefingModel: res.briefingModel,
 		items: res.items ?? []
 	};
-}
-
-export async function askSupervisor(
-	question: string,
-	sessionID?: string,
-	opts?: Opts
-): Promise<SupervisorAnswer> {
-	return (await doPost(
-		`${B}/supervisor/ask`,
-		sessionID ? { question, sessionID } : { question },
-		opts
-	)) as SupervisorAnswer;
 }
 
 /**

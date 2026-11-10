@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { page } from '$app/state';
 	import Confirm from '$lib/components/Confirm.svelte';
 	import Layout from '$lib/components/Layout.svelte';
 	import AIAnswer from '$lib/components/ai/AIAnswer.svelte';
@@ -77,6 +79,7 @@
 
 	const STORAGE_KEY = 'obot-ai-conversation';
 	const CONVERSATION_KEY = 'obot-ai-conversation-id';
+	const SESSION_KEY = 'obot-ai-session-id';
 
 	let isAdmin = $derived(!!profile.current.isAdmin?.());
 	let turns = $state<Turn[]>(untrack(load));
@@ -87,27 +90,35 @@
 	let thinkingIndex = $state(0);
 	// The saved conversation on screen, and the caller's other saved conversations.
 	let conversationID = $state<string | undefined>(untrack(loadConversationID));
+	// The agent session the chat was opened from, which questions are about.
+	let contextSessionID = $state<string | undefined>(untrack(() => stored(SESSION_KEY)));
 	let history = $state<AIConversationSummary[]>([]);
 	let deleting = $state<AIConversationSummary>();
 	let deletingBusy = $state(false);
 
 	function loadConversationID(): string | undefined {
+		return stored(CONVERSATION_KEY);
+	}
+
+	function stored(key: string): string | undefined {
 		try {
-			return sessionStorage.getItem(CONVERSATION_KEY) ?? undefined;
+			return sessionStorage.getItem(key) ?? undefined;
 		} catch {
 			return undefined;
 		}
 	}
 
-	$effect(() => {
-		const id = conversationID;
+	function store(key: string, value: string | undefined) {
 		try {
-			if (id) sessionStorage.setItem(CONVERSATION_KEY, id);
-			else sessionStorage.removeItem(CONVERSATION_KEY);
+			if (value) sessionStorage.setItem(key, value);
+			else sessionStorage.removeItem(key);
 		} catch {
 			// Storage is a convenience only.
 		}
-	});
+	}
+
+	$effect(() => store(CONVERSATION_KEY, conversationID));
+	$effect(() => store(SESSION_KEY, contextSessionID));
 
 	async function loadHistory() {
 		try {
@@ -117,11 +128,28 @@
 		}
 	}
 
-	onMount(loadHistory);
+	onMount(() => {
+		loadHistory();
+		// The Dashboard and session pages open Obot AI with a question, and the session it is
+		// about, in the URL. Start a new chat with them, then drop them from the URL so a reload
+		// doesn't ask again.
+		const params = page.url.searchParams;
+		const question = params.get('ask')?.trim();
+		if (question) {
+			newChat();
+			contextSessionID = params.get('session') || undefined;
+			// Only a convenience; the router may not be ready yet.
+			Promise.resolve()
+				.then(() => replaceState(page.url.pathname, {}))
+				.catch(() => {});
+			send(question);
+		}
+	});
 
 	function newChat() {
 		turns = [];
 		conversationID = undefined;
+		contextSessionID = undefined;
 	}
 
 	async function openConversation(id: string) {
@@ -130,6 +158,7 @@
 			const conversation = await getAIConversation(id, { dontLogErrors: true });
 			turns = conversation.messages.map(({ role, content, steps }) => ({ role, content, steps }));
 			conversationID = conversation.id;
+			contextSessionID = undefined;
 			scrollToEnd();
 		} catch (e) {
 			turns = [
@@ -274,7 +303,10 @@
 			const messages: AIMessage[] = turns
 				.filter((t) => !t.error)
 				.map(({ role, content }) => ({ role, content }));
-			const reply = await streamChatWithAI(messages, onEvent, { conversationID });
+			const reply = await streamChatWithAI(messages, onEvent, {
+				conversationID,
+				sessionID: contextSessionID
+			});
 			turns = [...turns, { role: 'assistant', content: reply.reply, steps: reply.steps }];
 			if (reply.conversationID) conversationID = reply.conversationID;
 			loadHistory();

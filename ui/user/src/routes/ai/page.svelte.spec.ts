@@ -1,3 +1,4 @@
+import { page as appPage } from '$app/state';
 import { Group } from '$lib/services';
 import { createMockProfile, preparePageData } from '../../tests/helpers/pageData';
 import { worker } from '../../tests/mocks/worker';
@@ -211,5 +212,32 @@ describe('Obot AI', () => {
 			await vi.waitFor(() => expect(deleted).toHaveBeenCalled());
 			await expect.element(page.getByRole('navigation', { name: 'Chats' })).not.toBeInTheDocument();
 		});
+	});
+
+	it('asks a question it was opened with, about the session it came from', async () => {
+		const asked = vi.fn();
+		worker.use(
+			http.post('/api/ai/chat', async ({ request }) => {
+				asked(await request.json());
+				return HttpResponse.json({ reply: 'It is safe.', steps: [] });
+			})
+		);
+		const url = vi
+			.spyOn(appPage, 'url', 'get')
+			.mockReturnValue(
+				new URL('http://localhost/ai?ask=Is%20it%20safe%3F&session=ses-risky') as typeof appPage.url
+			);
+		try {
+			await renderPage();
+			await vi.waitFor(() =>
+				expect(asked).toHaveBeenCalledWith({
+					messages: [{ role: 'user', content: 'Is it safe?' }],
+					sessionID: 'ses-risky'
+				})
+			);
+			await expect.element(page.getByText('It is safe.')).toBeInTheDocument();
+		} finally {
+			url.mockRestore();
+		}
 	});
 });

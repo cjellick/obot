@@ -307,17 +307,11 @@
 	"supervision_ask_label": "Your question",
 	"supervision_ask_placeholder": "Ask about any session, decision or policy...",
 	"supervision_ask_submit": "Ask",
-	"supervision_ask_conversation": "Conversation with the Supervisor",
 	"supervision_ask_suggest_riskiest": "What's the riskiest thing happening right now?",
 	"supervision_ask_suggest_last_hold": "Why did you hold the last action?",
 	"supervision_ask_suggest_next_policy": "Which policy should I enforce next?",
 	"supervision_ask_suggest_session_safe": "Is it safe to let this session continue?",
 	"supervision_ask_suggest_session_data": "What sensitive data has this session touched?",
-	"supervision_ask_you": "You",
-	"supervision_ask_answered_by": "Answered by {model}",
-	"supervision_ask_context": "Based on {sessions} sessions and {events} events",
-	"supervision_ask_unavailable": "I can't answer questions until I'm configured with a model.",
-	"supervision_ask_thinking": "Thinking...",
 	"supervision_ask_intro": "I can explain any decision I made, any session I watched, or what to do next.",
 	"supervision_ask_session_intro": "Ask me anything about this session.",
 	"supervision_commentary_title": "Supervisor commentary",
@@ -447,5 +441,6 @@
 	"supervision_tagging_running": "Tagging the queue…",
 	"supervision_decision_approval_approved": "Approved",
 	"supervision_decision_approval_denied": "Approval denied",
-	"supervision_decision_approval_expired": "Approval expired"
+	"supervision_decision_approval_expired": "Approval expired",
+	"supervision_ask_opens_ai": "Answers open in Obot AI, where you can follow up."
 }
