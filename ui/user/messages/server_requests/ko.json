@@ -1,8 +1,8 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
 	"server_requests_title": "Obot에 연결",
-	"server_requests_description_admin": "사용자는 Obot의 기본 제공 MCP 서버를 통해 에이전트에서 새 MCP 서버를 요청합니다. 요청을 승인하면 서버가 카탈로그와 vMCP에 추가됩니다.",
-	"server_requests_description_user": "관리자에게 추가를 요청한 MCP 서버입니다. Obot의 기본 제공 MCP 서버를 통해 에이전트에서 요청할 수 있습니다.",
+	"server_requests_description_admin": "에이전트를 Obot의 기본 제공 MCP 서버에 연결하고, 사용자가 요청한 MCP 서버를 검토합니다. 요청을 승인하면 서버가 카탈로그와 vMCP에 추가됩니다.",
+	"server_requests_description_user": "에이전트를 Obot의 기본 제공 MCP 서버에 연결하여 사용할 수 있는 MCP 서버를 찾고 새 서버를 요청하세요.",
 	"server_requests_state_pending": "대기 중",
 	"server_requests_state_approved": "승인됨",
 	"server_requests_state_denied": "거부됨",
