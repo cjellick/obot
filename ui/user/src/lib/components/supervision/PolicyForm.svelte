@@ -73,6 +73,7 @@
 	let validating = $state(false);
 	let conditionError = $state('');
 	let conditionChecked = $state(false);
+	let conditionWarnings = $state<string[]>([]);
 
 	let draftText = $state('');
 	let drafting = $state(false);
@@ -198,6 +199,7 @@
 				const result = await validatePolicyCondition(expr, { dontLogErrors: true });
 				if (seq === validationSeq) {
 					conditionError = result.valid ? '' : result.error || m.core_unknown_error_occurred();
+					conditionWarnings = result.valid ? (result.warnings ?? []) : [];
 					conditionChecked = true;
 				}
 			} catch (e) {
@@ -443,6 +445,13 @@
 						<CircleAlert class="size-3" />
 						{conditionError}
 					</span>
+				{:else if conditionChecked && conditionWarnings.length}
+					{#each conditionWarnings as warning (warning)}
+						<span class="text-warning flex items-center gap-1 text-xs" role="status">
+							<CircleAlert class="size-3" />
+							{warning}
+						</span>
+					{/each}
 				{:else if conditionChecked}
 					<span class="text-success flex items-center gap-1 text-xs" role="status">
 						<Check class="size-3" />

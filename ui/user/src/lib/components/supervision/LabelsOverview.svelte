@@ -1,18 +1,23 @@
 <script lang="ts">
+	import Confirm from '$lib/components/Confirm.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import { parseErrorContent } from '$lib/errors';
 	import { m } from '$lib/i18n';
 	import Loading from '$lib/icons/Loading.svelte';
 	import {
+		deleteCustomLabel,
 		getLabelInventory,
 		toolLabelReviewURL,
+		type CustomLabel,
 		type LabelInventory,
 		type LabelResourceSummary
 	} from '$lib/services/provenance';
+	import { profile } from '$lib/stores';
 	import { formatTimeAgo } from '$lib/time';
 	import { resolve } from '$lib/url';
+	import CustomLabelEditor from './CustomLabelEditor.svelte';
 	import LabelBadges from './LabelBadges.svelte';
-	import { RefreshCw } from '@lucide/svelte';
+	import { Pencil, Plus, RefreshCw, Trash2 } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { twMerge } from 'tailwind-merge';
 
@@ -66,6 +71,63 @@
 	let contentLabels = $derived(
 		(data?.contentLabels ?? []).filter((label) => matches([label, meaning(label)]))
 	);
+	let customLabels = $derived(
+		(data?.customLabels ?? []).filter((label) =>
+			matches([
+				label.name,
+				label.description,
+				...label.patterns.map((p) => p.value),
+				...label.sources.map((s) => `${s.name ?? ''} ${s.id} ${s.tool ?? ''}`)
+			])
+		)
+	);
+	let canEdit = $derived(!!profile.current.isAdmin?.());
+	/** The custom label being edited: a name, 'new' for a new label, or undefined. */
+	let editing = $state<string>();
+	let toDelete = $state<CustomLabel>();
+	let deleting = $state(false);
+
+	function startEdit(name: string) {
+		editing = name;
+	}
+	function saved(label: CustomLabel) {
+		if (data) {
+			const rest = data.customLabels.filter((l) => l.name !== label.name);
+			data.customLabels = [...rest, label].sort((a, b) => a.name.localeCompare(b.name));
+		}
+		editing = undefined;
+	}
+	async function removeLabel() {
+		if (!toDelete) return;
+		deleting = true;
+		try {
+			await deleteCustomLabel(toDelete.name);
+			if (data) data.customLabels = data.customLabels.filter((l) => l.name !== toDelete?.name);
+			toDelete = undefined;
+		} catch (e) {
+			error = parseErrorContent(e).message;
+			toDelete = undefined;
+		} finally {
+			deleting = false;
+		}
+	}
+	function detectorSummary(label: CustomLabel): string[] {
+		const out: string[] = [];
+		if (label.ai) out.push(m.supervision_custom_labels_detector_ai());
+		if (label.patterns.length)
+			out.push(m.supervision_custom_labels_detector_patterns({ count: label.patterns.length }));
+		if (label.sources.length)
+			out.push(m.supervision_custom_labels_detector_sources({ count: label.sources.length }));
+		return out;
+	}
+	function sourceText(source: CustomLabel['sources'][number]) {
+		const name = source.name || source.id;
+		if (source.type === 'host') return m.supervision_custom_labels_from_host({ name });
+		const kind = source.type === 'vmcp' ? m.supervision_labels_vmcp() : m.supervision_labels_mcp();
+		return source.tool
+			? m.supervision_custom_labels_from_tool({ kind, name, tool: source.tool })
+			: m.supervision_custom_labels_from_server({ kind, name });
+	}
 
 	function matches(values: string[]) {
 		return values.join(' ').toLowerCase().includes(query.trim().toLowerCase());
@@ -125,7 +187,11 @@
 			confidential: m.supervision_labels_meaning_confidential,
 			untrusted: m.supervision_labels_meaning_untrusted
 		};
-		return descriptions[label]?.() ?? m.supervision_labels_meaning_other();
+		return (
+			descriptions[label]?.() ??
+			data?.customLabels.find((l) => l.name === label)?.description ??
+			m.supervision_labels_meaning_other()
+		);
 	}
 	async function load() {
 		controller?.abort();
@@ -344,7 +410,98 @@
 								: m.supervision_labels_ai_async()}
 						</p>{/if}
 				</section>
-				{#if !capabilities.length && !contentLabels.length}<p
+				<section class="paper gap-3" aria-label={m.supervision_custom_labels_title()}>
+					<div class="flex flex-wrap items-start justify-between gap-3">
+						<div>
+							<h2 class="text-base font-semibold">{m.supervision_custom_labels_title()}</h2>
+							<p class="text-muted-content text-sm">{m.supervision_custom_labels_help()}</p>
+						</div>
+						{#if canEdit && editing !== 'new'}<button
+								type="button"
+								class="btn btn-primary btn-sm"
+								onclick={() => startEdit('new')}
+								><Plus class="size-4" />{m.supervision_custom_labels_new()}</button
+							>{/if}
+					</div>
+					{#if editing === 'new'}<CustomLabelEditor
+							resources={data.resources}
+							existing={data.customLabels.map((l) => l.name)}
+							onsaved={saved}
+							oncancel={() => (editing = undefined)}
+						/>{/if}
+					{#if !data.customLabels.length && editing !== 'new'}<p class="text-muted-content text-sm">
+							{m.supervision_custom_labels_empty()}
+						</p>{:else if data.customLabels.length && !customLabels.length}<p
+							class="text-muted-content text-sm"
+						>
+							{m.supervision_labels_no_matches()}
+						</p>{/if}
+					{#if customLabels.length}<ul class="flex flex-col divide-y divide-base-300">
+							{#each customLabels as label (label.name)}<li class="py-3 text-sm">
+									{#if editing === label.name}<CustomLabelEditor
+											{label}
+											resources={data.resources}
+											onsaved={saved}
+											oncancel={() => (editing = undefined)}
+										/>{:else}
+										<div class="grid gap-2 sm:grid-cols-[13rem_1fr_auto]">
+											<div class="flex flex-col gap-1">
+												<span class="font-mono text-xs font-medium">{label.name}</span>
+												<span class="flex flex-wrap gap-1">
+													{#each detectorSummary(label) as detector (detector)}<span
+															class="badge badge-sm badge-soft badge-info whitespace-nowrap"
+															>{detector}</span
+														>{/each}
+													{#if label.confidential}<span
+															class="badge badge-sm badge-soft badge-primary whitespace-nowrap"
+															>{m.supervision_custom_labels_implies_confidential()}</span
+														>{/if}
+												</span>
+											</div>
+											<div class="flex flex-col gap-1">
+												<p class="text-muted-content">{label.description}</p>
+												{#if label.patterns.length}<p class="text-xs">
+														<span class="text-muted-content"
+															>{m.supervision_custom_labels_patterns()}:</span
+														>
+														{#each label.patterns as pattern, i (i)}<code
+																class="bg-base-200 dark:bg-base-300 mr-1 rounded px-1 py-0.5"
+																>{pattern.type === 'regex'
+																	? `/${pattern.value}/`
+																	: pattern.value}</code
+															>{/each}
+													</p>{/if}
+												{#if label.sources.length}<p class="text-xs">
+														<span class="text-muted-content"
+															>{m.supervision_custom_labels_sources()}:</span
+														>
+														{label.sources.map(sourceText).join(' · ')}
+													</p>{/if}
+											</div>
+											{#if canEdit}<div class="flex items-start gap-1">
+													<button
+														type="button"
+														class="btn btn-ghost btn-sm btn-square"
+														aria-label={m.supervision_custom_labels_edit_named({
+															name: label.name
+														})}
+														onclick={() => startEdit(label.name)}><Pencil class="size-4" /></button
+													>
+													<button
+														type="button"
+														class="btn btn-ghost btn-sm btn-square"
+														aria-label={m.supervision_custom_labels_delete_named({
+															name: label.name
+														})}
+														onclick={() => (toDelete = label)}><Trash2 class="size-4" /></button
+													>
+												</div>{/if}
+										</div>
+									{/if}
+								</li>{/each}
+						</ul>{/if}
+				</section>
+				{#if !capabilities.length && !contentLabels.length && !customLabels.length}<p
 						class="paper text-muted-content text-sm"
 					>
 						{m.supervision_labels_no_matches()}
@@ -412,3 +569,12 @@
 		</div>
 	{/if}
 </section>
+
+<Confirm
+	show={!!toDelete}
+	msg={m.supervision_custom_labels_delete_confirm({ name: toDelete?.name ?? '' })}
+	note={m.supervision_custom_labels_delete_note()}
+	loading={deleting}
+	onsuccess={removeLabel}
+	oncancel={() => (toDelete = undefined)}
+/>

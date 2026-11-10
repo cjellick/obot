@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { tooltip } from '$lib/actions/tooltip.svelte';
 	import { m } from '$lib/i18n';
-	import type { LabelOrigin } from '$lib/services/provenance';
+	import { isBuiltinLabel, type LabelOrigin } from '$lib/services/provenance';
 	import { formatTimeAgo } from '$lib/time';
 	import { twMerge } from 'tailwind-merge';
 
@@ -25,8 +25,22 @@
 			case 'untrusted':
 				return 'badge-warning';
 			default:
-				return 'badge-primary';
+				// Administrator-defined custom labels stand apart from the built-in ones.
+				return isBuiltinLabel(label) ? 'badge-primary' : 'badge-info';
 		}
+	}
+
+	function detectorText(o: LabelOrigin) {
+		switch (o.detector) {
+			case 'ai':
+				return o.detail
+					? m.supervision_label_origin_ai_detail({ detail: o.detail })
+					: m.supervision_label_origin_ai();
+			case 'pattern':
+			case 'source':
+				return o.detail ?? '';
+		}
+		return '';
 	}
 
 	function originText(label: string) {
@@ -34,12 +48,13 @@
 		if (!list?.length) return '';
 		return list
 			.slice(0, 4)
-			.map((o) =>
-				m.supervision_session_label_origin({
+			.map((o) => {
+				const line = m.supervision_session_label_origin({
 					summary: o.summary || o.eventID,
 					time: formatTimeAgo(o.at).relativeTime
-				})
-			)
+				});
+				return o.detector ? `${line}\n  ${detectorText(o)}` : line;
+			})
 			.join('\n');
 	}
 </script>
