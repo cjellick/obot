@@ -168,7 +168,7 @@ func (h *Handler) addClaudeEnvironmentTools(s *mcp.Server, req api.Context) {
 		}
 		return jsonResult(map[string]any{
 			"blocked": blocked,
-			"next": "Tell the administrator what was blocked and offer to allow hosts that look legitimate with update_claude_egress.",
+			"next":    "Tell the administrator what was blocked and offer to allow hosts that look legitimate with update_claude_egress.",
 		})
 	})
 }
