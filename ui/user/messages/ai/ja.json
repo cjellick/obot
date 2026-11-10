@@ -66,5 +66,8 @@
 	"ai_widget_egress_allow_label": "{host} を許可",
 	"ai_widget_egress_note": "許可すると、環境内のすべてのセッションでホストが許可されます。新しいセッションに適用されます。",
 	"ai_attention_blocked_egress": "今週、Claude 環境が {count} 個のホストへのアクセスをブロックされました。Obot AI に確認してください。",
-	"ai_suggestion_blocked_egress": "今週 Claude 環境がブロックされたアクセス先は？許可すべきものはありますか？"
+	"ai_suggestion_blocked_egress": "今週 Claude 環境がブロックされたアクセス先は？許可すべきものはありますか？",
+	"ai_history_show": "チャット ({count})",
+	"ai_history_hide": "チャットを隠す",
+	"ai_history_close": "チャット一覧を閉じる"
 }

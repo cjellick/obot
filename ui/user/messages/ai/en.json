@@ -66,5 +66,8 @@
 	"ai_widget_egress_allow_label": "Allow {host}",
 	"ai_widget_egress_note": "Allow adds the host for every session in the environment. New sessions use it.",
 	"ai_attention_blocked_egress": "Claude environments were blocked from reaching {count} hosts this week. Ask Obot AI about it.",
-	"ai_suggestion_blocked_egress": "What did Claude environments get blocked from reaching this week? Should I allow any of it?"
+	"ai_suggestion_blocked_egress": "What did Claude environments get blocked from reaching this week? Should I allow any of it?",
+	"ai_history_show": "Chats ({count})",
+	"ai_history_hide": "Hide chats",
+	"ai_history_close": "Close the list of chats"
 }

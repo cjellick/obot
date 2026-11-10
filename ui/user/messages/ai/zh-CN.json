@@ -66,5 +66,8 @@
 	"ai_widget_egress_allow_label": "允许 {host}",
 	"ai_widget_egress_note": "允许后，该环境中的所有会话都可访问此主机。新会话生效。",
 	"ai_attention_blocked_egress": "本周 Claude 环境有 {count} 个主机的访问被阻止。询问 Obot AI。",
-	"ai_suggestion_blocked_egress": "本周 Claude 环境被阻止访问了哪些主机？我应该允许其中哪些？"
+	"ai_suggestion_blocked_egress": "本周 Claude 环境被阻止访问了哪些主机？我应该允许其中哪些？",
+	"ai_history_show": "聊天 ({count})",
+	"ai_history_hide": "隐藏聊天",
+	"ai_history_close": "关闭聊天列表"
 }

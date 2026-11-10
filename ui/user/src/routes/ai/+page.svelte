@@ -23,7 +23,9 @@
 		ArrowUp,
 		Check,
 		ChevronRight,
+		History,
 		LoaderCircle,
+		PanelLeftClose,
 		Plus,
 		ShieldAlert,
 		Sparkles,
@@ -95,6 +97,26 @@
 	// The agent session the chat was opened from, which questions are about.
 	let contextSessionID = $state<string | undefined>(untrack(() => stored(SESSION_KEY)));
 	let history = $state<AIConversationSummary[]>([]);
+	// The list of saved chats is closed until the person opens it; their choice is remembered.
+	const HISTORY_OPEN_KEY = '@obot/ai/history-open';
+	let historyOpen = $state(readHistoryOpen());
+
+	function readHistoryOpen() {
+		try {
+			return localStorage.getItem(HISTORY_OPEN_KEY) === 'true';
+		} catch {
+			return false;
+		}
+	}
+
+	function toggleHistory() {
+		historyOpen = !historyOpen;
+		try {
+			localStorage.setItem(HISTORY_OPEN_KEY, String(historyOpen));
+		} catch {
+			// Remembering is a convenience.
+		}
+	}
 	let deleting = $state<AIConversationSummary>();
 	let deletingBusy = $state(false);
 
@@ -355,20 +377,30 @@
 
 <Layout title={m.ai_title()} rightNavActions={navActions}>
 	<div class="flex min-h-[calc(100svh-9rem)] gap-6">
-		{#if history.length > 0}
+		{#if history.length > 0 && historyOpen}
 			<nav
-				class="sticky top-28 hidden max-h-[calc(100svh-8rem)] w-60 shrink-0 flex-col gap-1 self-start overflow-y-auto lg:flex"
+				class="bg-base-100 dark:bg-base-200 border-base-300 dark:border-base-400 sticky top-28 flex max-h-[calc(100svh-8rem)] w-64 shrink-0 flex-col gap-1 self-start overflow-y-auto rounded-xl border p-2 shadow-sm"
 				aria-label={m.ai_history()}
 			>
-				<h2 class="text-muted-content px-2 pb-1 text-xs font-semibold uppercase">
-					{m.ai_history()}
-				</h2>
+				<div class="flex items-center justify-between px-2 pb-1">
+					<h2 class="text-muted-content text-xs font-semibold uppercase">
+						{m.ai_history()}
+					</h2>
+					<button
+						type="button"
+						class="text-muted-content hover:text-base-content p-1"
+						aria-label={m.ai_history_close()}
+						onclick={toggleHistory}
+					>
+						<PanelLeftClose class="size-4" />
+					</button>
+				</div>
 				<ul class="flex flex-col gap-0.5">
 					{#each history as conversation (conversation.id)}
 						<li
 							class="group flex items-center gap-1 rounded-md {conversation.id === conversationID
-								? 'bg-base-100 dark:bg-base-200 shadow-sm'
-								: 'hover:bg-base-100/60 dark:hover:bg-base-200/60'}"
+								? 'bg-primary/10'
+								: 'hover:bg-base-200 dark:hover:bg-base-300'}"
 						>
 							<button
 								type="button"
@@ -545,6 +577,17 @@
 />
 
 {#snippet navActions()}
+	{#if history.length > 0}
+		<button
+			type="button"
+			class="btn btn-secondary rounded-4xl text-sm"
+			aria-pressed={historyOpen}
+			onclick={toggleHistory}
+		>
+			<History class="size-4" />
+			{historyOpen ? m.ai_history_hide() : m.ai_history_show({ count: history.length })}
+		</button>
+	{/if}
 	{#if turns.length > 0}
 		<button
 			type="button"

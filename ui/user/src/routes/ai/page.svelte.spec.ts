@@ -188,6 +188,8 @@ describe('Obot AI', () => {
 				)
 			);
 			await renderPage();
+			// The list of chats starts closed.
+			await page.getByRole('button', { name: 'Chats (1)' }).click();
 
 			const chats = page.getByRole('navigation', { name: 'Chats' });
 			await chats.getByRole('button', { name: /^Where is our spend going\?/ }).click();
@@ -205,6 +207,7 @@ describe('Obot AI', () => {
 				})
 			);
 			await renderPage();
+			await page.getByRole('button', { name: 'Chats (1)' }).click();
 
 			await page.getByRole('button', { name: 'Delete chat Where is our spend going?' }).click();
 			expect(deleted).not.toHaveBeenCalled();
