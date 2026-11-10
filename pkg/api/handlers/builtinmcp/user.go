@@ -12,6 +12,7 @@ import (
 	"github.com/obot-platform/obot/pkg/api"
 	"github.com/obot-platform/obot/pkg/api/authz"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
+	"github.com/obot-platform/obot/pkg/system"
 	vmcpaccess "github.com/obot-platform/obot/pkg/vmcp"
 	kuser "k8s.io/apiserver/pkg/authentication/user"
 )
@@ -83,6 +84,7 @@ type requestView struct {
 
 func (h *Handler) userServer(req api.Context) *mcp.Server {
 	s := newServer("obot", "Obot", userInstructions)
+	s.AddReceivingMiddleware(auditToolCalls(req, system.BuiltinUserMCPID, "Obot", ""))
 	h.addUserTools(s, req)
 	return s
 }

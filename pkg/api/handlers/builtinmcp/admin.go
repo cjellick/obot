@@ -8,6 +8,7 @@ import (
 	"github.com/obot-platform/obot/apiclient/types"
 	"github.com/obot-platform/obot/pkg/api"
 	v1 "github.com/obot-platform/obot/pkg/storage/apis/obot.obot.ai/v1"
+	"github.com/obot-platform/obot/pkg/system"
 )
 
 const (
@@ -49,6 +50,7 @@ type vmcpSummary struct {
 
 func (h *Handler) adminServer(req api.Context) *mcp.Server {
 	s := newServer("obot-admin", "Obot Admin", adminInstructions)
+	s.AddReceivingMiddleware(auditToolCalls(req, system.BuiltinAdminMCPID, "Obot Admin", ""))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_mcp_server_requests",
@@ -162,6 +164,7 @@ func (h *Handler) adminServer(req api.Context) *mcp.Server {
 
 	h.addInsightTools(s, req)
 	h.addManagementTools(s, req)
+	h.addSupervisionTools(s, req)
 	h.addInfrastructureTools(s, req)
 
 	// Administrators can search too.
