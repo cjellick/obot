@@ -37,6 +37,46 @@ export const FONT_FAMILY_PRESETS: { label: string; value: string }[] = [
 	{ label: 'System Default', value: 'ui-sans-serif, system-ui, sans-serif' }
 ];
 
+export type ThemeColors = Omit<AppPreferences['theme'], 'fontFamily'>;
+
+/** Forest: warm neutral surfaces with a deep green accent. */
+const FOREST_THEME_COLORS: ThemeColors = {
+	backgroundColor: '#fbfaf6',
+	onBackgroundColor: '#1f2a24',
+	surface1Color: '#f3f1ea',
+	surface2Color: '#ebe8df',
+	surface3Color: '#d9d5c8',
+	secondaryColor: '#d3dbd5',
+	successColor: '#3f9d6a',
+	warningColor: '#d9a23a',
+	errorColor: '#d1495b',
+	primaryColor: '#2f7d5b',
+	onPrimaryColor: '#ffffff',
+	onSuccessColor: '#ffffff',
+	onWarningColor: '#ffffff',
+	onErrorColor: '#ffffff',
+	darkBackgroundColor: '#0f1512',
+	darkOnBackgroundColor: '#e6ece8',
+	darkSurface1Color: '#161e1a',
+	darkSurface2Color: '#1d2722',
+	darkSurface3Color: '#2a3630',
+	darkSecondaryColor: '#33413a',
+	darkSuccessColor: '#5cc08a',
+	darkWarningColor: '#e3b154',
+	darkErrorColor: '#e06c7a',
+	darkPrimaryColor: '#4fb286',
+	darkOnPrimaryColor: '#0f1512',
+	darkOnSuccessColor: '#0f1512',
+	darkOnWarningColor: '#0f1512',
+	darkOnErrorColor: '#0f1512'
+};
+
+/** Selectable color themes; `default` resolves to the built-in colors from `compileAppPreferences`. */
+export const COLOR_THEME_PRESETS: { id: string; label: string; colors?: ThemeColors }[] = [
+	{ id: 'default', label: 'Obot Default' },
+	{ id: 'forest', label: 'Forest', colors: FOREST_THEME_COLORS }
+];
+
 export function compileAppPreferences(preferences?: AppPreferences): AppPreferences {
 	return {
 		logos: {

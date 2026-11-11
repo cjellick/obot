@@ -19,8 +19,10 @@
 	import { AdminService, type AppPreferences } from '$lib/services';
 	import { darkMode, profile, responsive } from '$lib/stores';
 	import appPreferences, {
+		COLOR_THEME_PRESETS,
 		compileAppPreferences,
-		FONT_FAMILY_PRESETS
+		FONT_FAMILY_PRESETS,
+		type ThemeColors
 	} from '$lib/stores/appPreferences.svelte';
 	import { success } from '$lib/stores/success';
 	import { formatTimeAgo } from '$lib/time';
@@ -271,6 +273,34 @@
 			id === 'darkSurface2Color' ||
 			id === 'darkSurface3Color'
 		);
+	}
+
+	function colorThemePresetColors(id: string): ThemeColors {
+		const preset = COLOR_THEME_PRESETS.find((p) => p.id === id);
+		if (preset?.colors) return preset.colors;
+		const defaultColors = { ...compileAppPreferences().theme };
+		delete defaultColors.fontFamily;
+		return defaultColors;
+	}
+
+	let selectedColorThemeId = $derived(
+		COLOR_THEME_PRESETS.find((preset) => {
+			const colors = colorThemePresetColors(preset.id);
+			return (Object.keys(colors) as (keyof ThemeColors)[]).every(
+				(key) => form.theme[key] === colors[key]
+			);
+		})?.id ?? 'custom'
+	);
+
+	function applyColorThemePreset(id: string) {
+		const colors = colorThemePresetColors(id);
+		form = { ...form, theme: { ...form.theme, ...colors } };
+		customSurfaces = surfacesSnapshotFromTheme(form.theme);
+		selectedSurfaceMode = 'solid';
+		resetTintedControls();
+		// Presets may pick different accent/text colors per mode; keep them independent.
+		isPerThemeColorsEnabled = id !== 'default';
+		appPreferences.setThemeColors(form.theme);
 	}
 
 	async function handleSave() {
@@ -628,6 +658,22 @@
 </Layout>
 
 {#snippet themeConfiguration()}
+	<div class="flex items-center justify-between gap-2 px-4 py-2">
+		<p class="text-sm font-medium shrink-0">Color Theme</p>
+		<select
+			class="select select-sm max-w-46 min-w-0"
+			value={selectedColorThemeId}
+			onchange={(e) => applyColorThemePreset(e.currentTarget.value)}
+		>
+			{#each COLOR_THEME_PRESETS as preset (preset.id)}
+				<option value={preset.id}>{preset.label}</option>
+			{/each}
+			{#if selectedColorThemeId === 'custom'}
+				<option value="custom" disabled>Custom</option>
+			{/if}
+		</select>
+	</div>
+
 	<div class="flex flex-col gap-2 px-4 pt-2 pb-4">
 		<div class="flex items-center justify-between">
 			<p class="text-sm font-medium">Surfaces</p>
