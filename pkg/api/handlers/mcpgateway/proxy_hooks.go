@@ -577,17 +577,24 @@ func (h *hookProcessor) run(message mcp.Message, method, name, direction string,
 				hookErr error
 				tool    = target.Target
 			)
+			filterType := "webhook"
+			if target.Guardrail != nil {
+				filterType = "guardrail"
+			}
+			filterCtx, filterSpan := startFilterSpan(h.ctx, cmp.Or(target.Name, hook.Name, target.Target), filterType, direction, method)
 			if target.Guardrail != nil {
 				tool = guardrailHookTool
-				output, hookErr = h.guardrails.run(h.ctx, target, *hookResponse.Message, method, name, direction, requestParams)
+				output, hookErr = h.guardrails.run(filterCtx, target, *hookResponse.Message, method, name, direction, requestParams)
 			} else {
-				output, hookErr = h.runner.RunHook(h.ctx, h.servers, hookResponse, target.Target)
+				output, hookErr = h.runner.RunHook(filterCtx, h.servers, hookResponse, target.Target)
 			}
 			if hookErr != nil {
+				endFilterSpan(filterSpan, "", hookErr)
 				errs = append(errs, fmt.Errorf("failed to run hook %s: %w", cmp.Or(target.Name, target.Target), hookErr))
 				continue
 			}
 			if output == nil {
+				endFilterSpan(filterSpan, "skipped", nil)
 				continue
 			}
 			response := *output
@@ -607,6 +614,7 @@ func (h *hookProcessor) run(message mcp.Message, method, name, direction string,
 			} else if response.Mutated {
 				status = "mutated"
 			}
+			endFilterSpan(filterSpan, status, nil)
 			statuses = append(statuses, hookStatus{
 				typeName: direction, method: method, name: cmp.Or(target.Name, hook.Name), tool: tool, status: status, message: response.Reason,
 			})

@@ -38,6 +38,7 @@ import (
 	"github.com/obot-platform/obot/pkg/system"
 	"github.com/obot-platform/obot/pkg/tunnel"
 	"github.com/obot-platform/obot/pkg/version"
+	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/oauth2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -207,6 +208,7 @@ func NewHandler(ctx context.Context, mcpSessionManager *mcp.SessionManager, glob
 
 	composite, err := mmmcp.New(ctx, &mmmcpconfig.Config{}, mmmcp.Options{
 		Logger:                slog.Default(),
+		HTTPClient:            TracedHTTPClient(),
 		DSN:                   dsn,
 		ForwardClientInfo:     true,
 		OAuth:                 componentAuth,
@@ -259,7 +261,7 @@ func (h *Handler) Close() error {
 	return nil
 }
 
-func (h *Handler) Proxy(req api.Context) error {
+func (h *Handler) Proxy(req api.Context) (retErr error) {
 	if !req.UserIsAuthenticated() {
 		mcpAuthRequiredResponse(req, false).write(req.ResponseWriter, nil)
 
@@ -273,7 +275,34 @@ func (h *Handler) Proxy(req api.Context) error {
 		attribution.Strip(req.Request.Header)
 	}
 
-	serverConfig, err := h.ensureServerIsDeployed(req)
+	isCompositeRequest := strings.HasSuffix(req.URL.Path, "/mcp-connect-composite/"+req.PathValue("mcp_id"))
+
+	// The composite hop is traced by mmmcp, which receives the trace context in the request headers.
+	var op *mcpOperation
+	if !isCompositeRequest {
+		hop := mcpHopGateway
+		if internalComposite {
+			hop = mcpHopComponent
+		}
+		op, req.Request = startMCPOperation(req.Request, hop)
+		op.setUser(req.User)
+		req.ResponseWriter = op.observe(req.ResponseWriter)
+		defer func() {
+			finishObserved(req.ResponseWriter)
+			op.end(retErr)
+		}()
+	}
+
+	ensureCtx, ensureSpan := tracer().Start(req.Context(), "ensure MCP server")
+	ensureReq := req
+	ensureReq.Request = req.WithContext(ensureCtx)
+	serverConfig, err := h.ensureServerIsDeployed(ensureReq)
+	if err != nil {
+		ensureSpan.RecordError(err)
+		ensureSpan.SetStatus(codes.Error, err.Error())
+	}
+	ensureSpan.End()
+	op.setServer(req.PathValue("mcp_id"), serverConfig)
 	if err != nil {
 		if errors.Is(err, errMCPServerRequiresConfiguration) {
 			return nil
@@ -289,7 +318,6 @@ func (h *Handler) Proxy(req api.Context) error {
 		return err
 	}
 
-	isCompositeRequest := strings.HasSuffix(req.URL.Path, "/mcp-connect-composite/"+req.PathValue("mcp_id"))
 	if isCompositeRequest {
 		ownerMarkerPresent, ownerLocal := h.tunnelManager.ConsumeCompositeOwnerRequest(req.Request)
 		if ownerMarkerPresent && !ownerLocal {
@@ -467,8 +495,11 @@ func (h *Handler) Proxy(req api.Context) error {
 				return err
 			}
 
-			if resolvedCall != nil && audit != nil {
-				audit.entry.CallIdentifier = resolvedCall.name
+			if resolvedCall != nil {
+				op.setResolvedToolName(resolvedCall.name)
+				if audit != nil {
+					audit.entry.CallIdentifier = resolvedCall.name
+				}
 			}
 		}
 
@@ -497,6 +528,7 @@ func (h *Handler) Proxy(req api.Context) error {
 		audit.recordRequest()
 
 		if body, blocked, hookErr := hooks.blockedRequest(); blocked {
+			op.setBlocked()
 			audit.recordBlockedRequest(body, hookErr)
 			req.ResponseWriter.Header().Set("Content-Type", "application/json")
 			req.WriteHeader(http.StatusOK)
@@ -506,7 +538,7 @@ func (h *Handler) Proxy(req api.Context) error {
 		}
 
 		(&httputil.ReverseProxy{
-			Transport: client.Transport,
+			Transport: tracedTransport(client.Transport),
 			Rewrite: func(r *httputil.ProxyRequest) {
 				rewriteProxyRequest(r, u)
 				for name := range obotHeaders {
@@ -554,6 +586,7 @@ func (h *Handler) Proxy(req api.Context) error {
 	}
 
 	maps.Copy(req.Request.Header, attribution.Configured(nil, serverConfig.PassthroughHeaderNames, serverConfig.PassthroughHeaderValues))
+	injectTraceContext(req.Request)
 
 	cfg, err := compositeConfig(req, serverConfig)
 	if err != nil {
