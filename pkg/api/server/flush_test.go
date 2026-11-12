@@ -159,3 +159,28 @@ func TestTracedFlushPreservesErrorAndTelemetry(t *testing.T) {
 		}
 	}
 }
+
+func TestTracedNamesSpanWhenHandlerAborts(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp-connect/{mcp_id}", func(http.ResponseWriter, *http.Request) {
+		// ReverseProxy aborts this way when the client closes a streamed response.
+		panic(http.ErrAbortHandler)
+	})
+
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() {
+		traced(mux).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/mcp-connect/server", nil))
+	})
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.Equal(t, "/mcp-connect/{mcp_id}", spans[0].Name)
+}

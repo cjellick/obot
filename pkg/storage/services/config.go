@@ -16,6 +16,9 @@ type Config struct {
 	StorageListenPort int    `usage:"Port to storage backend will listen on (default: random port)"`
 	StorageToken      string `usage:"Token for storage access, will be generated if not passed"`
 	DSN               string `usage:"Database dsn in driver://connection_string format" default:"sqlite://file:obot.db?_journal=WAL&cache=shared&_busy_timeout=30000"`
+	// TraceStorageRequests records a span for each storage API request. They are
+	// numerous, so they are off by default.
+	TraceStorageRequests bool `usage:"Record OpenTelemetry spans for storage API requests"`
 }
 
 type Services struct {

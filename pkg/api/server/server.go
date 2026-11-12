@@ -32,6 +32,7 @@ import (
 	"github.com/obot-platform/obot/pkg/scim"
 	"github.com/obot-platform/obot/pkg/storage"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/trace"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -191,6 +192,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func traced(h http.Handler) http.Handler {
 	handler := otelhttp.NewHandler(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// OTel names the span from the route pattern after the handler returns. A
+			// handler that panics, as ReverseProxy does with http.ErrAbortHandler when a
+			// client closes a stream early, skips that, so name it here as well.
+			defer func() {
+				if r.Pattern != "" {
+					trace.SpanFromContext(r.Context()).SetName(r.Pattern)
+				}
+			}()
 			// OTel's httpsnoop wrapper exposes the original writer through Unwrap.
 			original := w.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
 			h.ServeHTTP(&tracingResponseWriter{ResponseWriter: w, original: original}, r)

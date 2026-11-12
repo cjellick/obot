@@ -501,6 +501,8 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		StorageListenPort: config.StorageListenPort,
 		StorageToken:      config.StorageToken,
 		DSN:               config.DSN,
+
+		TraceStorageRequests: config.TraceStorageRequests,
 	})
 	if err != nil {
 		slog.Error("Failed to connect to database", "dsn", sanitizedDSN, "error", err)
