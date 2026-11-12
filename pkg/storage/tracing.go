@@ -8,10 +8,16 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-// newStorageTransport instruments requests to the storage API. The requests
-// always record HTTP client metrics. They record spans only when traceRequests
-// is set: one request to Obot can make dozens of storage requests, which bury
-// the rest of its trace.
+// WrapTransport returns a function that instruments a client's requests to the
+// storage API. The requests always record HTTP client metrics. They record spans
+// only when traceRequests is set: one request to Obot can make dozens of storage
+// requests, which bury the rest of its trace.
+func WrapTransport(traceRequests bool) func(http.RoundTripper) http.RoundTripper {
+	return func(base http.RoundTripper) http.RoundTripper {
+		return newStorageTransport(base, traceRequests)
+	}
+}
+
 func newStorageTransport(base http.RoundTripper, traceRequests bool) http.RoundTripper {
 	opts := []otelhttp.Option{
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {

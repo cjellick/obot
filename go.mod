@@ -5,6 +5,8 @@ go 1.27.4
 replace (
 	// TODO: drop once the mmmcp tracing change is released.
 	github.com/obot-platform/mmmcp => ../mmmcp
+	// TODO: drop once the nah WrapTransport option is released.
+	github.com/obot-platform/nah => ../nah
 	github.com/obot-platform/obot/apiclient => ./apiclient
 	github.com/obot-platform/obot/logger => ./logger
 )

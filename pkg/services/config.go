@@ -558,6 +558,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	}
 	r, err := nah.NewRouter("obot-controller", &nah.Options{
 		RESTConfig:     restConfig,
+		WrapTransport:  storage.WrapTransport(config.TraceStorageRequests),
 		Scheme:         scheme.Scheme,
 		ElectionConfig: electionConfig,
 		HealthzPort:    -1,
@@ -569,6 +570,7 @@ func New(ctx context.Context, config Config) (*Services, error) {
 	// process-local state, so every replica must run them.
 	everyReplicaRouter, err := nah.NewRouter("obot-every-replica", &nah.Options{
 		RESTConfig:     restConfig,
+		WrapTransport:  storage.WrapTransport(config.TraceStorageRequests),
 		Scheme:         scheme.Scheme,
 		Namespace:      system.DefaultNamespace,
 		ElectionConfig: nil,
