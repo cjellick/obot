@@ -1,0 +1,71 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  batch: {}
+  # Langfuse only: drop spans for the Obot web UI's own API calls.
+  filter/obot_ui:
+    error_mode: ignore
+    traces:
+      span:
+        - 'IsMatch(name, "^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) /")'
+  # Langfuse only: Claude Code reports token usage under its own attribute
+  # names; copy them to the GenAI convention names that Langfuse reads.
+  transform/claude_usage:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["gen_ai.usage.input_tokens"], attributes["input_tokens"]) where name == "claude_code.llm_request" and attributes["input_tokens"] != nil
+          - set(attributes["gen_ai.usage.output_tokens"], attributes["output_tokens"]) where name == "claude_code.llm_request" and attributes["output_tokens"] != nil
+          - set(attributes["gen_ai.usage.cache_read_input_tokens"], attributes["cache_read_tokens"]) where name == "claude_code.llm_request" and attributes["cache_read_tokens"] != nil
+          - set(attributes["gen_ai.usage.cache_creation_input_tokens"], attributes["cache_creation_tokens"]) where name == "claude_code.llm_request" and attributes["cache_creation_tokens"] != nil
+  # Langfuse only: map Claude Code's content attributes to the ones Langfuse
+  # shows as an observation's input and output.
+  transform/langfuse_io:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - set(attributes["langfuse.observation.input"], attributes["user_prompt"]) where name == "claude_code.interaction" and attributes["user_prompt"] != nil
+          - set(attributes["langfuse.observation.input"], attributes["new_context"]) where name == "claude_code.llm_request" and attributes["new_context"] != nil
+          - set(attributes["langfuse.observation.output"], attributes["response.model_output"]) where name == "claude_code.llm_request" and attributes["response.model_output"] != nil
+          - set(attributes["langfuse.observation.input"], attributes["tool_input"]) where name == "claude_code.tool" and attributes["tool_input"] != nil
+      - context: spanevent
+        statements:
+          - set(span.attributes["langfuse.observation.output"], attributes["output"]) where name == "tool.output" and attributes["output"] != nil
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  otlp/aspire:
+    endpoint: aspire:18889
+    tls:
+      insecure: true
+  otlphttp/langfuse:
+    endpoint: http://langfuse-web:3000/api/public/otel
+    headers:
+      Authorization: "Basic cGstbGYtb2JvdC1sb2NhbDpzay1sZi1vYm90LWxvY2Fs"
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, otlp/aspire]
+    traces/langfuse:
+      receivers: [otlp]
+      processors: [filter/obot_ui, transform/claude_usage, transform/langfuse_io, batch]
+      exporters: [otlphttp/langfuse]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/aspire]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/aspire]
