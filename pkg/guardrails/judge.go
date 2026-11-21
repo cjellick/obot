@@ -81,7 +81,20 @@ func (h *Judge) evaluateMessage(ctx context.Context, policy types.MessagePolicyM
 func (h *Judge) resolveModelByAlias(ctx context.Context, aliasType types.DefaultModelAliasType) (string, error) {
 	slog.Debug("Resolving model alias", "aliasType", aliasType)
 
-	m, err := alias.GetFromScope(ctx, h.client, "Model", system.DefaultNamespace, string(aliasType))
+	target, err := ResolveDefaultModel(ctx, h.client, aliasType)
+	if err != nil {
+		return "", err
+	}
+	if h.llmGateway == nil {
+		return "", fmt.Errorf("the LLM gateway is not available")
+	}
+	return target, nil
+}
+
+// ResolveDefaultModel returns the LLM gateway target model a default model alias points to,
+// for server code that calls a model on Obot's own behalf.
+func ResolveDefaultModel(ctx context.Context, client kclient.Client, aliasType types.DefaultModelAliasType) (string, error) {
+	m, err := alias.GetFromScope(ctx, client, "Model", system.DefaultNamespace, string(aliasType))
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve %s alias: %w", aliasType, err)
 	}
@@ -93,7 +106,7 @@ func (h *Judge) resolveModelByAlias(ctx context.Context, aliasType types.Default
 			return "", fmt.Errorf("default model alias %q is not configured", aliasType)
 		}
 		var mdl v1.Model
-		if err := alias.Get(ctx, h.client, &mdl, system.DefaultNamespace, resolved.Spec.Manifest.Model); err != nil {
+		if err := alias.Get(ctx, client, &mdl, system.DefaultNamespace, resolved.Spec.Manifest.Model); err != nil {
 			return "", fmt.Errorf("failed to get model from alias: %w", err)
 		}
 		model = &mdl
@@ -109,9 +122,6 @@ func (h *Judge) resolveModelByAlias(ctx context.Context, aliasType types.Default
 
 	if model.Spec.Manifest.ModelProvider != system.LLMGatewayModelProvider {
 		return "", fmt.Errorf("default model alias %q points to model %q, which the LLM gateway doesn't serve", aliasType, model.Name)
-	}
-	if h.llmGateway == nil {
-		return "", fmt.Errorf("the LLM gateway is not available")
 	}
 	return model.Spec.Manifest.TargetModel, nil
 }

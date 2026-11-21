@@ -205,6 +205,10 @@ func (db *DB) AutoMigrate() (err error) {
 		types.SCIMGroupSubjectCleanup{},
 		types.SCIMReferenceWrite{},
 		types.SCIMRequestFailure{},
+		types.Risk{},
+		types.RiskDecision{},
+		types.RiskSource{},
+		types.RiskCollectionRun{},
 	); err != nil {
 		return fmt.Errorf("failed to auto migrate gateway types: %w", err)
 	}

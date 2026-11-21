@@ -56,6 +56,7 @@ import (
 	"github.com/obot-platform/obot/pkg/otel"
 	"github.com/obot-platform/obot/pkg/producttelemetry"
 	"github.com/obot-platform/obot/pkg/proxy"
+	"github.com/obot-platform/obot/pkg/riskregister/collect"
 	"github.com/obot-platform/obot/pkg/scim"
 	scimsetup "github.com/obot-platform/obot/pkg/scim/setup"
 	"github.com/obot-platform/obot/pkg/serviceaccounts"
@@ -134,6 +135,7 @@ type Config struct {
 	HideK8sDetails              bool   `usage:"Hide Kubernetes configuration details such as the Server Scheduling page from the UI" default:"false"`
 	EgressAuditLogRetentionDays int    `usage:"Days to retain egress audit logs (0 disables cleanup)." default:"90"`
 	LLMAuditLogRetentionDays    int    `usage:"Number of days to retain LLM audit logs (0 to disable cleanup)." default:"90"`
+	RiskRegisterIntervalHours   int    `usage:"Hours between automatic AI risk register collections (0 to collect only when an administrator starts a run)." default:"0"`
 	DisableLLMAuditLog          bool   `usage:"Disable LLM gateway audit logging" default:"false"`
 	DisableMCPAuditLog          bool   `usage:"Disable MCP audit logging (MCP gateway traffic and local-agent tool calls reported by managed devices)" default:"false"`
 	LLMGatewayDataDir           string `usage:"Directory for LLM gateway model pricing and capability files (default: $XDG_DATA_HOME/obot/llm-gateway)" name:"llm-gateway-data-dir" env:"OBOT_SERVER_LLM_GATEWAY_DATA_DIR"`
@@ -202,7 +204,12 @@ type Services struct {
 	// BifrostEngine is the embedded LLM gateway.
 	BifrostEngine *llmengine.Engine
 	// GuardrailEngine checks LLM gateway traffic and MCP tool calls.
-	GuardrailEngine             *guardrails.Engine
+	GuardrailEngine *guardrails.Engine
+	// RiskRegister collects from the risk register's sources and keeps the register current.
+	RiskRegister *collect.Runner
+	// RiskRegisterInterval is how often the register collects on its own. Zero means only
+	// when someone starts a run.
+	RiskRegisterInterval        time.Duration
 	AuthEnabled                 bool
 	DefaultMCPCatalogPath       string
 	DefaultSystemMCPCatalogPath string
@@ -1240,6 +1247,15 @@ func New(ctx context.Context, config Config) (*Services, error) {
 		LocalAuthProvider:            localAuthProvider,
 		BifrostEngine:                bifrostEngine,
 		GuardrailEngine:              guardrailEngine,
+		RiskRegister: collect.NewRunner(gatewayClient, storageClient, bifrostEngine, collect.Options{
+			ServerURL:            config.Hostname,
+			NetworkPolicyEnabled: mcpNetworkPolicyEnabled,
+			DefaultDenyAllEgress: config.MCPDefaultDenyAllEgress,
+			MCPRetentionDays:     config.MCPAuditLogRetentionDays,
+			LLMRetentionDays:     config.LLMAuditLogRetentionDays,
+			GitMaxRepoSizeMB:     config.GitMaxRepoSizeMB,
+		}),
+		RiskRegisterInterval: time.Duration(config.RiskRegisterIntervalHours) * time.Hour,
 
 		DefaultMCPCatalogPath:          config.DefaultMCPCatalogPath,
 		GitMaxRepoSizeMB:               config.GitMaxRepoSizeMB,

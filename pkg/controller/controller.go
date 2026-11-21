@@ -264,6 +264,10 @@ func (c *Controller) PostStart(ctx context.Context, client kclient.Client) {
 	go c.retriggerCatalogEntries(ctx, client)
 
 	go c.runServiceAccountKeyRotation(ctx)
+
+	if c.services.RiskRegisterInterval > 0 {
+		go c.runRiskRegisterCollection(ctx)
+	}
 }
 
 // retriggerCatalogEntries touches all MCPServerCatalogEntries to trigger their handlers,

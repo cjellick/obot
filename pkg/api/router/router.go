@@ -557,6 +557,17 @@ func NewRouter(ctx context.Context, services *services.Services) (*Router, error
 	mux.HandleFunc("DELETE /api/llm-gateway/guardrails/{guardrail_id}", guardrailsHandler.DeleteGuardrail)
 	mux.HandleFunc("POST /api/llm-gateway/guardrails/{guardrail_id}/test", guardrailsHandler.TestGuardrail)
 
+	// AI risk register
+	riskRegisterHandler := handlers.NewRiskRegisterHandler(services.RiskRegister)
+	mux.HandleFunc("GET /api/risk-register/risks", riskRegisterHandler.ListRisks)
+	mux.HandleFunc("GET /api/risk-register/risks/{risk_id}", riskRegisterHandler.GetRisk)
+	mux.HandleFunc("POST /api/risk-register/risks/{risk_id}/decisions", riskRegisterHandler.Decide)
+	mux.HandleFunc("GET /api/risk-register/sources", riskRegisterHandler.ListSources)
+	mux.HandleFunc("PUT /api/risk-register/sources/{kind}", riskRegisterHandler.UpdateSource)
+	mux.HandleFunc("GET /api/risk-register/runs", riskRegisterHandler.ListRuns)
+	mux.HandleFunc("POST /api/risk-register/runs", riskRegisterHandler.StartRun)
+	mux.HandleFunc("GET /api/risk-register/profile", riskRegisterHandler.GetProfile)
+
 	// Model providers
 	mux.HandleFunc("GET /api/model-providers", modelProviders.List)
 	mux.HandleFunc("GET /api/registry-settings", registrySettings.Get)

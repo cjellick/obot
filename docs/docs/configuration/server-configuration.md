@@ -45,6 +45,7 @@ The Obot server is configured via environment variables. The following configura
 | `OBOT_SERVER_MCPAUDIT_LOG_PERSIST_INTERVAL_SECONDS` | The interval in seconds at which buffered MCP audit logs are flushed to the database. | `5` |
 | `OBOT_SERVER_MCPAUDIT_LOGS_PERSIST_BATCH_SIZE` | The number of MCP audit log entries written to the database in a single batch. | `1000` |
 | `OBOT_SERVER_LLMAUDIT_LOG_RETENTION_DAYS` | The number of days to retain LLM audit logs before they are automatically deleted. Set to `0` to disable automatic cleanup. | `90` |
+| `OBOT_SERVER_RISK_REGISTER_INTERVAL_HOURS` | The number of hours between automatic AI risk register collections. Set to `0` to collect only when an administrator starts a run. The risk register is a prototype and has no page in the UI yet. | `0` |
 | `OBOT_SERVER_MODEL_PROXY_URL` | MCP Tester model proxy service base URL, used for generation only when the LLM gateway has no providers configured. An explicitly empty string disables generation. Custom URLs must use HTTPS; HTTP is allowed only with `OBOT_DEV_MODE=true`. | `https://model-service.obot.ai` |
 | `OBOT_SERVER_DISABLE_LLMAUDIT_LOG` | Disables collection and persistence of new LLM gateway audit logs. Existing logs remain available. | `false` |
 | `OBOT_SERVER_DISABLE_MCPAUDIT_LOG` | Disables collection and persistence of new MCP audit logs, including MCP gateway traffic and tool calls reported by local agents on managed devices. Device submissions are still accepted, then discarded. Existing logs remain available. | `false` |
